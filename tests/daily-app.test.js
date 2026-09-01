@@ -115,6 +115,10 @@ function testDailyFailureFlow() {
   assert.strictEqual(app.daily.result.outcome, 'failed');
   assert.strictEqual(app.daily.result.reason, 'unfilled-cells');
   assert.strictEqual(app.daily.result.remainingCells, 4);
+  assert.strictEqual(app.currentEffectId(), 'none');
+  assert.strictEqual(app.daily.clearAnimation, null,
+    'daily boards share the no-effect snapshot semantics');
+  assert.strictEqual(app.buildModel().board.clearAnimation, null);
   assert.strictEqual(app.daily.levelIndex, 0);
   assert.deepStrictEqual(app.daily.levelResults, []);
   assert.strictEqual(app.daily.elapsedBeforeLevel, 0);

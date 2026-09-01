@@ -1205,6 +1205,12 @@ class CanvasRenderer {
   }
 
   drawEffectFallbackPreview(rect, effect) {
+    const effectId = effect && effect.id !== undefined ? String(effect.id) : '';
+    const effectType = effect && typeof effect.type === 'string' ? effect.type : '';
+    if (effectId === 'none' || effectType === 'none') {
+      this.drawNoneEffectFallbackPreview(rect);
+      return;
+    }
     const ctx = this.ctx;
     const skin = this.skinService.current();
     const palette = (skin && skin.palette && skin.palette.length)
@@ -1238,6 +1244,46 @@ class CanvasRenderer {
       ctx.globalAlpha = fragment.a;
       ctx.fillStyle = palette[(index + 1) % palette.length] || '#ffffff';
       ctx.fillRect(fragment.x, fragment.y, square * (1 - index * 0.18), square * (1 - index * 0.18));
+    });
+    ctx.restore();
+  }
+
+  drawNoneEffectFallbackPreview(rect) {
+    const ctx = this.ctx;
+    const skin = this.skinService.current();
+    const palette = (skin && skin.palette && skin.palette.length)
+      ? skin.palette
+      : ['#ffca28', '#26c6da', '#ff7043', '#29b6f6'];
+    const span = Math.min(rect.w, rect.h);
+    const size = Math.max(10, span * 0.26);
+    const radius = Math.max(3, size * 0.22);
+    const centerX = rect.x + rect.w / 2;
+    const centerY = rect.y + rect.h / 2;
+    const tiles = [
+      { dx: -0.38, dy: -0.16 },
+      { dx: 0, dy: -0.30 },
+      { dx: 0.38, dy: -0.12 },
+      { dx: -0.20, dy: 0.28 },
+      { dx: 0.22, dy: 0.30 }
+    ];
+
+    ctx.save();
+    tiles.forEach((tile, index) => {
+      const x = centerX + tile.dx * span - size / 2;
+      const y = centerY + tile.dy * span - size / 2;
+      ctx.globalAlpha = 0.94;
+      ctx.fillStyle = palette[index % palette.length] || '#ffffff';
+      this.roundedRect(x, y, size, size, radius);
+      ctx.fill();
+
+      // A quiet inset highlight keeps the fallback legible without implying
+      // movement, particles, fading, or any other clear animation.
+      const inset = size * 0.16;
+      ctx.globalAlpha = 0.16;
+      ctx.fillStyle = '#ffffff';
+      this.roundedRect(x + inset, y + inset, size - inset * 2, size - inset * 2,
+        Math.max(2, radius * 0.62));
+      ctx.fill();
     });
     ctx.restore();
   }

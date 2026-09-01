@@ -167,6 +167,8 @@ function run() {
   assert.strictEqual(app.pointer, null, 'wrong tap must not create active board pointer');
 
   // 5. Correct full sequence: 0 -> A(21) -> release -> B(2) -> 24
+  assert.strictEqual(app.setClearEffect('fade'), true,
+    'portal paths use the same selected effect as ordinary boards');
   app.onPointerStart(cellPoint(0, 4));
   [1, 6, 5, 10, 11, 16, 15, 20, 21].forEach(c => app.onPointerMove(cellPoint(c, 4)));
   assert.strictEqual(app.runner.portalPhase, 'PORTAL_LOCKED');
@@ -250,6 +252,7 @@ function run() {
   // A valid but short portal route can finish the only line while leaving
   // cells empty. It must use the shared failure modal, keep ordinary progress
   // untouched, and label the back action as a return to the home scene.
+  assert.strictEqual(app.setClearEffect('none'), true);
   app.performAction('home:portalTrial');
   app.tick(Date.now() + 1000);
   const failureLayout = app.renderer.boardLayout;
@@ -268,6 +271,9 @@ function run() {
   assert.strictEqual(app.runner.outcome, GameRunner.OUTCOME.FAILED);
   assert.strictEqual(app.result.remainingCells, 8);
   assert.strictEqual(app.scene, 'result');
+  assert.strictEqual(app.clearAnimation, null,
+    'no effect skips a portal clear snapshot without changing failure settlement');
+  assert.strictEqual(app.buildModel().board.clearAnimation, null);
   assert.strictEqual(app.progress.completedCount(), completedBeforeFailure);
   app.tick(app.resultVisibleAt + 180);
   assert.deepStrictEqual(app.renderer.hits.map(hit => hit.id), ['result:levels', 'failure:retry']);

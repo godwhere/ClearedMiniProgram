@@ -96,6 +96,15 @@ const DEFAULT_FADE_EFFECT = {
   }
 };
 
+const DEFAULT_NONE_EFFECT = {
+  id: 'none',
+  name: '无特效',
+  type: 'none',
+  preview: 'assets/effects/none/preview.png',
+  durationMs: 0,
+  params: {}
+};
+
 function plainObject(value) {
   try {
     if (!value || Object.prototype.toString.call(value) !== '[object Object]') return false;
@@ -125,20 +134,29 @@ function fallbackClearEffects(progress) {
     const saved = progress && typeof progress.getSetting === 'function'
       ? progress.getSetting('clearEffectId', 'fade')
       : 'fade';
-    if (saved === 'fade') currentId = 'fade';
+    if (saved === 'none' || saved === 'fade') currentId = saved;
   } catch (error) {
     currentId = 'fade';
   }
-  const manifest = () => cloneData(DEFAULT_FADE_EFFECT);
+  const manifests = {
+    none: DEFAULT_NONE_EFFECT,
+    fade: DEFAULT_FADE_EFFECT
+  };
+  const manifest = id => cloneData(manifests[id] || DEFAULT_FADE_EFFECT);
   return {
-    current: manifest,
-    get(id) { return id === 'fade' ? manifest() : null; },
-    list() { return [{ id: 'fade', name: '逐渐消失', type: 'fade', preview: DEFAULT_FADE_EFFECT.preview }]; },
-    resolve() { return manifest(); },
+    current() { return manifest(currentId); },
+    get(id) { return manifests[id] ? manifest(id) : null; },
+    list() {
+      return ['none', 'fade'].map(id => {
+        const effect = manifests[id];
+        return { id: effect.id, name: effect.name, type: effect.type, preview: effect.preview };
+      });
+    },
+    resolve(id) { return manifest(manifests[id] ? id : 'fade'); },
     currentIdValue() { return currentId; },
     select(id) {
-      if (id !== 'fade') return false;
-      currentId = 'fade';
+      if (!manifests[id]) return false;
+      currentId = id;
       if (progress && typeof progress.setSetting === 'function') progress.setSetting('clearEffectId', currentId);
       return true;
     }
@@ -808,7 +826,7 @@ class ClearedApp {
     if ((this.scene === 'play' || this.scene === 'result' || dailyScene) &&
         timestamp < enteredAt + skin.animation.boardEnterMs + 140) return true;
     const clearAnimation = dailyScene ? this.daily.clearAnimation : this.clearAnimation;
-    if (clearAnimation) {
+    if (clearAnimation && clearAnimation.type !== 'none') {
       // A started animation is immutable. Resolve its duration from the
       // snapshot first so changing the selected effect mid-flight cannot
       // shorten or extend the animation already on screen.
@@ -1254,7 +1272,13 @@ class ClearedApp {
     this.hintUntil = 0;
     const skin = this.skins.current();
     const effect = this.resolveClearEffect(this.currentEffectId());
-    const animation = {
+    const effectType = effect.type === 'none' ? 'none' : 'fade';
+    const effectDurationMs = effectType === 'none'
+      ? 0
+      : this.effectDuration(effect, skin && skin.animation && skin.animation.pathClearMs);
+    // "none" means there is no transient visual state to snapshot or tick.
+    // Every other (including unknown) type keeps the safe fade fallback.
+    const animation = effectType === 'none' ? null : {
       lineIndex,
       // Snapshot the path and effect data at the completion boundary. This
       // prevents a later undo/new selection or effect change from mutating an
@@ -1265,8 +1289,8 @@ class ClearedApp {
         : null,
       startedAt: now,
       effectId: effect.id || 'fade',
-      type: effect.type || 'fade',
-      durationMs: this.effectDuration(effect, skin && skin.animation && skin.animation.pathClearMs),
+      type: effectType,
+      durationMs: effectDurationMs,
       params: cloneData(effect.params || {})
     };
     if (this.scene === 'daily') this.daily.clearAnimation = animation;
@@ -1282,7 +1306,7 @@ class ClearedApp {
         elapsedMs: runnerState.elapsedMs
       };
       const resultDelayMs = Number(skin && skin.animation && skin.animation.resultDelayMs) || 0;
-      const visibleAt = now + Math.max(animation.durationMs, resultDelayMs);
+      const visibleAt = now + Math.max(effectDurationMs, resultDelayMs);
       this.audio.playSfx('error');
       this.platform.triggerHaptic('medium');
       this.pointer = null;

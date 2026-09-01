@@ -160,7 +160,7 @@ class BoardRenderer {
   }
 
   drawClearAnimation(animation, palette, now, gap, layout, portalCells) {
-    if (!animation || !layout) return;
+    if (!animation || !layout || animation.type === 'none') return;
     const skin = this.getSkin();
     let effect = null;
     let effectType = typeof animation.type === 'string' ? animation.type : null;
@@ -187,6 +187,7 @@ class BoardRenderer {
       }
       if (!params && effect.params && typeof effect.params === 'object') params = effect.params;
     }
+    if (effectType === 'none') return;
     const rawDuration = Number(animation.durationMs);
     const legacyDuration = Number(skin.animation && skin.animation.pathClearMs);
     const duration = Number.isFinite(rawDuration) && rawDuration > 0

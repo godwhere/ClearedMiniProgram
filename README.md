@@ -15,7 +15,7 @@
 - 原版配色与 Logo；
 - 可插拔皮肤服务与无广告默认实现。
 - 主题入口、2×3 分页主题画廊，以及宝石、动物、水果、甜点、太空、海洋、春天、节日限定、音乐、交通工具十个非经典主题素材。
-- 回廊与消除特效选择场景（首个“逐渐消失”特效）；运行时已将首页原主题按钮替换为回廊入口。
+- 回廊与消除特效选择场景，内置“无特效”和“逐渐消失”两种选择；运行时已将首页原主题按钮替换为回廊入口。
 - “高难关卡”入口与“每日挑战”：每日 2 关（3×3 入门、8×10 极难镂空），正式模式每日默认 3 次进入；开发入口可无限次调试。
 
 主题（内部仍称 skin）的画廊、分页、资源协议与代码边界记录在
@@ -23,7 +23,7 @@
 主题卡片预览直接使用各主题前四个 tile 按 2×2 排列，不依赖独立预览图。
 节日限定当前先作为可选视觉主题接入，按日期自动上架/下架的运营规则后续另行实现。
 
-回廊功能入口、消除特效选择页、首个“逐渐消失”特效以及首页主题入口迁移契约，记录在
+回廊功能入口、消除特效选择页、“无特效”/“逐渐消失”特效以及首页主题入口迁移契约，记录在
 [`docs/corridor-and-clear-effects.md`](docs/corridor-and-clear-effects.md)。第一版场景、特效和首页回廊入口已接入，旧主题 action 仍兼容保留。
 
 传送门玩法的入口段锁定、松手后从配对出口继续、错误选择回滚、试玩关卡、分段解答格式和
@@ -56,10 +56,10 @@
 都被合法路径覆盖时过关。拖回本次路径中的旧格可以回退。
 
 如果所有同色端点都已连接，但仍有可走格未被路径覆盖，本关进入失败终局。最后一条路径
-先完成消除动画，随后显示剩余空格数量；玩家可以返回选关或重新开始当前关。失败不会记录
+先完成当前清除表现（“无特效”为立即移除），随后显示剩余空格数量；玩家可以返回选关或重新开始当前关。失败不会记录
 通关、最佳时间或广告结算。每日挑战的“重试本关”不会额外消耗进入次数。
 
-拖动连线时，当前路径格会使用对应线路颜色并轻微放大；松手后按原版规则淡出。
+拖动连线时，当前路径格会使用对应线路颜色并轻微放大；松手后按回廊中选择的消除特效立即移除或淡出。
 
 关卡按 Training → 5×5 → 6×6 → 7×7 → 8×8 → 8×10 的顺序解锁。已完成关卡
 始终可以重玩；未解锁关卡显示锁图标且不响应点击。
@@ -83,7 +83,7 @@ src/gameplay/board-input-controller.js 棋盘 pointer 生命周期与逐格采�
 src/platform/wechat.js          Canvas、触摸、生命周期、存储和广告 API
 src/ui/canvas-renderer.js       单 Canvas 场景渲染门面
 src/ui/board/interaction-map.js 命中区域与棋盘定位
-src/ui/board/board-renderer.js  普通/每日共用的纯 ViewModel 棋盘绘制
+src/ui/board/board-renderer.js  普通/每日共用的纯 ViewModel 棋盘与消除特效绘制
 src/ui/board/portal-overlay.js  Portal 图标、状态光圈与资源回退
 src/services/progress-store.js  版本化本地存档
 src/services/progression-service.js 顺序解锁策略
@@ -109,6 +109,7 @@ src/skins/festival.js           节日限定主题 manifest（10 个节庆精灵
 src/skins/music.js              音乐主题 manifest（10 个音乐精灵）
 src/skins/vehicles.js           交通工具主题 manifest（10 个交通工具精灵）
 src/effects/index.js            内置消除特效注册入口
+src/effects/none.js             “无特效”manifest（不创建清除动画快照）
 src/effects/fade.js             “逐渐消失”特效 manifest
 src/mechanics/portal.js         传送门玩法拓展定义、试玩集与解答依赖
 src/config/ads.js               广告位与展示频率配置
@@ -127,6 +128,7 @@ assets/skins/spring/             春天主题精灵图（主题页取前四个�
 assets/skins/festival/           节日限定主题精灵图（主题页取前四个元素 2×2 展示）
 assets/skins/music/              音乐主题精灵图（主题页取前四个元素 2×2 展示）
 assets/skins/vehicles/           交通工具主题精灵图（主题页取前四个元素 2×2 展示）
+assets/effects/none/             “无特效”选择页预览图
 assets/effects/fade/             “逐渐消失”特效选择页预览图
 tests/clear-effect-service.test.js、tests/clear-effect-system.test.js 特效服务与场景测试
 ```
@@ -143,7 +145,7 @@ node tests/run.js
 ```
 
 测试覆盖路径连接、回退、阻挡、跨行边界、重画、撤销、122 关数据完整性、进度存储、
-主题清单/分页/素材回退、回廊与消除特效清单/分页/存档/淡出回退、每日两关/次数/镂空规则、
+主题清单/分页/素材回退、回廊与消除特效清单/分页/存档/无特效与淡出回退、每日两关/次数/镂空规则、
 未填满棋盘的失败终局与重试、Canvas 渲染和完整小游戏启动/触控烟雾流程。122 关官方
 解答还会实际驱动规则机，确保全部保持胜利结果。
 

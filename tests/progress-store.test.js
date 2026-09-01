@@ -14,7 +14,7 @@ function run() {
   const platform = new MemoryPlatform();
   const store = new ProgressStore(platform);
   assert.strictEqual(store.state.schemaVersion, 2);
-  assert.strictEqual(store.state.settings.clearEffectId, 'fade');
+  assert.strictEqual(store.state.settings.clearEffectId, 'none');
   const first = store.recordCompletion(1, 2, 8000);
   assert.strictEqual(first.firstClear, true);
   assert.strictEqual(first.newBest, true);
@@ -35,7 +35,7 @@ function run() {
   assert.strictEqual(reloaded.isCompleted(1, 2), true);
   assert.strictEqual(reloaded.bestTime(1, 2), 6000);
   assert.strictEqual(reloaded.getSetting('skinId'), 'classic');
-  assert.strictEqual(reloaded.getSetting('clearEffectId'), 'fade');
+  assert.strictEqual(reloaded.getSetting('clearEffectId'), 'none');
 
   // Existing v2 saves may predate the effect setting. Normalization adds only
   // the new default and leaves the other settings/progress fields intact.
@@ -71,6 +71,17 @@ function run() {
   assert.deepStrictEqual(migrated.state.lastPlayed, { setIndex: 0, levelIndex: 1 });
   assert.strictEqual(migrated.getSetting('clearEffectId'), 'fade');
 
+  const explicitSelectionPlatform = new MemoryPlatform();
+  explicitSelectionPlatform.storage[ProgressStore.STORAGE_KEY] = {
+    schemaVersion: 2,
+    completed: {},
+    bestMs: {},
+    settings: { skinId: 'classic', clearEffectId: 'none', soundEnabled: true },
+    stats: { totalClears: 0 }
+  };
+  assert.strictEqual(new ProgressStore(explicitSelectionPlatform).getSetting('clearEffectId'), 'none',
+    'an existing explicit no-effect selection is preserved');
+
   const corruptPlatform = new MemoryPlatform();
   corruptPlatform.storage[ProgressStore.STORAGE_KEY] = {
     completed: 'broken',
@@ -82,6 +93,8 @@ function run() {
   const recovered = new ProgressStore(corruptPlatform);
   assert.strictEqual(recovered.completedCount(), 0);
   assert.strictEqual(recovered.getSetting('skinId'), 'classic');
+  assert.strictEqual(recovered.getSetting('clearEffectId'), 'fade',
+    'an existing corrupt settings record keeps the compatibility fallback');
   assert.strictEqual(recovered.state.lastPlayed, null);
 }
 

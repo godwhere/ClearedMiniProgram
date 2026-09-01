@@ -1,9 +1,12 @@
 # 回廊与消除特效系统设计与实现边界
 
 > 设计记录：2026-08-31  
+> 最近更新：2026-09-01（适配 `BoardRenderer` 架构并新增 `none`）
+>
 > 需求状态：已确认（按分阶段契约实施）  
-> 实现状态：第一版已接入（回廊/特效场景、`fade` 服务、预览素材和测试）；运行时已启用首页回廊入口，真机视觉验收待完成  
-> 运行时：微信小游戏单 Canvas 链路 `game.js → src/bootstrap.js → src/app.js → src/ui/canvas-renderer.js`
+> 实现状态：回廊/特效场景已接入，内置 `none` 与 `fade` 两种选择、独立预览素材和回归测试；真机视觉验收待完成
+>
+> 运行时：微信小游戏单 Canvas 链路 `game.js → src/bootstrap.js → src/app.js → src/ui/canvas-renderer.js → src/ui/board/board-renderer.js`
 
 ## 1. 需求复述与现有基线
 
@@ -11,7 +14,7 @@
 
 1. 为连接成功后的消除过程增加可选择的、轻量的视觉特效。
 2. 在主页增加一个“回廊”功能入口。进入后显示与主题画廊相同的 **2 列 × 3 行** 网格，但网格卡片是其他功能的入口；第一版只放“主题”和“特效”。
-3. 增加“特效选择”页面，布局和交互参考现有主题选择页面。第一套特效命名为“逐渐消失”，表现为路径格逐步降低透明度直至消失；预览卡片可使用 ImageGen 生成带有风吹、飘散意象的图片。
+3. 增加“特效选择”页面，布局和交互参考现有主题选择页面。内置“无特效”和“逐渐消失”两种选择：前者提交后立即移除路径，后者让路径格逐步降低透明度直至消失；预览图均为画廊素材，不参与棋盘运行时。
 
 当前工程的相关基线如下：
 
@@ -19,11 +22,11 @@
 | --- | --- | --- |
 | 首页 | `CanvasRenderer.drawHome()` 绘制 `home:dailyChallenge`、`home:corridor`、`home:start`（直接 App 构造默认仍可关闭迁移） | 运行时复用原主题按钮位置显示回廊；不增加第四枚按钮，`home:themes` 仅作兼容 action |
 | 主题画廊 | `scene === 'themes'`，固定 2×3、空槽、左右滑动和 `theme:<id>` | 保持主题协议；回廊只是上游入口，不重命名主题 manifest |
-| 当前清除表现 | `app.onPathCompleted()` 创建 `{ lineIndex, cells, startedAt }`；`drawClearAnimation()` 约 300ms 内 alpha 递减并轻微放大 | 首版“逐渐消失”注册为可选的 `fade` 特效，复用并抽象这套表现，不另造第二套规则 |
+| 当前清除表现 | `app.onPathCompleted()` 根据选择创建可空动画快照；`BoardRenderer.drawClearAnimation()` 负责约 300ms 的 alpha/scale 淡出 | `none` 不创建快照并立即移除；`fade` 复用既有淡出表现；两者都不改变规则 |
 | 规则层 | `core/game-runner.js` 管理路径、占用、撤销和完成判定 | 不读取特效，不改变任何规则或结算时机 |
 | 旧页面 | `pages/*` 和根目录旧小程序页面被 `project.config.json` 排除 | 不作为实现入口 |
 
-“逐渐消失”在第一版不是新的玩法，也不是新的棋盘状态。`GameRunner` 在连接成功时仍立即更新 owner/path 并判定通关；特效只负责随后几百毫秒的 Canvas 绘制。
+两种选择都不是新的玩法或棋盘状态。`GameRunner` 在连接成功时仍立即更新 owner/path 并判定结果；`none` 不增加任何临时视觉状态，`fade` 只负责随后几百毫秒的 Canvas 绘制。
 
 ## 2. 分阶段交付与明确范围
 
@@ -32,12 +35,12 @@
 文档冻结阶段已完成；当前实现已按本文契约落地，首页入口迁移已在正式 `bootstrap` 配置启用，仍可由独立开关回退。以下内容继续作为后续实现依据：
 
 - 回廊页面和特效页面的场景、布局、路由、存档和测试契约；
-- `fade` 特效的声明式数据协议和渲染白名单；
+- `none` / `fade` 特效的声明式数据协议和渲染白名单；
 - 首页从主题入口迁移到回廊入口时必须保持的兼容规则。
 
-### 2.2 第一版实现顺序
+### 2.2 第一版实现顺序（历史记录）
 
-建议按下列顺序实现，每一步都保持小游戏可启动：
+第一版曾按下列顺序实施；当前 `none` 扩展在既有边界上增量完成：
 
 1. 新增 `ClearEffectService`、`src/effects/index.js` 和 `fade` manifest；在 `src/bootstrap.js` 完成依赖注入；补充 `ProgressStore.state.settings.clearEffectId` 的默认/回退逻辑。
 2. 将现有清除动画抽到 renderer 的特效适配点，普通关卡和每日挑战共用；先保证选择 `fade` 时视觉与现状一致。
@@ -154,7 +157,7 @@ renderer 只消费这些数据并注册 hit；入口目标和场景切换由 `sr
 
 - 页面固定 2 列 × 3 行，每页 6 个槽位；卡片尺寸、间距、标题和顶部控制参考 `drawThemes()`。
 - `effectPageIndex`、`effectPageCount`、`EFFECT_PAGE_SIZE` 独立于主题分页。
-- 第一版只注册一个有效卡片：`effect:fade`，显示名“逐渐消失”；其余五槽为空且无 hit。
+- 内置卡片按稳定顺序显示：`effect:none`（“无特效”）在前，`effect:fade`（“逐渐消失”）在后；其余四槽为空且无 hit。
 - 点击有效卡片后立即写入 `settings.clearEffectId`、重绘并留在当前页；不自动进入棋盘、不重置当前关卡、不清除当前进度。
 - 选择页可显示当前选中标记；未注册或加载失败的预览不应使卡片不可选。
 
@@ -164,12 +167,13 @@ renderer 只消费这些数据并注册 hit；入口目标和场景切换由 `sr
 {
   scene: 'effects',
   effects: [
+    { id: 'none', name: '无特效', type: 'none', preview: 'assets/effects/none/preview.png' },
     { id: 'fade', name: '逐渐消失', type: 'fade', preview: 'assets/effects/fade/preview.png' }
   ],
   effectPageIndex: 0,
   effectPageCount: 1,
   effectPageSize: 6,
-  currentEffectId: 'fade',
+  currentEffectId: 'none',
   backAction: 'effects:corridor',
   soundEnabled: true,
   pressedId: null
@@ -182,13 +186,13 @@ renderer 只消费这些数据并注册 hit；入口目标和场景切换由 `sr
 
 ### 6.1 既有动画的抽象方式
 
-当前普通关卡和每日挑战都在 `ClearedApp.onPathCompleted()` 进入同一类清除动画。首版必须把这段既有表现注册为 `fade`，而不是再写一个平行的完成流程。
+普通关卡、每日挑战和 Portal 试玩都在 `ClearedApp.onPathCompleted()` 处理路径完成。应用层根据当前选择创建可空动画快照，不在各模式中复制完成流程。
 
 连接完成时，应用层创建一次性的动画快照：
 
 ~~~js
 const effect = clearEffects.current();
-const animation = {
+const animation = effect.type === 'none' ? null : {
   lineIndex,
   cells: cells.slice(),
   startedAt: now,
@@ -201,13 +205,14 @@ const animation = {
 约束：
 
 - `cells` 必须复制，后续撤销或新路径不能改变已开始的动画；
+- `none` 必须用 `clearAnimation === null` 表达，不创建 0ms 哨兵快照，不触发动画时钟或 Portal 清除窗口；
 - `effectId`、`durationMs`、`params` 必须在开始时快照化；`params` 至少要做深拷贝（或冻结只读副本），不能持有注册表对象的可变引用。动画播放中切换特效不会改变当前动画，新完成的路径才使用新选择；
 - 普通 `play/result` 和每日 `daily/dailyResult` 使用同一个清除适配器；
 - 特效层不修改 `GameRunner` 的 owner、selectedCells、撤销栈或 outcome；规则层独立判断
-  `playing/won/failed`，未填满失败面板在 `max(animation.durationMs, resultDelayMs)` 后出现，
+  `playing/won/failed`，未填满失败面板在 `max(animation ? animation.durationMs : 0, resultDelayMs)` 后出现，
   不得提前遮挡最后一条清除动画；
 - `play:reset`、`play:undo`、`daily:reset`、`daily:undo` 清除尚未完成的动画快照；
-- `app.isAnimating()` 使用动画快照中的 `durationMs`，没有快照时才回退到当前特效/经典配置，避免切换特效后提前停止旧动画。
+- `app.isAnimating()` 只对非空、非 `none` 快照使用其中的 `durationMs`，避免无特效空转，也避免切换选择后提前停止旧动画。
 
 时长来源按以下优先级解析，所有结果都经过数值校验和上限限制：
 
@@ -218,9 +223,24 @@ animation.durationMs（已快照）
   > 300ms
 ~~~
 
-`skin.animation.pathClearMs` 在首版保留为旧主题/旧调用的兼容回退；在所有内置特效都声明有效 `durationMs` 后，才可另开变更记录讨论废弃，不得在本需求中直接删除。
+该优先级只适用于真实动画。`skin.animation.pathClearMs` 继续作为旧主题/旧调用的兼容回退；`none` 不参与时长解析。
 
-### 6.2 `fade` 第一版视觉定义
+### 6.2 `none` 无特效定义
+
+~~~js
+{
+  id: 'none',
+  name: '无特效',
+  type: 'none',
+  preview: 'assets/effects/none/preview.png',
+  durationMs: 0,
+  params: {}
+}
+~~~
+
+`none` 的运行时语义是“没有动画快照”：路径提交、owner 更新、结果判定、音效、震动和结算照常发生，但已占用格立即从棋盘 ViewModel 中隐藏。结果页仍遵守独立的 `skin.animation.resultDelayMs`，不能把“无特效”解释为取消所有场景转场。
+
+### 6.3 `fade` 视觉定义
 
 `fade` 的目标是保持当前轻量观感：每个已连接路径格独立绘制，透明度从 1 降到 0，并允许极轻微地从 1 放大到 1.14；不增加粒子、光晕或逐帧贴图。
 
@@ -243,13 +263,14 @@ animation.durationMs（已快照）
 }
 ~~~
 
-实现必须对白名单字段做数值校验：`durationMs` 建议限制在 80–500ms；`alpha` 限制在 0–1；`scale` 为正数；`staggerRatio` 限制在 0–0.1。非法值回退到 `fade` 默认值，不得让 Canvas 收到 `NaN` 或无穷值。
+实现必须对白名单字段做数值校验：`none` 固定为 `durationMs: 0` / 空参数；真实动画的 `durationMs` 限制在 80–500ms，`alpha` 限制在 0–1，`scale` 为正数，`staggerRatio` 限制在 0–0.1。非法动画值回退到 `fade` 默认值，不得让 Canvas 收到 `NaN` 或无穷值。
 
-### 6.3 渲染器分发边界
+### 6.4 渲染器分发边界
 
-`CanvasRenderer.drawClearAnimation()` 是唯一的清除视觉出口。它可以按 `animation.effectId` 取得只读 manifest，并按 `type` 白名单分发：
+`BoardRenderer.drawClearAnimation()` 是棋盘清除视觉出口；`CanvasRenderer` 只保留场景/画廊门面和兼容代理。Renderer 按 `type` 白名单分发：
 
 ~~~text
+type === 'none'  → 不绘制；正常 App 流程不会创建该快照
 type === 'fade'  → 逐格 alpha/scale 算法
 未知 type        → 经典 fade 回退
 ~~~
@@ -267,7 +288,9 @@ renderer 不执行 manifest 中的函数、脚本、字符串表达式或网络�
 ```text
 src/services/clear-effect-service.js   # 注册、选择、持久化、回退
 src/effects/index.js                   # 内置特效注册顺序
+src/effects/none.js                    # 无动画的 none 数据 manifest
 src/effects/fade.js                    # 仅含 fade 数据 manifest
+assets/effects/none/preview.png        # “无特效”选择页预览图
 assets/effects/fade/preview.png        # 选择页预览图，不参与棋盘运行时
 tests/clear-effect-system.test.js      # 服务、页面和渲染契约
 ```
@@ -297,8 +320,10 @@ this.renderer = new CanvasRenderer(platform, this.skins, this.clearEffects);
 const service = new ClearEffectService(progressStore, effects);
 
 service.current();             // 当前完整 manifest
+service.get('none');            // 无特效 manifest
 service.get('fade');            // 已注册 manifest 或 null
 service.list();                 // 画廊用的可序列化描述列表
+service.select('none');         // 选择后不创建清除动画
 service.select('fade');         // 成功写入 settings.clearEffectId
 service.resolve('missing');     // 返回 fade 回退，不抛出运行时错误
 ~~~
@@ -307,7 +332,7 @@ service.resolve('missing');     // 返回 fade 回退，不抛出运行时错误
 
 服务必须：
 
-- 默认注册 `fade`，并保证至少存在一个可用特效；
+- 按 `src/effects/index.js` 顺序注册内置 `none`、`fade`，并保证可信的 `fade` 安全回退不会被同名扩展覆盖；
 - 拒绝空 ID、重复 ID、原型污染键和非普通对象；
 - 深拷贝/合并纯数据，不能让调用方修改内部 manifest；
 - 对未知或损坏的 `clearEffectId` 使用 `fade`，保留存档其他字段；
@@ -318,9 +343,9 @@ service.resolve('missing');     // 返回 fade 回退，不抛出运行时错误
 
 ## 8. 预览图与 ImageGen 边界
 
-第一版预览图可使用 ImageGen 生成，放置为 `assets/effects/fade/preview.png`。它只服务于特效卡片，不是棋盘动画的贴图来源。
+内置预览图位于 `assets/effects/none/preview.png` 和 `assets/effects/fade/preview.png`。它们只服务于特效卡片，不是棋盘动画贴图。
 
-建议的美术意象：
+`fade` 的美术意象：
 
 - 轻薄、半透明的风痕或飘散带状线条；
 - 明亮、干净、低细节，主体居中，能在小卡片中一眼看懂“逐渐消散”；
@@ -335,11 +360,13 @@ service.resolve('missing');     // 返回 fade 回退，不抛出运行时错误
 无文字、无 UI、无 Logo、无棋盘、无水印，方形或 4:3 构图。
 ~~~
 
+`none` 使用完整、静止、清晰的彩色圆角方块，保留透明安全边；不得包含风线、粒子、碎片、拖影、文字或 UI。
+
 renderer 只在 `effects` 场景懒加载预览图，并使用请求 token/generation 防止旧图晚到覆盖新页面。加载失败、文件缺失或尺寸不可用时：
 
 1. 特效卡片仍可点击；
-2. 使用矢量风线、渐变色块或文字作为预览回退；
-3. 不把失败预览传入棋盘 `drawTile()`，棋盘继续执行纯 Canvas 的 `fade` 算法。
+2. `none` 使用静止完整方块回退，`fade` 与回廊“特效”入口使用风线和消散方块回退；
+3. 不把失败预览传入棋盘 `drawTile()`；棋盘继续遵守当前选择的 `none`/`fade` 运行时语义。
 
 不允许从远程 URL 下载预览图，也不允许因为预览图加载而阻塞进入关卡。
 
@@ -350,14 +377,14 @@ renderer 只在 `effects` 场景懒加载预览图，并使用请求 token/gener
 ~~~js
 settings: {
   skinId: 'classic',
-  clearEffectId: 'fade',
+  clearEffectId: 'none',
   soundEnabled: true
 }
 ~~~
 
 规则如下：
 
-- 旧 v1/v2 存档没有 `clearEffectId` 时，读取为 `fade`；不要求用户重新选择主题或丢失关卡进度。
+- 全新安装默认 `none`；已有 v1 或已有 v2 缺少 `clearEffectId` 时继续读取为 `fade`，避免升级后静默改变视觉；显式保存的 `none` / `fade` 原样保留。
 - 存档中的未知/损坏 ID 回退 `fade`；是否立即回写修正值由测试决定，但不得覆盖 `completed`、`bestMs`、`lastPlayed`、`stats` 或 `skinId`。
 - 特效选择是全局视觉设置，普通关卡和每日挑战共用；不写入 `DailyProgressStore`，不影响每日次数、完成状态或奖励资格。
 - 第一版不做特效解锁、付费、抽取、网络同步、运营时间窗或广告增益。
@@ -368,19 +395,21 @@ settings: {
 | 模块 | 允许承担 | 明确禁止 |
 | --- | --- | --- |
 | `src/bootstrap.js` | 注入内置 effects 清单、`ClearEffectService` 配置和测试替身；保持正式/调试启动参数显式 | 在 bootstrap 中绘制页面、读写特效存档或实现动画算法 |
-| `src/app.js` | 持有 `this.clearEffects`；维护 `corridor/effects` 场景、`galleryOrigin`、`effectPageIndex` 和必要的 corridor 分页状态；处理 action、触摸保留、横滑；在 `onPathCompleted()` 写入动画快照 | 直接绘制 Canvas、读取/解析图片、把特效算法写进应用层、修改 `GameRunner` 规则 |
-| `src/ui/canvas-renderer.js` | 在 `render()` 分派新场景；绘制回廊/特效 2×3 卡片、空槽、返回和音效按钮；懒加载预览；在 `drawClearAnimation()` 按白名单执行 fade | 写存档、切换场景、调用路径求解、修改 runner、执行 manifest 任意代码或网络请求 |
+| `src/app.js` | 持有 `this.clearEffects`；维护画廊状态与 action；在 `onPathCompleted()` 创建可空动画快照并编排独立结果延迟 | 直接绘制 Canvas、读取/解析图片、实现逐格特效算法、修改 `GameRunner` 规则 |
+| `src/ui/canvas-renderer.js` | 分派场景；绘制回廊/特效画廊；懒加载预览；提供 `none`/`fade` 对应的缺图回退和兼容代理 | 写存档、切换场景、调用路径求解、修改 runner、实现棋盘规则 |
+| `src/ui/board/board-renderer.js` | 消费纯棋盘 ViewModel；按白名单绘制 `fade`，对 `none` 早退 | 读取存档、修改 App/Runner、加载画廊预览 |
+| `src/ui/board/portal-overlay.js` | 最后绘制 Portal；只在真实清除动画窗口保留门格视觉 | 把 `none` 当作 300ms 动画、判断 Portal 合法性 |
 | `src/services/clear-effect-service.js` | 注册/校验 manifest、`current/get/list/select/resolve`、默认与非法 ID 回退、`clearEffectId` 持久化 | Canvas、平台 API、触摸命中、动画时钟、关卡完成或音效 |
 | `src/effects/*.js` | 纯 JSON 可序列化的 `id/name/type/preview/durationMs/params` | 函数、类实例、回调、`wx`、Canvas、`GameRunner`、网络地址或业务状态 |
 | `src/effects/index.js` | 维护内置 manifest 的确定性注册顺序 | 页面跳转、分页、存档写入、图片加载 |
-| `src/services/progress-store.js` | 在默认 settings 和 normalize 中加入 `clearEffectId: 'fade'`，兼容旧存档 | 升级 schema、创建重复存档 key、写每日状态 |
+| `src/services/progress-store.js` | 新安装默认 `none`；已有缺字段存档兼容 `fade`；保存全局 `clearEffectId` | 升级 schema、创建重复存档 key、写每日状态 |
 | `src/services/skin-service.js` / `src/skins/*` | 继续管理主题和 `skinId`；主题页协议不变 | 保存特效选择、读取 effect manifest、把特效逻辑塞入主题配置 |
 | `core/game-runner.js` | 继续管理路径、owner、撤销、计时和完成判定 | 读取特效 ID、计算 alpha/scale、加载资源 |
 | `src/platform/wechat.js` | 继续提供 Canvas、图片、生命周期和输入能力 | 特效业务决策、动画策略、远程资源下载 |
 | `data/*` | 保持关卡、palette、solution 数据不变 | 存放特效 manifest、预览图或特效状态 |
 | `assets/effects/<id>/` | 保存选择页预览等静态特效资源 | 逐帧棋盘动画贴图、可执行脚本、远程资源清单 |
 | `pages/*`、根 `app.js/app.json/app.wxss` | 不参与本小游戏发布 | 新增回廊或特效实现 |
-| `tests/*` | 验证路由、分页、回退、存档、普通/每日共用动画和性能边界；在 `tests/run.js` 注册新测试 | 依赖真实网络、依赖未提交的 ImageGen 远程结果 |
+| `tests/*` | 验证路由、分页、回退、存档、普通/每日/Portal 共用的 `none`/`fade` 语义和性能边界 | 依赖真实网络、依赖未提交的 ImageGen 远程结果 |
 
 ## 11. 触摸、渲染和状态机执行边界
 
@@ -412,13 +441,13 @@ effect:<id>              -- stay --> effects
 
 实现阶段至少新增或更新以下自动化覆盖：
 
-1. **服务注册与回退**：`fade` 默认存在；未知 ID、重复 ID、恶意键和坏 manifest 不会使启动失败。
-2. **存档兼容**：旧存档读取为 `fade`；选择后写入 `settings.clearEffectId`；重新创建 App 能恢复；其他存档字段不变。
+1. **服务注册与回退**：内置顺序固定为 `none → fade`；可信 `fade` 始终存在；未知 ID、重复 ID、恶意键和坏 manifest 不会使启动失败。
+2. **存档兼容**：新安装默认 `none`，已有缺字段存档读取为 `fade`；选择后写入 `settings.clearEffectId`；重新创建 App 能恢复；其他存档字段不变。
 3. **回廊命中**：`corridor:home`、`corridor:themes`、`corridor:effects` 正确注册；4 个空槽无 hit；安全区和窄屏不重叠。
 4. **特效分页**：0、1、6、7 个特效的页数、槽位映射、空槽无 hit、边界 clamp；`effectPageIndex` 不影响 `themePageIndex`。
 5. **导航来源**：从回廊进入主题后返回回廊；旧 `home:themes → themes:home` 仍可用；`home:corridor` 是当前唯一可见回廊入口。
-6. **特效选择**：`effect:fade` 点击后即时重绘、保持在 effects 场景并持久化；非法选择不改变当前 ID。
-7. **淡出视觉契约**：普通 `play` 和每日 `daily` 均消费同一 `fade` 适配器；alpha 单调从 1 到 0；动画结束后无残留绘制；GameRunner 状态和结果时机不变。
+6. **特效选择**：`effect:none` / `effect:fade` 点击后即时重绘、保持在 effects 场景并持久化；非法选择不改变当前 ID。
+7. **清除视觉契约**：`none` 在普通、每日和 Portal 中均不创建快照、不绘制格子、不保留动画尾；`fade` 的 alpha 单调从 1 到 0；两者都不改变 GameRunner 状态和结算。
 8. **动画快照**：动画播放中切换特效不会改变已开始路径；reset/undo 会清除旧动画；duration 非法值会安全回退；未填满失败窗口不得早于最终动画结束出现。
 9. **预览回退与竞态**：ImageGen 预览懒加载；失败、缺图、晚到回调均不会阻塞页面或覆盖当前页面；棋盘不请求预览图。
 10. **轻量边界**：不新增粒子/物理/offscreen canvas/逐帧 sprite/网络依赖；每格每帧最多调用一次 `drawTile()`，绘制为 O(1)，新增临时对象数量不超过当前路径长度，单次动画沿用主循环。
@@ -440,17 +469,18 @@ effect:<id>              -- stay --> effects
 
 ## 14. 当前实现记录
 
-已完成的第一版代码和素材：
+当前已完成的代码和素材：
 
 - `src/services/clear-effect-service.js`：特效注册、校验、选择、`clearEffectId` 持久化和 `fade` 回退；
-- `src/effects/fade.js`、`src/effects/index.js`：首个“逐渐消失”声明式 manifest；
+- `src/effects/none.js`、`src/effects/fade.js`、`src/effects/index.js`：按 `none → fade` 注册的声明式 manifest；
 - `src/app.js`：特效服务 wiring、回廊/特效场景、路由、分页、动画快照和首页迁移开关；
-- `src/ui/canvas-renderer.js`：回廊/特效 2×3 画廊、预览懒加载、失败回退和共享淡出适配器；
+- `src/ui/canvas-renderer.js`：回廊/特效 2×3 画廊、预览懒加载和按类型区分的失败回退；
+- `src/ui/board/board-renderer.js`、`src/ui/board/portal-overlay.js`：纯 ViewModel 清除绘制和 Portal 最终叠加；
 - `src/bootstrap.js`、`src/services/progress-store.js`：内置清单注入和 schema v2 设置兼容；
-- `assets/effects/fade/preview.png`：ImageGen 生成并压缩后的风吹飘散意象预览图；
-- `tests/clear-effect-service.test.js`、`tests/clear-effect-system.test.js`：服务、存档、路由、分页、预览、动画快照和普通/每日共用覆盖。
+- `assets/effects/none/preview.png`、`assets/effects/fade/preview.png`：ImageGen 生成并压缩后的静止方块/风吹飘散预览图；
+- `tests/clear-effect-service.test.js`、`tests/clear-effect-system.test.js` 及 Portal/每日测试：服务、存档、路由、分页、预览和普通/每日/Portal 的快照语义覆盖。
 
 当前仍未完成：
 
 - 真机上的窄屏、安全区、高 DPR 和实际图片加载视觉验收；
-- 粒子类特效；首版只实现白名单 `fade`。
+- 粒子类特效；当前白名单仅实现 `none` 和 `fade`。

@@ -100,7 +100,8 @@ class PortalOverlay {
     const animation = board && board.clearAnimation;
     const clearStartedAt = Number(animation && animation.startedAt);
     const clearDuration = Number(animation && animation.durationMs);
-    const clearActive = Number.isFinite(clearStartedAt) &&
+    const clearActive = !!animation && animation.type !== 'none' &&
+      Number.isFinite(clearStartedAt) &&
       now < clearStartedAt + (Number.isFinite(clearDuration) && clearDuration > 0 ? clearDuration : 300);
     const clearingCells = new Set(clearActive && animation && Array.isArray(animation.cells)
       ? animation.cells : []);

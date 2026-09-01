@@ -210,6 +210,20 @@ function run() {
   assert(ctx.calls.filter(call => call.method === 'drawImage').length >= 2,
     'both owned portals remain visible while their path clears');
 
+  // Explicit no-effect snapshots are defensive no-ops at the BoardRenderer
+  // boundary, even if an older caller supplies cells and a timestamp.
+  tileDraws.length = 0;
+  renderer.boardRenderer.drawClearAnimation({
+    lineIndex: 0,
+    cells: [0, 1, 2],
+    startedAt: clearNow,
+    durationMs: 0,
+    type: 'none',
+    params: {}
+  }, portalDemo.Palette, clearNow + 10, 3, renderer.boardLayout, new Set());
+  assert.strictEqual(tileDraws.length, 0,
+    'BoardRenderer never turns an explicit no-effect snapshot into fade tiles');
+
   // A non-persistent trial result uses trial/home copy rather than claiming a
   // stored best time or routing to an ordinary level list.
   ctx.calls.length = 0;
@@ -327,6 +341,8 @@ function run() {
   // renders both waiting and locked rings.
   const overlayContext = createMockContext();
   const ringCalls = [];
+  const overlayTileCalls = [];
+  const overlayImageCalls = [];
   const overlay = new PortalOverlay({
     platform: {
       createImage(source, callback) {
@@ -336,8 +352,8 @@ function run() {
     },
     getContext() { return overlayContext; },
     getSkin() { return classic; },
-    drawTile() {},
-    drawImageContain() {},
+    drawTile() { overlayTileCalls.push(Array.prototype.slice.call(arguments)); },
+    drawImageContain() { overlayImageCalls.push(Array.prototype.slice.call(arguments)); },
     text() {},
     roundedRect() { ringCalls.push(Array.prototype.slice.call(arguments)); }
   });
@@ -346,6 +362,32 @@ function run() {
     clearAnimation: null
   });
   const overlayLayout = { x: 0, y: 0, cell: 40, cols: 5, rows: 5 };
+  const readyPortal = deepFreeze({
+    icon: 'assets/icons/portal.png',
+    portals: [{ id: 'P1', A: 21, B: 2 }],
+    phase: 'READY',
+    expectedExit: null,
+    lockedEntry: null
+  });
+  const noneOverlayBoard = deepFreeze({
+    cells: new Array(25).fill(null).map((unused, index) => ({
+      index,
+      owner: index === 2 || index === 21 ? 0 : -1
+    })),
+    clearAnimation: {
+      lineIndex: 0,
+      cells: [2, 21],
+      startedAt: 100,
+      durationMs: 0,
+      type: 'none'
+    }
+  });
+  overlay.draw(readyPortal, noneOverlayBoard, overlayLayout, 3, 100);
+  assert.strictEqual(overlayTileCalls.length, 0,
+    'PortalOverlay does not restore an empty base tile for no effect');
+  assert.strictEqual(overlayImageCalls.length, 0,
+    'owned portal icons disappear immediately when no effect is selected');
+
   const waitingPortal = deepFreeze({
     icon: 'assets/icons/portal.png',
     portals: [{ id: 'P1', A: 21, B: 2 }],

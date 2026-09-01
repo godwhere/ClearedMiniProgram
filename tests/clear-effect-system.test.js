@@ -112,10 +112,18 @@ function run() {
   app.tick(now + 3);
   assert.strictEqual(app.scene, 'effects');
   assert.strictEqual(app.buildModel().backAction, 'effects:corridor');
-  assert(app.renderer.hits.some(hit => hit.id === 'effect:fade'));
-  assert.strictEqual(app.renderer.hits.filter(hit => /^effect:/.test(hit.id)).length, 1);
+  assert.deepStrictEqual(app.buildModel().effects.map(effect => effect.id), ['none', 'fade']);
+  assert.strictEqual(app.buildModel().currentEffectId, 'none',
+    'a fresh install starts with no clear effect selected');
+  assert.deepStrictEqual(
+    app.renderer.hits.filter(hit => /^effect:/.test(hit.id)).map(hit => hit.id),
+    ['effect:none', 'effect:fade'],
+    'the two built-in cards keep registry order and both expose hit targets'
+  );
+  assert(platform.sources.indexOf('assets/effects/none/preview.png') >= 0,
+    'the no-effect preview is loaded after entering the effect gallery');
   assert(platform.sources.indexOf('assets/effects/fade/preview.png') >= 0,
-    'effect preview is loaded only after entering the effect gallery');
+    'the fade preview is loaded after entering the effect gallery');
   const fadeHit = app.renderer.hits.find(hit => hit.id === 'effect:fade');
   app.onPointerStart({ x: fadeHit.rect.x + fadeHit.rect.w / 2,
     y: fadeHit.rect.y + fadeHit.rect.h / 2, id: 11 });
@@ -123,6 +131,27 @@ function run() {
     y: fadeHit.rect.y + fadeHit.rect.h / 2, id: 11 });
   assert.strictEqual(app.scene, 'effects');
   assert.strictEqual(app.progress.getSetting('clearEffectId'), 'fade');
+
+  const noneHit = app.renderer.hits.find(hit => hit.id === 'effect:none');
+  app.onPointerStart({ x: noneHit.rect.x + noneHit.rect.w / 2,
+    y: noneHit.rect.y + noneHit.rect.h / 2, id: 12 });
+  app.onPointerEnd({ x: noneHit.rect.x + noneHit.rect.w / 2,
+    y: noneHit.rect.y + noneHit.rect.h / 2, id: 12 });
+  assert.strictEqual(app.progress.getSetting('clearEffectId'), 'none');
+  const persistedNone = new ClearedApp(platform);
+  assert.strictEqual(persistedNone.currentEffectId(), 'none',
+    'selecting no effect survives a fresh app instance');
+
+  // No effect creates no transient snapshot or 80ms clear tail on an ordinary
+  // board. Ignore the unrelated board-enter animation for this boundary test.
+  assert.strictEqual(persistedNone.openLevel(0, 0), true);
+  persistedNone.levelEnteredAt = 0;
+  const noneCompletedAt = Date.now();
+  persistedNone.onPathCompleted(0, [0, 1, 2]);
+  assert.strictEqual(persistedNone.clearAnimation, null);
+  assert.strictEqual(persistedNone.buildModel().board.clearAnimation, null);
+  assert.strictEqual(persistedNone.isAnimating(noneCompletedAt + 1), false,
+    'no-effect completion does not keep the render loop alive for a clear tail');
 
   // A preview callback that arrives after leaving the page is ignored.
   const deferredCallbacks = {};
@@ -149,6 +178,29 @@ function run() {
   deferredCallbacks['assets/effects/fade/preview.png'](null, { source: 'late', width: 512, height: 384 });
   assert(!Object.prototype.hasOwnProperty.call(deferredRenderer.effectPreviewImages, 'fade'));
 
+  // Missing artwork has effect-specific vector fallbacks: no effect is a
+  // static tile cluster, while fade keeps the three wind strokes.
+  deferredPlatform.context.calls.length = 0;
+  deferredRenderer.drawEffectFallbackPreview(
+    { x: 0, y: 0, w: 160, h: 100 },
+    { id: 'none', type: 'none', preview: null }
+  );
+  const noneFallbackCalls = deferredPlatform.context.calls.slice();
+  assert(noneFallbackCalls.filter(call => call.op === 'fill').length >= 5,
+    'no-effect fallback draws a static tile cluster');
+  assert.strictEqual(noneFallbackCalls.some(call => call.op === 'stroke'), false,
+    'no-effect fallback does not draw fade wind strokes');
+  deferredPlatform.context.calls.length = 0;
+  deferredRenderer.drawEffectFallbackPreview(
+    { x: 0, y: 0, w: 160, h: 100 },
+    { id: 'fade', type: 'fade', preview: null }
+  );
+  assert.strictEqual(
+    deferredPlatform.context.calls.filter(call => call.op === 'stroke').length,
+    3,
+    'fade fallback remains visually distinct with three wind strokes'
+  );
+
   // Effect pagination has its own cursor and does not move the theme cursor.
   const pagedPlatform = createPlatform();
   const paged = new ClearedApp(pagedPlatform, { effects: customEffects(7) });
@@ -163,10 +215,11 @@ function run() {
   assert.strictEqual(paged.themePageIndex, 1);
   assert(paged.renderer.hits.some(hit => hit.id === 'effects:prev'));
   assert(!paged.renderer.hits.some(hit => hit.id === 'effects:next'));
-  assert.strictEqual(paged.renderer.hits.filter(hit => /^effect:/.test(hit.id)).length, 2);
+  assert.strictEqual(paged.renderer.hits.filter(hit => /^effect:/.test(hit.id)).length, 3);
 
   // A completion snapshots the selected effect and its parameters. Mutating a
   // returned manifest after completion cannot rewrite the running animation.
+  assert.strictEqual(paged.setClearEffect('fade'), true);
   paged.performAction('home:start');
   paged.openLevel(0, 0);
   paged.tick(now + 1000);
@@ -180,30 +233,41 @@ function run() {
   assert.strictEqual(paged.clearEffects.current().params.alphaFrom, 1,
     'animation params are detached from the registry');
 
-  // drawClearAnimation is the shared ordinary/daily adapter and performs one
-  // tile draw per path cell for the lightweight fade implementation.
+  // BoardRenderer owns the fade implementation and performs one tile draw per
+  // path cell from the immutable App snapshot.
   const renderer = paged.renderer;
-  renderer.boardLayout = { x: 0, y: 0, cell: 40, cols: 3, rows: 3 };
+  const boardLayout = { x: 0, y: 0, cell: 40, cols: 3, rows: 3 };
+  renderer.boardLayout = boardLayout;
   let tileCalls = 0;
   const originalDrawTile = renderer.drawTile;
   renderer.drawTile = function () {
     tileCalls += 1;
     return originalDrawTile.apply(this, arguments);
   };
-  renderer.drawClearAnimation(paged.clearAnimation, ['#f00'], paged.clearAnimation.startedAt + 40, 2);
+  renderer.boardRenderer.drawClearAnimation(
+    paged.clearAnimation,
+    ['#f00'],
+    paged.clearAnimation.startedAt + 40,
+    2,
+    boardLayout,
+    new Set()
+  );
   renderer.drawTile = originalDrawTile;
   assert.strictEqual(tileCalls, paged.clearAnimation.cells.length);
 
   // Daily boards call the same renderer adapter rather than owning a second
   // effect implementation.
-  const dailyRunner = {
-    selectedCells: [],
-    selectedLine: -1,
-    owner: [-1, -1, -1, -1, -1, -1, -1, -1, -1],
-    fixedLine: [-1, -1, -1, -1, -1, -1, -1, -1, -1],
-    isGameOver: false,
-    timeText() { return '0:00'; },
-    canUndo() { return false; }
+  const dailyBoard = {
+    width: 3,
+    height: 3,
+    lines: [{ Start: 0, End: 2 }],
+    cells: new Array(9).fill(null).map((unused, index) => ({
+      index, blocked: false, owner: -1, fixedLine: -1, selected: false, portal: false
+    })),
+    selection: { lineIndex: -1, cells: [], segments: [], teleports: [] },
+    clearAnimation: paged.clearAnimation,
+    hint: null,
+    hintUntil: 0
   };
   let dailyAdapterCalls = 0;
   const originalClearAnimation = renderer.drawClearAnimation;
@@ -214,7 +278,10 @@ function run() {
   renderer.render({
     scene: 'daily',
     challenge: { Width: 3, Height: 3, Palette: ['#f00'], Lines: [{ Start: 0, End: 2 }] },
-    runner: dailyRunner,
+    board: dailyBoard,
+    mechanic: { portal: null },
+    elapsedText: '0:00',
+    canUndo: false,
     levelEnteredAt: now - 1000,
     clearAnimation: paged.clearAnimation,
     dailyLevelIndex: 0,

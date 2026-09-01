@@ -1,3 +1,4 @@
+const builtInEffects = require('../effects/index.js');
 const defaultFade = require('../effects/fade.js');
 
 const DEFAULT_ID = 'fade';
@@ -224,20 +225,24 @@ function normalizeManifest(input, fallback) {
   if (type === undefined || type === null) type = base.type;
   if (!isSafeString(name) || !name.trim() || !isSafeString(type) || !type.trim()) return null;
 
-  // A missing duration is allowed for extension manifests and inherits the
-  // default. Explicitly malformed/out-of-range values are normalized to the
-  // same safe fallback, never passed to the animation clock.
-  const fallbackDuration = bounded(base.durationMs, MIN_DURATION_MS, MAX_DURATION_MS, 300);
-  durationMs = bounded(durationMs, MIN_DURATION_MS, MAX_DURATION_MS, fallbackDuration);
-  durationMs = Math.round(durationMs);
-
   const normalized = {
     id,
     name,
-    type,
-    durationMs,
-    params: normalizeParams(params, base.params)
+    type
   };
+
+  if (type === 'none') {
+    normalized.durationMs = 0;
+    normalized.params = {};
+  } else {
+    // A missing duration is allowed for extension manifests and inherits the
+    // default. Explicitly malformed/out-of-range values are normalized to the
+    // same safe fallback, never passed to the animation clock.
+    const fallbackDuration = bounded(base.durationMs, MIN_DURATION_MS, MAX_DURATION_MS, 300);
+    durationMs = bounded(durationMs, MIN_DURATION_MS, MAX_DURATION_MS, fallbackDuration);
+    normalized.durationMs = Math.round(durationMs);
+    normalized.params = normalizeParams(params, base.params);
+  }
 
   if (hasOwn(input, 'preview')) {
     // An explicit null/invalid preview intentionally means "use the card
@@ -272,9 +277,15 @@ class ClearEffectService {
       setSetting() {}
     };
     this.effects = Object.create(null);
+    this.effectOrder = [];
 
-    // Always register the built-in fallback first. A malformed extension or a
-    // duplicate `fade` entry therefore cannot remove the guaranteed default.
+    // The built-in index is the single source of truth for gallery order.
+    // Register it before extensions so reserved built-in IDs cannot be
+    // overwritten by caller-provided manifests.
+    const builtIns = Array.isArray(builtInEffects) ? builtInEffects : [];
+    builtIns.forEach(effect => this.register(effect));
+    // Keep the compatibility fallback available even if the local registry is
+    // accidentally incomplete. If present in the index this is a no-op.
     this.register(defaultFade);
     const entries = Array.isArray(effects) ? effects : [];
     entries.forEach(effect => this.register(effect));
@@ -299,6 +310,7 @@ class ClearEffectService {
     }
     if (!normalized || !isSafeKey(normalized.id) || hasOwn(this.effects, normalized.id)) return false;
     this.effects[normalized.id] = normalized;
+    this.effectOrder.push(normalized.id);
     return true;
   }
 
@@ -343,7 +355,7 @@ class ClearEffectService {
   }
 
   list() {
-    return Object.keys(this.effects).map(id => {
+    return this.effectOrder.map(id => {
       const effect = this.effects[id];
       const item = {
         id: effect.id,

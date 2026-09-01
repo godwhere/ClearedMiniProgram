@@ -23,7 +23,8 @@ function mergeRecord(defaults, value) {
   return result;
 }
 
-function createDefaultState() {
+function createDefaultState(clearEffectId) {
+  const effectId = clearEffectId === 'fade' ? 'fade' : 'none';
   return {
     schemaVersion: 2,
     completed: {},
@@ -31,7 +32,7 @@ function createDefaultState() {
     lastPlayed: null,
     settings: {
       skinId: 'classic',
-      clearEffectId: 'fade',
+      clearEffectId: effectId,
       soundEnabled: true
     },
     stats: {
@@ -60,17 +61,22 @@ class ProgressStore {
 
     const legacy = this.platform.getStorage(LEGACY_KEY);
     if (isRecord(legacy)) {
-      const migrated = createDefaultState();
+      // Existing installs keep the pre-selector fade behavior unless they
+      // explicitly choose another effect after migration.
+      const migrated = createDefaultState('fade');
       migrated.completed = mergeRecord({}, legacy.completed);
       migrated.lastPlayed = normalizeTarget(legacy.last);
       this.platform.setStorage(STORAGE_KEY, migrated);
       return migrated;
     }
-    return createDefaultState();
+    // A genuinely new install starts from the original no-effect experience.
+    return createDefaultState('none');
   }
 
   normalize(saved) {
-    const defaults = createDefaultState();
+    // A v2 save without clearEffectId predates the selector. Preserve its
+    // visible fade behavior rather than changing it silently on upgrade.
+    const defaults = createDefaultState('fade');
     return {
       schemaVersion: 2,
       completed: mergeRecord({}, saved.completed),
