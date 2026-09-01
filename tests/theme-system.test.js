@@ -206,7 +206,7 @@ function runRendererChecks() {
   const now = Date.now();
 
   renderer.render({
-    scene: 'home', completedCount: 0, totalLevels: 122, soundEnabled: true, pressedId: null
+    scene: 'home', completedCount: 0, totalLevels: 92, soundEnabled: true, pressedId: null
   }, now);
   const homeIds = renderer.hits.map(hit => hit.id);
   assert(homeIds.indexOf('home:start') >= 0);
@@ -231,7 +231,7 @@ function runRendererChecks() {
   // all three home actions share the primary button surface.
   platform.context.calls.length = 0;
   renderer.render({
-    scene: 'home', completedCount: 84, totalLevels: 122, soundEnabled: true,
+    scene: 'home', completedCount: 84, totalLevels: 92, soundEnabled: true,
     pressedId: null, dailyAvailable: true, dailyEntryAvailable: true,
     dailyDebugUnlimited: true, dailyEntriesRemaining: null, dailyEntryLimit: 3
   }, now);

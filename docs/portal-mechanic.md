@@ -270,12 +270,13 @@ v1 只允许一个固定双向门对，解答可继续使用 `PairId`，且两�
 - `tests/renderer-portal.test.js`：提示位置/呼吸、棋盘不跳位、无 P1、多出口高亮和资源回退；
 - `tests/portal-publishing.test.js`：5 个 v2 试玩、三门未用门 fixture、v1 兼容 fixture 和逐段回放；
 - `node tests/run.js` 必须全量通过，现有普通关行为不得回归。
+- `Portals` 缺省或空数组时，现有连续编号 1—92 的普通关卡必须保持原有规则、输入、计时、撤销与完成判定语义。
 
 微信开发者工具和真机仍须检查：安全区、窄屏文案、提示出现时机、棋盘稳定、快速滑动、touchcancel、候选出口命中、图片回退、到门无震动、完成消除仍震动，以及等待态退出后不持续无意义重绘。
 
 ## 10. 发布门槛
 
-1. 普通关和 Portal v1 兼容 fixture 零回归；
+1. 连续编号 1—92 的普通关和 Portal v1 兼容 fixture 零回归；
 2. Portal v2 题面、PortalId 解答和 required coverage 全部通过离线校验；
 3. 真实触摸完成“入口 → 松手 → 任一候选出口 → 普通终点”；
 4. 提示只在 LOCKED/WAIT 出现，位于棋盘上方并有轻微呼吸，棋盘不跳位；

@@ -6,7 +6,7 @@ function run() {
   const dataDir = path.resolve(__dirname, '..', 'data');
   const names = [
     'clearedset_train', 'clearedset5', 'clearedset6',
-    'clearedset7', 'clearedset8', 'clearedset9'
+    'clearedset7', 'clearedset8'
   ];
 
   names.forEach(name => {
@@ -15,10 +15,16 @@ function run() {
     assert.deepStrictEqual(compiled, json, `${name}.js must match its JSON source`);
   });
 
+  assert.strictEqual(fs.existsSync(path.join(dataDir, 'clearedset9.json')), false);
+  assert.strictEqual(fs.existsSync(path.join(dataDir, 'clearedset9.js')), false);
+
   const catalogSource = fs.readFileSync(path.join(dataDir, 'catalog.js'), 'utf8');
   assert.strictEqual(/require\([^)]*\.json/.test(catalogSource), false);
   const runtimeCatalog = fs.readFileSync(path.join(dataDir, 'catalog-v2.js'), 'utf8');
   assert.strictEqual(/require\([^)]*\.json/.test(runtimeCatalog), false);
+  const catalog = require(path.join(dataDir, 'catalog-v2.js'));
+  assert.strictEqual(catalog.sets.length, 5);
+  assert.strictEqual(catalog.levels.length, 92);
   const appSource = fs.readFileSync(path.resolve(dataDir, '..', 'src', 'app.js'), 'utf8');
   assert(appSource.includes("../data/catalog-v2.js"));
 }

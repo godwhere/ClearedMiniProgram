@@ -7,8 +7,7 @@ const names = [
   'clearedset5',
   'clearedset6',
   'clearedset7',
-  'clearedset8',
-  'clearedset9'
+  'clearedset8'
 ];
 
 names.forEach(name => {

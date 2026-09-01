@@ -6,8 +6,8 @@
 
 现有内容：
 
-- 6 个关卡组、122 个可玩关卡（Training 2、5×5 10、6×6 20，其余各 30）；
-- 首页、选关、左右滑动切组、游玩、撤销、重置和通关流程；
+- 92 个普通关卡，选关页统一按 1—92 连续编号；普通题面最大为 8×8；
+- 首页、“选择关卡”、每页 25 关的左右滑动分页、游玩、撤销、重置和通关流程；
 - 原版“连接成功后路径淡出并清空格子”的玩法；
 - 全局顺序解锁，完成当前关后开放下一关，锁定关不可进入；
 - 关卡底部左右分布“提示 / 回撤”按钮；提示以对应颜色的呼吸格子显示一条预计算的有效路径；
@@ -61,8 +61,9 @@
 
 拖动连线时，当前路径格会使用对应线路颜色并轻微放大；松手后按回廊中选择的消除特效立即移除或淡出。
 
-关卡按 Training → 5×5 → 6×6 → 7×7 → 8×8 → 8×10 的顺序解锁。已完成关卡
-始终可以重玩；未解锁关卡显示锁图标且不响应点击。
+普通关卡按 1 → 92 的显示编号顺序解锁，底层仍保留原有数据索引以兼容存档；已完成关卡
+始终可以重玩，未解锁关卡显示锁图标且不响应点击。普通题面最大为 8×8；8×10 仅由独立的
+“高难关卡／每日挑战”模式使用，不计入普通关卡编号、进度或统计。
 
 ## 轻量架构
 
@@ -74,7 +75,7 @@ core/portal-schema.js           Portal 字段读取、规范化与索引的唯�
 core/portal-solution.js         Portal 分段解规范化、反转与展平纯函数
 core/portal-validation.js       Portal 题面和分段解答的严格发布校验
 data/                           原版 JSON 与小游戏可加载的 JS 关卡模块
-data/solutions.js               122 关完整有效路径（提示数据，离线生成）
+data/solutions.js               92 个普通关卡的完整有效路径（提示数据，离线生成）
 data/daily-challenges.js        每日两关题面、日期和镂空数据
 data/daily-solutions.js         每日关卡按 level ID 索引的提示路径
 src/app.js                      场景、反馈与纯棋盘 ViewModel 编排
@@ -115,7 +116,7 @@ src/effects/fade.js             “逐渐消失”特效 manifest
 src/mechanics/index.js          玩法拓展 definition 注册与稳定 ID 查询
 src/mechanics/portal.js         传送门玩法拓展定义、试玩集与解答依赖
 src/config/ads.js               广告位与展示频率配置
-src/config/progression.js       跨关卡组解锁配置
+src/config/progression.js       普通关卡连续顺序解锁配置
 src/config/audio.js              音频资源与音量配置
 assets/audio/                   压缩后的本地音频素材
 docs/portal-mechanic.md          传送门玩法、状态机、数据/提示契约与代码边界
@@ -146,9 +147,9 @@ tests/clear-effect-service.test.js、tests/clear-effect-system.test.js 特效服
 node tests/run.js
 ```
 
-测试覆盖路径连接、回退、阻挡、跨行边界、重画、撤销、Portal v1/v2 与多出口回放、122 关数据完整性、进度存储、
+测试覆盖路径连接、回退、阻挡、跨行边界、重画、撤销、Portal v1/v2 与多出口回放、92 个普通关卡的数据完整性、进度存储、
 主题清单/分页/素材回退、回廊与消除特效清单/分页/存档/无特效与淡出回退、每日两关/次数/镂空规则、
-未填满棋盘的失败终局与重试、Canvas 渲染和完整小游戏启动/触控烟雾流程。122 关官方
+未填满棋盘的失败终局与重试、Canvas 渲染和完整小游戏启动/触控烟雾流程。92 个普通关卡的官方
 解答还会实际驱动规则机，确保全部保持胜利结果。
 
 如修改原始关卡 JSON，可运行 `node scripts/generate-level-modules.js` 更新提交到工程中的
