@@ -56,6 +56,7 @@
 - 不修改 pages/* 或根目录旧小程序页面；当前发布包不使用这些路径。
 - 不在跨午夜时自动替换正在游玩的棋盘；重新进入时才解析新日期。
 - 不要求当前阶段恢复每日轮次的中途连线快照。
+- v1 不支持传送门每日题；题面声明 `Mechanic: 'portal'` 或显式 `Portals` 时以 `portal-not-supported` 拒绝加载。
 
 ## 4. 主页布局契约
 
@@ -290,6 +291,7 @@ validateDay() 和 validate() 必须拒绝：
 
 - 日期、ID、EntryLimit、LevelIndex、尺寸或难度不符合约束；
 - Blocked 非整数、越界、重复，或端点落在 Blocked；
+- `Mechanic: 'portal'` 或显式 `Portals`（每日题 v1 尚无分段解答/存档契约）；
 - 端点重复、路径经过 Blocked、越界、非相邻、重复或跨 level 重叠；
 - 解答数量与 Lines 不一致，或没有覆盖该 level 的全部可走格。
 
@@ -556,4 +558,4 @@ onDailyCompleted({
 
 开发入口当前将 `dailyDebugUnlimited` 设为 `true`；发布前必须显式关闭该开关，恢复每日 3 次限制。
 
-当前自动化回归为 `node tests/run.js`，共 16 项测试通过。示例日期表只覆盖当前开发验证日期；新增正式日期时必须按本契约补齐两个 level、解答和数据校验。
+当前自动化回归命令为 `node tests/run.js`。示例日期表只覆盖当前开发验证日期；新增正式日期时必须按本契约补齐两个 level、解答和数据校验。

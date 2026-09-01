@@ -23,6 +23,10 @@ const CODES = Object.freeze({
   CELL_DUPLICATE: 'portal-cell-duplicate',
   ENDPOINT_CONFLICT: 'portal-endpoint-conflict',
   BLOCKED_CONFLICT: 'portal-blocked-conflict',
+  BLOCKED_REQUIRED_ARRAY: 'portal-blocked-required-array',
+  BLOCKED_INTEGER: 'portal-blocked-integer',
+  BLOCKED_OUT_OF_RANGE: 'portal-blocked-out-of-range',
+  BLOCKED_DUPLICATE: 'portal-blocked-duplicate',
   PAIR_COUNT_EXCEEDED: 'portal-pair-count-exceeded',
   PAIR_REQUIRED: 'portal-pair-required',
   RULES_VERSION_INVALID: 'portal-rules-version-invalid',
@@ -101,9 +105,30 @@ function rawRulesVersion(level) {
   return field(level, 'PortalRulesVersion', 'portalRulesVersion');
 }
 
-function rawBlocked(level) {
+function inspectBlocked(level, board) {
+  const errors = [];
+  const valid = new Set();
+  const seen = new Set();
   const value = field(level, 'Blocked', 'blocked');
-  return Array.isArray(value) ? value : [];
+  if (value === undefined) return { errors, valid };
+  if (!Array.isArray(value)) {
+    add(errors, CODES.BLOCKED_REQUIRED_ARRAY);
+    return { errors, valid };
+  }
+  value.forEach(cell => {
+    if (!Number.isInteger(cell)) {
+      add(errors, CODES.BLOCKED_INTEGER);
+      return;
+    }
+    if (seen.has(cell)) add(errors, CODES.BLOCKED_DUPLICATE);
+    else seen.add(cell);
+    if (!board.valid || cell < 0 || cell >= board.total) {
+      if (board.valid) add(errors, CODES.BLOCKED_OUT_OF_RANGE);
+      return;
+    }
+    valid.add(cell);
+  });
+  return { errors, valid };
 }
 
 function rawLines(level) {
@@ -128,12 +153,8 @@ function endpointSet(level) {
   return result;
 }
 
-function blockedSet(level) {
-  const result = new Set();
-  rawBlocked(level).forEach(cell => {
-    if (Number.isInteger(cell)) result.add(cell);
-  });
-  return result;
+function blockedSet(level, board) {
+  return inspectBlocked(level, board || dimensions(level)).valid;
 }
 
 /**
@@ -261,8 +282,7 @@ function validatePortals(level, options) {
     return structuralResult(errors, level, [], rulesVersion);
   }
 
-  if (explicitVersion !== undefined &&
-      (!Number.isInteger(explicitVersion) || explicitVersion !== 1)) {
+  if (!Number.isInteger(explicitVersion) || explicitVersion !== 1) {
     add(errors, CODES.RULES_VERSION_INVALID);
   }
   if (source.value.length === 0) add(errors, CODES.PAIR_REQUIRED);
@@ -270,7 +290,9 @@ function validatePortals(level, options) {
 
   const board = dimensions(level);
   if (!board.valid) add(errors, CODES.BOARD_DIMENSIONS_INVALID);
-  const blocked = blockedSet(level);
+  const blockedInspection = inspectBlocked(level, board);
+  blockedInspection.errors.forEach(code => add(errors, code));
+  const blocked = blockedInspection.valid;
   const endpoints = endpointSet(level);
   const seenIds = new Set();
   const seenCells = new Set();
@@ -414,7 +436,9 @@ function validatePortalSolution(level, solution) {
   }
 
   const board = dimensions(level);
-  const blocked = blockedSet(level);
+  // Invalid Blocked entries are diagnosed by structural validation above and
+  // never reduce the number of real board cells required for full coverage.
+  const blocked = blockedSet(level, board);
   const lines = rawLines(level);
   if (paths.length !== lines.length) add(errors, CODES.SOLUTION_LINE_COUNT);
   const covered = new Set();

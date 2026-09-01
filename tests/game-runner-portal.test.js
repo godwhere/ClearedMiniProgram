@@ -64,6 +64,50 @@ function run() {
   assert.deepStrictEqual(legacy.completedPaths[0], [0, 1, 2, 3, 4]);
   assert.deepStrictEqual(legacy.owner, [0, 0, 0, 0, 0]);
 
+  // Runtime enables portal movement only for the explicit v1 contract.
+  // Stray portal fields, missing versions, and future versions retain normal
+  // four-direction movement rather than partially activating the mechanic.
+  [
+    { Mechanic: undefined, PortalRulesVersion: 1 },
+    { Mechanic: 'portal', PortalRulesVersion: undefined },
+    { Mechanic: 'portal', PortalRulesVersion: 2 },
+    { Mechanic: 'normal', PortalRulesVersion: 1 }
+  ].forEach(contract => {
+    const ordinaryLevel = portalLevel(
+      [{ Start: 0, End: 4 }],
+      [{ Id: 'P1', A: 1, B: 3 }],
+      Object.assign({ Width: 5, Height: 1 }, contract)
+    );
+    const ordinaryRunner = new GameRunner(ordinaryLevel, ['#f00']);
+    assert.strictEqual(ordinaryRunner.portalEnabled, false);
+    assert.strictEqual(ordinaryRunner.portalAt(1), null);
+    movePath(ordinaryRunner, [0, 1, 2, 3, 4]);
+    assert.strictEqual(ordinaryRunner.touchEnd(4), true);
+    assert.deepStrictEqual(ordinaryRunner.completedPaths[0], [0, 1, 2, 3, 4]);
+  });
+
+  const ignoredOptionPortals = new GameRunner({
+    Width: 5,
+    Height: 1,
+    Lines: [{ Start: 0, End: 4 }]
+  }, ['#f00'], null, { portals: [{ Id: 'P1', A: 1, B: 3 }] });
+  assert.strictEqual(ignoredOptionPortals.portalEnabled, false,
+    'runtime options cannot bypass the level mechanic/version contract');
+
+  [
+    [{ A: 1, B: 3 }],
+    [{ Id: 7, A: 1, B: 3 }],
+    [{ Id: 'P1', A: 1, B: 3 }, { Id: 'P2', A: 6, B: 8 }]
+  ].forEach(portals => {
+    const invalidRuntime = new GameRunner(portalLevel(
+      [{ Start: 0, End: 9 }],
+      portals,
+      { Width: 5, Height: 2 }
+    ), ['#f00']);
+    assert.strictEqual(invalidRuntime.portalEnabled, false,
+      'malformed v1 portal declarations fall back to ordinary movement');
+  });
+
   // Portal lookup is symmetric and does not turn a portal pair into ordinary
   // grid adjacency.
   const lookup = runnerWithPortal();
@@ -97,6 +141,18 @@ function run() {
   assert.deepStrictEqual(lockedStatus.entryCells, [0, 1, 7]);
   assert.strictEqual(locked.touchMove(8), false);
   assert.deepStrictEqual(locked.selectedCells, cellsAtA);
+
+  // An OS-level cancellation after reaching the entry is treated as the
+  // required release, preserving A and entering the reconnect wait state.
+  const cancelledAtEntry = runnerWithPortal();
+  movePath(cancelledAtEntry, [0, 1, 7]);
+  const entryCellsBeforeCancel = cancelledAtEntry.selectedCells.slice();
+  assert.strictEqual(cancelledAtEntry.handlePointerCancel(), true);
+  assertPhase(cancelledAtEntry, 'PORTAL_WAIT');
+  assert.deepStrictEqual(cancelledAtEntry.selectedCells, entryCellsBeforeCancel);
+  assert.strictEqual(cancelledAtEntry.handlePointerCancel(), false,
+    'a late cancellation while already waiting is inert');
+  assertPhase(cancelledAtEntry, 'PORTAL_WAIT');
   // The same pointer is released after the lock; it must not be interpreted
   // as a normal endpoint redraw.
   assert.strictEqual(locked.touchEnd(-1), false);
@@ -200,6 +256,23 @@ function run() {
   assert.strictEqual(continuation.selectedLine, -1);
   assert.deepStrictEqual(continuation.selectedCells, []);
 
+  // Cancelling after starting or extending the exit-side gesture clears only
+  // that temporary segment and returns to the same pending exit.
+  const cancelledAtExit = runnerWithPortal();
+  startAtPortalAndRelease(cancelledAtExit, [0, 1, 7]);
+  assert.strictEqual(cancelledAtExit.touchStart(28), true);
+  assert.strictEqual(cancelledAtExit.touchMove(29), true);
+  assert.strictEqual(cancelledAtExit.touchMove(35), true);
+  assert.strictEqual(cancelledAtExit.handlePointerCancel(), true);
+  const exitCancelStatus = assertPhase(cancelledAtExit, 'PORTAL_WAIT');
+  assert.deepStrictEqual(exitCancelStatus.entryCells, [0, 1, 7]);
+  assert.deepStrictEqual(cancelledAtExit.selectedCells, [0, 1, 7]);
+  assert.strictEqual(cancelledAtExit.touchStart(28), true,
+    'the expected exit remains available after pointer cancellation');
+  assert.strictEqual(cancelledAtExit.cancelPortalContinuation(), true,
+    'explicit lifecycle cancellation still clears the full pending line');
+  assert.strictEqual(cancelledAtExit.portalStatus(), null);
+
   // Explicit cancellation has the same stable cleanup semantics as a wrong
   // choice and leaves the ordinary undo stack untouched.
   const cancelled = runnerWithPortal();
@@ -213,6 +286,24 @@ function run() {
   assert.strictEqual(cancelled.owner[28], -1);
   assert.strictEqual(cancelled.undoStack.length, undoBeforeCancel);
   assert.strictEqual(cancelled.cancelPortalContinuation(), false);
+
+  // Ordinary pointer cancellation keeps legacy abort semantics, including
+  // restoration of a completed path that was being redrawn.
+  const ordinaryCancel = new GameRunner({
+    Width: 5,
+    Height: 2,
+    Lines: [
+      { Start: 0, End: 4 },
+      { Start: 5, End: 9 }
+    ]
+  }, ['#f00', '#0f0']);
+  movePath(ordinaryCancel, [0, 1, 2, 3, 4]);
+  assert.strictEqual(ordinaryCancel.touchEnd(4), true);
+  assert.strictEqual(ordinaryCancel.touchStart(0), true);
+  assert.strictEqual(ordinaryCancel.touchMove(1), true);
+  assert.strictEqual(ordinaryCancel.handlePointerCancel(), true);
+  assert.deepStrictEqual(ordinaryCancel.completedPaths[0], [0, 1, 2, 3, 4]);
+  assert.strictEqual(ordinaryCancel.selectedLine, -1);
 
   // Bidirectional entry: Entering from B (28) and exiting at A (7)
   const bToA = runnerWithPortal();
@@ -271,6 +362,17 @@ function run() {
   assert.strictEqual(undoWaitRunner.portalStatus(), null);
   assert.strictEqual(undoWaitRunner.selectedLine, -1);
   assert.deepStrictEqual(undoWaitRunner.selectedCells, []);
+
+  // Undo is explicit cancellation and therefore still clears the whole
+  // pending portal line even after an exit continuation has started.
+  const undoContinueRunner = runnerWithPortal();
+  startAtPortalAndRelease(undoContinueRunner, [0, 1, 7]);
+  assert.strictEqual(undoContinueRunner.touchStart(28), true);
+  assert.strictEqual(undoContinueRunner.touchMove(29), true);
+  assert.strictEqual(undoContinueRunner.undo(), true);
+  assert.strictEqual(undoContinueRunner.portalStatus(), null);
+  assert.strictEqual(undoContinueRunner.selectedLine, -1);
+  assert.deepStrictEqual(undoContinueRunner.selectedCells, []);
 
   // Reset clears all portal state
   const resetRunner = runnerWithPortal();

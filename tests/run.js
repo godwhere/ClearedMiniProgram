@@ -22,7 +22,9 @@ const tests = [
   ['game runner portals', require('./game-runner-portal.test.js')],
   ['hint service portals', require('./hint-service-portal.test.js')],
   ['app portals', require('./app-portal.test.js')],
-  ['renderer portals', require('./renderer-portal.test.js')]
+  ['renderer portals', require('./renderer-portal.test.js')],
+  ['gameplay mechanics', require('./mechanics.test.js')],
+  ['portal publishing gate', require('./portal-publishing.test.js')]
 ];
 
 async function main() {

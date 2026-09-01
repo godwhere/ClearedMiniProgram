@@ -41,6 +41,13 @@ function run() {
   };
 
   const renderer = new CanvasRenderer(platform, skins);
+  const tileDraws = [];
+  const originalDrawTile = renderer.drawTile.bind(renderer);
+  renderer.drawTile = (lineIndex, x, y, size, options) => {
+    const cellIndex = renderer.cellAt(x + size / 2, y + size / 2);
+    tileDraws.push({ lineIndex, cellIndex });
+    return originalDrawTile(lineIndex, x, y, size, options);
+  };
 
   const demoLevel = portalDemo.Games[0]; // 5x5, A: 21, B: 2
   const runner = new GameRunner(demoLevel, portalDemo.Palette);
@@ -63,6 +70,8 @@ function run() {
   assert(renderer.boardLayout, 'board layout should exist');
   assert.strictEqual(imageRequested, 'assets/icons/portal.png', 'portal icon should be requested');
   assert(ctx.calls.some(c => c.method === 'drawImage'), 'drawImage should be called for portal');
+  assert(tileDraws.filter(call => call.cellIndex === 2 || call.cellIndex === 21)
+    .every(call => call.lineIndex === -1), 'portal cells render only an empty base tile');
 
   // 2. PORTAL_WAIT rendering: expectedExit highlight & prompt text
   runner.touchStart(0);
@@ -71,6 +80,7 @@ function run() {
   assert.strictEqual(runner.portalPhase, 'PORTAL_WAIT');
 
   ctx.calls.length = 0;
+  tileDraws.length = 0;
   renderer.render({
     scene: 'play',
     set: portalDemo,
@@ -89,6 +99,9 @@ function run() {
 
   assert(ctx.calls.some(c => c.method === 'fillText' && c.args[0] === '从另一端继续'),
     'instruction text "从另一端继续" must be rendered during PORTAL_WAIT');
+  assert(tileDraws.filter(call => call.cellIndex === 2 || call.cellIndex === 21)
+    .every(call => call.lineIndex === -1),
+  'selected portal entry must not draw a themed line tile under the icon');
 
   // 3. drawHintPath with segmented hint
   const segmentedHint = {
@@ -100,11 +113,110 @@ function run() {
     teleports: [{ pairId: 'P1', from: 21, to: 2 }]
   };
   ctx.calls.length = 0;
-  renderer.drawHintPath(segmentedHint, portalDemo.Palette, Date.now());
-  // Verify tiles were drawn for each cell in both segments
-  assert(ctx.calls.filter(c => c.method === 'fillRect' || c.method === 'drawImage').length >= 25);
+  tileDraws.length = 0;
+  renderer.drawHintPath(segmentedHint, portalDemo.Palette, Date.now(), runner);
+  assert.strictEqual(tileDraws.length, 23, 'hint draws every non-portal path cell');
+  assert.strictEqual(tileDraws.some(call => call.cellIndex === 2 || call.cellIndex === 21), false,
+    'hint never draws a themed tile on either portal cell');
 
-  // 4. Vector fallback when image fails to load
+  // 4. During full-path clearing, owned portal cells keep the portal icon and
+  // never substitute a themed clear-effect tile.
+  const completedRunner = new GameRunner(demoLevel, portalDemo.Palette);
+  completedRunner.touchStart(segmentedHint.segments[0][0]);
+  segmentedHint.segments[0].slice(1).forEach(cell => completedRunner.touchMove(cell));
+  completedRunner.touchEnd(-1);
+  completedRunner.touchStart(segmentedHint.segments[1][0]);
+  segmentedHint.segments[1].slice(1).forEach(cell => completedRunner.touchMove(cell));
+  assert.strictEqual(completedRunner.touchEnd(24), true);
+  const clearNow = Date.now();
+  ctx.calls.length = 0;
+  tileDraws.length = 0;
+  renderer.render({
+    scene: 'play',
+    set: portalDemo,
+    level: demoLevel,
+    levelIndex: 0,
+    runner: completedRunner,
+    levelEnteredAt: clearNow - 1000,
+    clearAnimation: {
+      lineIndex: 0,
+      cells: completedRunner.completedPaths[0],
+      startedAt: clearNow,
+      durationMs: 300,
+      type: 'fade',
+      params: {}
+    },
+    pressedId: null,
+    hint: null,
+    hintUntil: 0,
+    hintAvailable: false
+  }, clearNow + 10);
+  const clearingPortalTiles = tileDraws.filter(call => call.cellIndex === 2 || call.cellIndex === 21);
+  assert.strictEqual(clearingPortalTiles.length, 2);
+  assert(clearingPortalTiles.every(call => call.lineIndex === -1),
+    'clearing portals retain only their empty base tiles');
+  assert(ctx.calls.filter(call => call.method === 'drawImage').length >= 2,
+    'both owned portals remain visible while their path clears');
+
+  // A non-persistent trial result uses trial/home copy rather than claiming a
+  // stored best time or routing to an ordinary level list.
+  ctx.calls.length = 0;
+  renderer.render({
+    scene: 'result',
+    set: portalDemo,
+    level: demoLevel,
+    levelIndex: 4,
+    runner: completedRunner,
+    levelEnteredAt: clearNow - 1000,
+    clearAnimation: null,
+    result: {
+      elapsedMs: 1234,
+      bestMs: 1234,
+      newBest: false,
+      persisted: false,
+      gameplayExtensionId: 'portal'
+    },
+    resultVisibleAt: 0,
+    hasNext: false,
+    pressedId: null,
+    portalTrial: { icon: 'assets/icons/portal.png' }
+  }, clearNow + 400);
+  const resultLabels = ctx.calls
+    .filter(call => call.method === 'fillText')
+    .map(call => call.args[0]);
+  assert(resultLabels.indexOf('试玩完成') >= 0);
+  assert(resultLabels.indexOf('返回主页') >= 0);
+  assert(resultLabels.indexOf('重玩') >= 0);
+  assert.strictEqual(resultLabels.indexOf('选关'), -1);
+  assert.strictEqual(resultLabels.indexOf('关卡列表'), -1);
+  assert.strictEqual(resultLabels.some(label => /^\u672c\u6b21 .* · \u6700\u4f73 /.test(label)), false);
+  assert.strictEqual(renderer.hits.some(hit => hit.id === 'result:next'), false);
+
+  // 5. Ordinary play renders Blocked cells, including the two holes in demo 5.
+  const blockedLevel = portalDemo.Games[4];
+  const blockedRunner = new GameRunner(blockedLevel, portalDemo.Palette);
+  const blockedDraws = [];
+  const originalDrawBlockedCell = renderer.drawBlockedCell.bind(renderer);
+  renderer.drawBlockedCell = (x, y, size, alpha, skin) => {
+    blockedDraws.push(renderer.cellAt(x + size / 2, y + size / 2));
+    return originalDrawBlockedCell(x, y, size, alpha, skin);
+  };
+  renderer.render({
+    scene: 'play',
+    set: portalDemo,
+    level: blockedLevel,
+    levelIndex: 4,
+    runner: blockedRunner,
+    levelEnteredAt: Date.now() - 1000,
+    clearAnimation: null,
+    pressedId: null,
+    hint: null,
+    hintUntil: 0,
+    hintAvailable: true
+  }, Date.now());
+  assert.deepStrictEqual(blockedDraws.sort((one, two) => one - two), [14, 20]);
+
+  // 6. Vector fallback when image fails to load
   const failPlatform = {
     context: createMockContext(),
     metrics: { width: 390, height: 844, safeTop: 44, safeBottom: 810 },

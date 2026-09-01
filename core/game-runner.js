@@ -105,7 +105,24 @@ class GameRunner {
       : (this.options.portalPairs !== undefined
         ? this.options.portalPairs
         : (this.level.Portals === undefined ? this.level.portals : this.level.Portals));
-    this.portalDefinitions = this.normalizePortals(configuredPortals, total);
+    const mechanic = this.level.Mechanic === undefined
+      ? this.level.mechanic : this.level.Mechanic;
+    const rulesVersion = this.level.PortalRulesVersion === undefined
+      ? this.level.portalRulesVersion : this.level.PortalRulesVersion;
+    const usesPortalV1 = mechanic === 'portal' && rulesVersion === 1;
+    // Portal fields on legacy, malformed, or future-version levels must not
+    // silently change movement semantics. Strict diagnostics remain the
+    // authoring validator's responsibility; runtime falls back to ordinary
+    // four-direction movement for every contract other than portal v1.
+    const normalizedPortals = usesPortalV1
+      ? this.normalizePortals(configuredPortals, total)
+      : [];
+    // v1 requires exactly one well-formed pair. Invalid authoring data keeps
+    // ordinary movement semantics rather than partially enabling a mechanic.
+    this.portalDefinitions = Array.isArray(configuredPortals) &&
+      configuredPortals.length === 1 && normalizedPortals.length === 1
+      ? normalizedPortals
+      : [];
     this.portalEnabled = this.portalDefinitions.length > 0;
     this.reset();
   }
@@ -126,8 +143,8 @@ class GameRunner {
       if (!Number.isInteger(a) || !Number.isInteger(b) || a === b ||
           a < 0 || b < 0 || a >= total || b >= total) return;
       const rawId = raw.Id === undefined ? raw.id : raw.Id;
-      const id = rawId === undefined || rawId === null || String(rawId) === ''
-        ? `P${index + 1}` : String(rawId);
+      if (typeof rawId !== 'string' || rawId.trim().length === 0) return;
+      const id = rawId;
       if (seenIds[id] || seenCells[a] || seenCells[b]) return;
       seenIds[id] = true;
       seenCells[a] = true;
@@ -593,6 +610,33 @@ class GameRunner {
       this.notify();
     }
     return true;
+  }
+
+  /**
+   * Handle an operating-system pointer cancellation without conflating it
+   * with the player's explicit reset/undo/leave actions.
+   *
+   * - cancellation at a locked entry is equivalent to releasing there;
+   * - cancellation while continuing from the exit drops only that exit
+   *   segment and preserves the entry segment in PORTAL_WAIT;
+   * - ordinary drawing keeps the legacy abort/restore behavior.
+   */
+  handlePointerCancel() {
+    if (this.portalPhase === PORTAL_PHASE.PORTAL_LOCKED && this.portalLock) {
+      this.enterPortalWait();
+      return true;
+    }
+    if (this.portalPending &&
+        (this.portalPhase === PORTAL_PHASE.PORTAL_CONTINUE ||
+         this.portalPhase === PORTAL_PHASE.DRAWING)) {
+      return this.rollbackPortalSegment();
+    }
+    if (this.portalPending && this.portalPhase === PORTAL_PHASE.PORTAL_WAIT) {
+      // There is no active pointer in the waiting state. A late cancellation
+      // from the entry gesture is therefore inert and must not erase A.
+      return false;
+    }
+    return this.abortSelection();
   }
 
   touchEnd(index) {

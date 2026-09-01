@@ -9,6 +9,7 @@ const solutionCatalog = require('../data/solutions.js');
 const dailyManifest = require('../data/daily-challenges.js');
 const dailySolutions = require('../data/daily-solutions.js');
 const dailyConfig = require('./config/daily.js');
+const portalMechanic = require('./mechanics/portal.js');
 
 function start() {
   const platform = new WechatPlatform();
@@ -21,6 +22,7 @@ function start() {
     solutionCatalog,
     dailyManifest,
     dailySolutions,
+    portalMechanic,
     // The homepage rollout is now approved: the existing theme button slot
     // opens the corridor. `home:themes` remains a compatibility action.
     homeMigration: true,

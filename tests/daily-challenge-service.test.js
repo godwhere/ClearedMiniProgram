@@ -74,6 +74,15 @@ function run() {
     ['height', Object.assign(clone(manifest.Challenges[0]), { Height: 9 })],
     ['blocked duplicate', Object.assign(clone(manifest.Challenges[0]), { Blocked: [3, 3] })],
     ['blocked endpoint', Object.assign(clone(manifest.Challenges[0]), { Blocked: [0] })],
+    ['portal mechanic', Object.assign(clone(manifest.Challenges[0]), {
+      Mechanic: 'portal'
+    })],
+    ['explicit portals', Object.assign(clone(manifest.Challenges[0]), {
+      Portals: []
+    })],
+    ['lower-case explicit portals', Object.assign(clone(manifest.Challenges[0]), {
+      portals: [{ id: 'P1', a: 1, b: 2 }]
+    })],
     ['endpoint duplicate', Object.assign(clone(manifest.Challenges[0]), {
       Lines: [{ Start: 0, End: 2 }, { Start: 2, End: 28 }]
     })]
@@ -83,12 +92,36 @@ function run() {
     assert.strictEqual(result.ok, false, `${item[0]} should be rejected`);
     assert(result.errors.length > 0, `${item[0]} should expose an error code`);
   });
+  invalidCases.slice(4, 7).forEach(item => {
+    const result = service.validate(item[1]);
+    assert(result.errors.indexOf('portal-not-supported') >= 0,
+      `${item[0]} should expose the daily v1 portal gate`);
+  });
+
+  const portalSolutionChallenge = Object.assign(clone(manifest.Challenges[0]), {
+    Mechanic: 'portal'
+  });
+  const portalSolutionResult = service.validateSolution(
+    portalSolutionChallenge,
+    solutions.ByChallengeId[manifest.Challenges[0].Id]
+  );
+  assert.strictEqual(portalSolutionResult.ok, false);
+  assert(portalSolutionResult.errors.indexOf('portal-not-supported') >= 0);
 
   const badPaths = clone(solutions.ByChallengeId[resolved.levels[1].Id]);
   badPaths[0][1] = 3;
   const solutionResult = service.validateSolution(resolved.levels[1], badPaths);
   assert.strictEqual(solutionResult.ok, false);
   assert(solutionResult.errors.indexOf('solution-through-blocked') >= 0);
+
+  const portalManifest = clone(manifest);
+  portalManifest.Days[0].Levels[0].Mechanic = 'portal';
+  const portalResolve = new DailyChallengeService(portalManifest).resolve(
+    new Date('2026-08-31T00:00:00Z')
+  );
+  assert.strictEqual(portalResolve.status, 'unavailable');
+  assert.strictEqual(portalResolve.reason, 'invalid-day');
+  assert(portalResolve.errors.indexOf('portal-not-supported') >= 0);
 
   const solutionAware = new DailyChallengeService(manifest, { solutions });
   assert.strictEqual(solutionAware.resolve(new Date('2026-08-31T00:00:00Z')).status, 'available');

@@ -153,6 +153,13 @@ function challengePalette(challenge) {
   return valueOf(challenge, 'Palette', 'palette');
 }
 
+function usesUnsupportedPortalMechanic(challenge) {
+  if (!isRecord(challenge)) return false;
+  const mechanic = valueOf(challenge, 'Mechanic', 'mechanic');
+  const declaresPortals = own(challenge, 'Portals') || own(challenge, 'portals');
+  return mechanic === 'portal' || declaresPortals;
+}
+
 function lineValue(line, upper, lower) {
   return valueOf(line, upper, lower);
 }
@@ -374,6 +381,11 @@ class DailyChallengeService {
       return { ok: false, errors: ['challenge-not-object'] };
     }
 
+    // Daily challenge schema v1 has no segmented solution/persistence
+    // contract. Reject portal selection as well as a stray explicit Portals
+    // field instead of flattening the jump into ordinary path semantics.
+    if (usesUnsupportedPortalMechanic(challenge)) add('portal-not-supported');
+
     const id = challengeId(challenge);
     if (typeof id !== 'string' || id.length === 0) add('id-required');
 
@@ -555,7 +567,11 @@ class DailyChallengeService {
       if (errors.indexOf(code) < 0) errors.push(code);
     };
     if (!isRecord(challenge)) return { ok: false, errors: ['challenge-not-object'] };
-    if (!Array.isArray(paths)) return { ok: false, errors: ['solution-required'] };
+    if (usesUnsupportedPortalMechanic(challenge)) add('portal-not-supported');
+    if (!Array.isArray(paths)) {
+      add('solution-required');
+      return { ok: false, errors };
+    }
 
     const width = challengeWidth(challenge);
     const height = challengeHeight(challenge);

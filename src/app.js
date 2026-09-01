@@ -11,6 +11,7 @@ const progressionConfig = require('./config/progression.js');
 const audioConfig = require('./config/audio.js');
 const CanvasRenderer = require('./ui/canvas-renderer.js');
 const defaultSkins = require('./skins/index.js');
+const defaultPortalMechanic = require('./mechanics/portal.js');
 
 // Daily challenge files are introduced independently from the ordinary
 // level/catalog pipeline.  Keep direct app construction (including older
@@ -39,6 +40,7 @@ const defaultDailyManifest = optionalRequire('../data/daily-challenges.js', {
 });
 const defaultDailySolutions = optionalRequire('../data/daily-solutions.js', null);
 const defaultPortalDemo = optionalRequire('../data/portal-demo.js', null);
+const defaultPortalSolutions = optionalRequire('../data/portal-solutions.js', null);
 
 // Daily mode deliberately has its own entry budget.  Keep the default here
 // as an orchestration fallback; published manifests/services may override it
@@ -141,7 +143,16 @@ class ClearedApp {
   constructor(platform, options) {
     const opts = options || {};
     this.platform = platform;
-    this.portalDemo = opts.portalDemo !== undefined ? opts.portalDemo : defaultPortalDemo;
+    this.portalMechanic = opts.portalMechanic === undefined
+      ? defaultPortalMechanic
+      : opts.portalMechanic;
+    const portalTrial = this.portalMechanic && this.portalMechanic.trial;
+    this.portalDemo = opts.portalDemo !== undefined
+      ? opts.portalDemo
+      : ((portalTrial && portalTrial.set) || defaultPortalDemo);
+    this.portalSolutions = opts.portalSolutions !== undefined
+      ? opts.portalSolutions
+      : ((portalTrial && portalTrial.solutions) || defaultPortalSolutions);
     // The home migration is deliberately opt-in. Production/default builds
     // keep the existing visible `home:themes` hit; tests or a later release
     // can explicitly enable the replacement with `homeMigration: true` (or
@@ -231,7 +242,11 @@ class ClearedApp {
     // internal short names remain compact in the orchestration code.
     this.dailyChallengeService = this.dailyService;
     this.dailyProgressStore = this.dailyProgress;
-    this.hints = new HintService(opts.solutionCatalog || null, this.dailySolutions);
+    this.hints = new HintService(
+      opts.solutionCatalog || null,
+      this.dailySolutions,
+      this.portalSolutions
+    );
     this.onDailyCompleted = typeof opts.onDailyCompleted === 'function'
       ? opts.onDailyCompleted
       : function () {};
@@ -265,7 +280,10 @@ class ClearedApp {
         { id: 'themes', name: '主题', action: 'corridor:themes' },
         { id: 'effects', name: '特效', action: 'corridor:effects' }
       ];
+    this.currentSet = null;
+    this.currentLevel = null;
     this.runner = null;
+    this.activeMechanicId = null;
     this.pointer = null;
     this.pressedId = null;
     this.clearAnimation = null;
@@ -720,6 +738,33 @@ class ClearedApp {
     return this.runnerOutcome(runner) !== OUTCOME.PLAYING;
   }
 
+  isPortalTrial() {
+    const id = this.portalMechanic && this.portalMechanic.id;
+    return !!id && this.activeMechanicId === id;
+  }
+
+  portalTrialDescriptor() {
+    const definition = this.portalMechanic;
+    const trial = definition && definition.trial;
+    const games = this.portalDemo && this.portalDemo.Games;
+    const stableId = definition && definition.id;
+    const action = trial && (trial.action || 'home:portalTrial');
+    if (!definition || definition.enabled === false || definition.mechanic !== 'portal' ||
+        definition.rulesVersion !== 1 || stableId !== 'portal' || !trial ||
+        typeof action !== 'string' || !action ||
+        !Array.isArray(games) || games.length === 0) return null;
+    return {
+      id: stableId,
+      name: definition.name,
+      kind: definition.kind,
+      rulesVersion: definition.rulesVersion,
+      icon: definition.icon,
+      label: trial.label || definition.name,
+      action,
+      enabled: true
+    };
+  }
+
   activeEnteredAt() {
     if (this.scene === 'daily' || this.scene === 'dailyResult') return this.daily.enteredAt;
     return this.levelEnteredAt;
@@ -827,6 +872,7 @@ class ClearedApp {
       dailyEntriesRemaining: this.dailyDebugUnlimited ? null : homeDailyEntry.entriesRemaining,
       dailyDebugUnlimited: this.dailyDebugUnlimited,
       homeMigration: this.homeMigration,
+      portalTrial: this.portalTrialDescriptor(),
       // Expose the active visual selection as data only. The renderer never
       // mutates this value; `performAction('effect:<id>')` owns persistence.
       currentEffectId: this.currentEffectId()
@@ -962,10 +1008,10 @@ class ClearedApp {
         hintAvailable: !this.runnerTerminal(this.runner),
         result: this.result,
         resultVisibleAt: this.resultVisibleAt,
-        hasNext: (this.currentSet && this.currentSet === this.portalDemo)
+        hasNext: this.isPortalTrial()
           ? (this.levelIndex + 1 < ((this.portalDemo && this.portalDemo.Games) || []).length)
           : !!this.progression.nextLevel(this.setIndex, this.levelIndex),
-        isPortalTrial: !!(this.currentSet && this.currentSet === this.portalDemo),
+        isPortalTrial: this.isPortalTrial(),
         portals: this.runner ? this.runner.portals : [],
         portalStatus,
         expectedExit: this.runner && this.runner.portalPending ? this.runner.portalPending.exit : null,
@@ -1081,12 +1127,18 @@ class ClearedApp {
         return;
       }
       const lineIndex = runner.selectedLine;
-      const cells = runner.selectedCells.slice();
+      const selectedCells = runner.selectedCells.slice();
       const hadSelection = lineIndex >= 0;
       const endIndex = point ? this.renderer.cellAt(point.x, point.y) : -1;
       const connected = runner.touchEnd(endIndex);
       if (connected) {
-        this.onPathCompleted(lineIndex, cells);
+        const completedCells = runner.completedPaths && runner.completedPaths[lineIndex];
+        const completedSegments = runner.completedSegments && runner.completedSegments[lineIndex];
+        this.onPathCompleted(
+          lineIndex,
+          Array.isArray(completedCells) ? completedCells : selectedCells,
+          Array.isArray(completedSegments) ? completedSegments : null
+        );
       } else if (runner.portalPhase === 'PORTAL_WAIT') {
         this.platform.triggerHaptic('light');
       } else if (hadSelection) {
@@ -1128,14 +1180,17 @@ class ClearedApp {
     if (!this.pointer || (point && point.id !== this.pointer.id)) return;
     if (this.pointer.mode === 'board') {
       const runner = this.activeRunner();
-      if (runner) runner.abortSelection();
+      if (runner) {
+        if (typeof runner.handlePointerCancel === 'function') runner.handlePointerCancel();
+        else runner.abortSelection();
+      }
     }
     this.pointer = null;
     this.pressedId = null;
     this.invalidate();
   }
 
-  onPathCompleted(lineIndex, cells) {
+  onPathCompleted(lineIndex, cells, segments) {
     const now = Date.now();
     const runner = this.activeRunner();
     if (!runner) return;
@@ -1149,6 +1204,9 @@ class ClearedApp {
       // prevents a later undo/new selection or effect change from mutating an
       // animation already being drawn.
       cells: Array.isArray(cells) ? cells.slice() : [],
+      segments: Array.isArray(segments)
+        ? segments.map(segment => Array.isArray(segment) ? segment.slice() : [])
+        : null,
       startedAt: now,
       effectId: effect.id || 'fade',
       type: effect.type || 'fade',
@@ -1199,6 +1257,21 @@ class ClearedApp {
     if (outcome !== OUTCOME.WON) return;
     if (this.scene === 'daily') {
       this.completeDailyLevel();
+      return;
+    }
+    if (this.isPortalTrial()) {
+      const elapsedMs = runner.elapsedMs();
+      this.result = {
+        elapsedMs,
+        firstClear: false,
+        newBest: false,
+        previousBest: 0,
+        bestMs: elapsedMs,
+        persisted: false,
+        gameplayExtensionId: this.activeMechanicId
+      };
+      this.resultVisibleAt = now + this.skins.current().animation.resultDelayMs;
+      this.scene = 'result';
       return;
     }
     const completion = this.progress.recordCompletion(
@@ -1471,6 +1544,7 @@ class ClearedApp {
       return false;
     }
     const previousScene = this.scene;
+    const portalTrial = this.portalTrialDescriptor();
     if (action === 'home:sound' || action === 'play:sound' || action === 'themes:sound' ||
         action === 'daily:sound' || action === 'dailyResult:sound' ||
         action === 'corridor:sound' || action === 'effects:sound') {
@@ -1483,7 +1557,8 @@ class ClearedApp {
     this.audio.playSfx('click');
     if (action === 'home:dailyChallenge' || action === 'home:daily') {
       this.enterDaily();
-    } else if (action === 'home:portalTrial' || action === 'corridor:portalTrial') {
+    } else if (portalTrial &&
+        (action === portalTrial.action || action === 'corridor:portalTrial')) {
       this.openPortalTrial(0);
     } else if (action === 'home:start') {
       const target = this.progress.resumeTarget(catalog.sets);
@@ -1605,11 +1680,12 @@ class ClearedApp {
         this.resetCurrentDailyLevel();
       }
     } else if (action === 'play:back' || action === 'result:levels') {
-      if (this.currentSet && this.currentSet === this.portalDemo) {
+      if (this.isPortalTrial()) {
         this.scene = 'home';
         this.currentSet = null;
         this.currentLevel = null;
         this.runner = null;
+        this.activeMechanicId = null;
       } else {
         this.scene = 'levels';
         this.runner = null;
@@ -1624,7 +1700,7 @@ class ClearedApp {
     } else if (action === 'play:hint') {
       this.showHint();
     } else if (action === 'result:replay') {
-      if (this.currentSet && this.currentSet === this.portalDemo) {
+      if (this.isPortalTrial()) {
         this.openPortalTrial(this.levelIndex);
       } else {
         this.openLevel(this.setIndex, this.levelIndex);
@@ -1634,7 +1710,7 @@ class ClearedApp {
         this.resetCurrentLevel();
       }
     } else if (action === 'result:next') {
-      if (this.currentSet && this.currentSet === this.portalDemo) {
+      if (this.isPortalTrial()) {
         if (this.levelIndex + 1 < ((this.portalDemo && this.portalDemo.Games) || []).length) {
           this.openPortalTrial(this.levelIndex + 1);
         } else {
@@ -1642,6 +1718,7 @@ class ClearedApp {
           this.currentSet = null;
           this.currentLevel = null;
           this.runner = null;
+          this.activeMechanicId = null;
         }
       } else {
         const target = this.progression.nextLevel(this.setIndex, this.levelIndex);
@@ -1685,8 +1762,7 @@ class ClearedApp {
     const configured = Array.isArray(this.corridorEntries) ? this.corridorEntries : null;
     const defaults = [
       { id: 'themes', name: '主题', action: 'corridor:themes' },
-      { id: 'effects', name: '特效', action: 'corridor:effects' },
-      { id: 'portalTrial', name: '传送门试玩', action: 'corridor:portalTrial' }
+      { id: 'effects', name: '特效', action: 'corridor:effects' }
     ];
     const source = configured || defaults;
     return source.reduce((result, item) => {
@@ -2015,6 +2091,9 @@ class ClearedApp {
     if (!this.progression.isUnlocked(setIndex, levelIndex)) return false;
     this.setIndex = setIndex;
     this.levelIndex = levelIndex;
+    this.currentSet = null;
+    this.currentLevel = null;
+    this.activeMechanicId = null;
     this.progress.markOpened(setIndex, levelIndex);
     this.progress.save();
     this.runner = new GameRunner(set.Games[levelIndex], set.Palette || [], () => this.invalidate());
@@ -2031,6 +2110,7 @@ class ClearedApp {
   }
 
   openPortalTrial(levelIndex = 0) {
+    if (!this.portalTrialDescriptor()) return false;
     const set = this.portalDemo;
     if (!set || !Array.isArray(set.Games) || !set.Games.length) return false;
     const safeIndex = Math.max(0, Math.min(levelIndex, set.Games.length - 1));
@@ -2038,7 +2118,8 @@ class ClearedApp {
     if (!game) return false;
     this.currentSet = set;
     this.currentLevel = game;
-    this.setIndex = 0;
+    this.activeMechanicId = this.portalMechanic && this.portalMechanic.id;
+    this.setIndex = -1;
     this.levelIndex = safeIndex;
     this.runner = new GameRunner(game, set.Palette || [], () => this.invalidate());
     this.scene = 'play';
