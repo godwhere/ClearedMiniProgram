@@ -14,6 +14,23 @@ class WechatPlatform {
     return this.api.getSystemInfoSync();
   }
 
+  // The Developer Tools simulator identifies itself through the same system
+  // information field used by WeChat's official debug flows. Keep detection
+  // behind the platform adapter so game rules never read `wx` directly.
+  isDevTools() {
+    let info = null;
+    try {
+      info = this.api.getSystemInfoSync
+        ? this.api.getSystemInfoSync()
+        : this.getWindowInfo();
+    } catch (error) {}
+    if ((!info || typeof info.platform !== 'string') && this.api.getWindowInfo) {
+      try { info = this.api.getWindowInfo(); } catch (error) {}
+    }
+    return !!(info && typeof info.platform === 'string' &&
+      info.platform.toLowerCase() === 'devtools');
+  }
+
   resize() {
     const info = this.getWindowInfo();
     const width = info.windowWidth || info.screenWidth;

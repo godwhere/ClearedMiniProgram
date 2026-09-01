@@ -16,6 +16,11 @@ class ProgressionService {
     if (!set || !(set.Games || [])[levelIndex]) return false;
     if (this.progressStore.isCompleted(setIndex, levelIndex)) return true;
 
+    // Bootstrap supplies this transient flag only for the WeChat Developer
+    // Tools simulator. It is never persisted and therefore cannot change
+    // progression in a release or real-device build.
+    if (this.config.unlockAllLevelsInDevTools === true) return true;
+
     if (!this.config.unlockAcrossSets) {
       return levelIndex === 0 || this.progressStore.isCompleted(setIndex, levelIndex - 1);
     }

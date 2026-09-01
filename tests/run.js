@@ -15,6 +15,7 @@ const tests = [
   ['WeChat project config', require('./project-config.test.js')],
   ['compiled level modules', require('./level-modules.test.js')],
   ['progression service', require('./progression-service.test.js')],
+  ['developer tools runtime gate', require('./devtools-runtime.test.js')],
   ['audio service', require('./audio-service.test.js')],
   ['hint service', require('./hint-service.test.js')],
   ['solutions', require('./solutions.test.js')],
