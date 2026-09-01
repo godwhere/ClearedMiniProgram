@@ -29,6 +29,8 @@
 - `src/app.js` 负责场景、输入和结算编排；`src/ui/canvas-renderer.js` 负责绘制与命中区域；`src/platform/wechat.js` 是微信 API 适配边界。不要跨层复制职责。
 - `src/services/` 承担存档、解锁、提示、音频、广告、每日挑战、主题和特效等领域能力；优先通过现有服务扩展，不要在 app 或 renderer 中另建平行状态。
 - `src/skins/*.js` 和 `src/effects/*.js` 应保持声明式 manifest；注册顺序集中在各自 `index.js`。主题和特效不能改变连线规则，也不能注入平台调用或任意业务回调。
+- `src/mechanics/*.js` 是 data-only 的玩法拓展定义，只能声明稳定 ID、规则版本、资源和试玩内容依赖；不得携带触摸、结算、存档、Canvas、平台或远程脚本回调。
+- 处理玩法拓展时必须区分“关卡来源/进度域”和“棋盘机制”：试玩是否写进度由来源决定，portal 等机制只决定规则与展示。详细迁移边界见 `docs/gameplay-extension-architecture.md`。
 - `pages/` 及根目录 `app.js`、`app.json`、`app.wxss` 是已从小游戏包排除的迁移参考。除非任务明确针对旧小程序，否则新功能只改当前 Canvas 运行时。
 - scene/action/hit ID、存档 key、关卡 ID 和已发布 manifest ID 都是兼容契约；非必要不要重命名或复用。
 
@@ -64,5 +66,5 @@
 ## 文档与交付
 
 - 改变玩法、视觉协议、场景/action 契约、数据/存档结构、发布配置或验收标准时，同步相应 `docs/*.md`；用户可见能力、入口、架构或命令变化时同步 `README.md`。
-- 当前专题文档：`docs/theme-system.md`、`docs/corridor-and-clear-effects.md`、`docs/daily-challenge-mode.md`、`docs/portal-mechanic.md`。
+- 当前专题文档：`docs/theme-system.md`、`docs/corridor-and-clear-effects.md`、`docs/daily-challenge-mode.md`、`docs/portal-mechanic.md`、`docs/gameplay-extension-architecture.md`。
 - 最终说明只需交代：改了什么、改在哪里、如何验证、哪些设备或发布检查尚未执行。不要用长篇说明掩盖不必要的实现。
