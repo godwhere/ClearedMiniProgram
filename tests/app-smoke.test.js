@@ -95,6 +95,24 @@ function run() {
 
   assert.strictEqual(app.openLevel(0, 1), false, 'locked levels cannot be opened directly');
   assert.strictEqual(app.openLevel(0, 0), true);
+  const backFrameAt = Date.now();
+  app.tick(backFrameAt);
+  const playBackHit = app.renderer.hits.find(hit => hit.id === 'play:back');
+  assert(playBackHit, 'ordinary play exposes the back action');
+  const playBackPoint = {
+    x: playBackHit.rect.x + playBackHit.rect.w / 2,
+    y: playBackHit.rect.y + playBackHit.rect.h / 2,
+    id: 40
+  };
+  app.onPointerStart(playBackPoint);
+  app.tick(backFrameAt + 1);
+  app.onPointerEnd(playBackPoint);
+  assert.strictEqual(app.scene, 'levels');
+  assert.doesNotThrow(() => app.tick(backFrameAt + 16),
+    'the first selector frame after a real back-button click must render');
+  assert(app.renderer.hits.some(hit => hit.id === 'levels:home'));
+  assert(app.renderer.hits.some(hit => hit.id === 'level:0:0'));
+  assert.strictEqual(app.openLevel(0, 0), true);
   app.ads.onLevelCompleted = () => { throw new Error('synchronous ad failure'); };
   app.tick(Date.now() + 1000);
   assert.strictEqual(app.showHint(), true);
