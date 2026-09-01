@@ -134,6 +134,77 @@ function run() {
       'malformed v1 portal declarations fall back to ordinary movement');
   });
 
+  // Portal v2 models one neutral network. Reaching any member exposes every
+  // other currently available member, while the legacy single-exit query is
+  // deliberately inert so callers cannot pick an arbitrary v2 destination.
+  const networkLevel = portalLevel(
+    [{ Start: 0, End: 4 }],
+    [{ Id: 'P1', Cells: [1, 2, 3] }],
+    { PortalRulesVersion: 2, Width: 5, Height: 1 }
+  );
+  const network = new GameRunner(networkLevel, ['#f00']);
+  assert.strictEqual(network.getMechanicState().rulesVersion, 2);
+  assert.deepStrictEqual(network.portalExits(1), [2, 3]);
+  assert.strictEqual(network.portalExit(1), -1);
+  assert.strictEqual(network.touchStart(0), true);
+  const networkLock = network.moveGesture(1);
+  assert.strictEqual(networkLock.phase, 'PORTAL_LOCKED');
+  assert.strictEqual(networkLock.expectedExit, null);
+  assert.deepStrictEqual(networkLock.expectedExits, [2, 3]);
+  const exposedLock = network.getMechanicState().locked;
+  exposedLock.eligibleExits.push(99);
+  assert.deepStrictEqual(network.portalLock.eligibleExits, [2, 3],
+    'v2 lock candidates are exposed as copies');
+  assert.strictEqual(network.touchEnd(-1), false);
+  assert.strictEqual(network.touchStart(2), true, 'the first candidate exit is accepted');
+  assert.strictEqual(network.touchEnd(2), false, 'an empty exit segment returns to waiting');
+  assert.deepStrictEqual(network.portalStatus().eligibleExits, [2, 3]);
+  assert.strictEqual(network.touchStart(3), true, 'a different candidate can be chosen on retry');
+  assert.strictEqual(network.touchMove(4), true);
+  assert.strictEqual(network.touchEnd(4), true);
+  assert.strictEqual(network.outcome, 'won');
+  assert.strictEqual(network.owner[2], -1,
+    'an unused v2 portal is optional and remains unowned');
+  assert.strictEqual(network.remainingCellCount(), 0);
+  assert.deepStrictEqual(network.getCompletedLine(0).teleports, [
+    { portalId: 'P1', from: 1, to: 3 }
+  ]);
+
+  const ambiguousNetwork = new GameRunner(portalLevel(
+    [{ Start: 0, End: 4 }],
+    [{ Id: 'P1', Cells: [1, 3], A: 1, B: 2 }],
+    { PortalRulesVersion: 2, Width: 5, Height: 1 }
+  ), ['#f00']);
+  assert.strictEqual(ambiguousNetwork.portalEnabled, false,
+    'v2 pair fields are rejected instead of being silently ignored');
+  const sparseNetwork = new GameRunner(portalLevel(
+    [{ Start: 0, End: 4 }],
+    [{ Id: 'P1', Cells: [1, , 3] }],
+    { PortalRulesVersion: 2, Width: 5, Height: 1 }
+  ), ['#f00']);
+  assert.strictEqual(sparseNetwork.portalEnabled, false,
+    'sparse v2 cell arrays are rejected at the runtime boundary');
+
+  const filteredNetwork = new GameRunner(networkLevel, ['#f00']);
+  filteredNetwork.owner[2] = 1;
+  assert.strictEqual(filteredNetwork.touchStart(0), true);
+  const filteredLock = filteredNetwork.moveGesture(1);
+  assert.deepStrictEqual(filteredLock.expectedExits, [3],
+    'occupied exits are removed without disabling other network exits');
+
+  const oneUseNetwork = new GameRunner(portalLevel(
+    [{ Start: 0, End: 6 }],
+    [{ Id: 'P1', Cells: [1, 3, 5] }],
+    { PortalRulesVersion: 2, Width: 7, Height: 1 }
+  ), ['#f00']);
+  assert.strictEqual(oneUseNetwork.touchStart(0), true);
+  assert.strictEqual(oneUseNetwork.touchMove(1), true);
+  oneUseNetwork.touchEnd(-1);
+  assert.strictEqual(oneUseNetwork.touchStart(3), true);
+  assert.strictEqual(oneUseNetwork.touchMove(4), true);
+  assert.strictEqual(oneUseNetwork.touchMove(5), false,
+    'v2 limits one line to one network transition');
+
   // Portal lookup is symmetric and does not turn a portal pair into ordinary
   // grid adjacency.
   const lookup = runnerWithPortal();

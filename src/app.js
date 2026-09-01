@@ -11,7 +11,8 @@ const progressionConfig = require('./config/progression.js');
 const audioConfig = require('./config/audio.js');
 const CanvasRenderer = require('./ui/canvas-renderer.js');
 const defaultSkins = require('./skins/index.js');
-const defaultPortalMechanic = require('./mechanics/portal.js');
+const defaultMechanics = require('./mechanics/index.js');
+const defaultPortalMechanic = defaultMechanics.get('portal');
 const {
   createCatalogRunContext,
   createMechanicTrialRunContext
@@ -80,6 +81,31 @@ const OUTCOME = GameRunner.OUTCOME || {
   WON: 'won',
   FAILED: 'failed'
 };
+const PORTAL_INSTRUCTIONS = Object.freeze({
+  PORTAL_LOCKED: '松开手指',
+  PORTAL_WAIT: '从任意其他传送门继续连线'
+});
+
+function portalInstructionForPhase(phase) {
+  return PORTAL_INSTRUCTIONS[phase] || null;
+}
+
+function portalExpectedExits(pending) {
+  if (!pending || typeof pending !== 'object') return [];
+  const raw = Array.isArray(pending.eligibleExits)
+    ? pending.eligibleExits
+    : (Array.isArray(pending.expectedExits)
+      ? pending.expectedExits
+      : (Array.isArray(pending.exits)
+        ? pending.exits
+        : (Number.isInteger(pending.exit) ? [pending.exit] : [])));
+  const seen = new Set();
+  return raw.filter(index => {
+    if (!Number.isInteger(index) || seen.has(index)) return false;
+    seen.add(index);
+    return true;
+  });
+}
 
 const DEFAULT_FADE_EFFECT = {
   id: 'fade',
@@ -775,8 +801,12 @@ class ClearedApp {
     const games = this.portalDemo && this.portalDemo.Games;
     const stableId = definition && definition.id;
     const action = trial && (trial.action || 'home:portalTrial');
+    const supportedRulesVersions = definition && Array.isArray(definition.supportedRulesVersions)
+      ? definition.supportedRulesVersions : [1];
     if (!definition || definition.enabled === false || definition.mechanic !== 'portal' ||
-        definition.rulesVersion !== 1 || stableId !== 'portal' || !trial ||
+        (definition.rulesVersion !== 1 && definition.rulesVersion !== 2) ||
+        supportedRulesVersions.indexOf(definition.rulesVersion) < 0 ||
+        stableId !== 'portal' || !trial ||
         typeof action !== 'string' || !action ||
         !Array.isArray(games) || games.length === 0) return null;
     return {
@@ -893,8 +923,9 @@ class ClearedApp {
     const portalCells = new Set();
     portals.forEach(portal => {
       if (!portal || typeof portal !== 'object') return;
-      const cells = Array.isArray(portal.cells)
-        ? portal.cells
+      const declaredCells = portal.cells === undefined ? portal.Cells : portal.cells;
+      const cells = Array.isArray(declaredCells)
+        ? declaredCells
         : [portal.A === undefined ? portal.a : portal.A,
           portal.B === undefined ? portal.b : portal.B];
       cells.forEach(index => {
@@ -921,11 +952,16 @@ class ClearedApp {
 
     const pending = mechanicState.pending;
     const locked = mechanicState.locked;
+    const expectedExits = portalExpectedExits(pending);
     const portal = mechanicState.id === 'portal' ? {
       icon: this.portalMechanic && this.portalMechanic.icon,
+      rulesVersion: mechanicState.rulesVersion,
       portals: cloneData(portals),
       phase: mechanicState.phase,
-      expectedExit: pending && Number.isInteger(pending.exit) ? pending.exit : null,
+      expectedExits,
+      expectedExit: mechanicState.rulesVersion === 1 && expectedExits.length === 1
+        ? expectedExits[0] : null,
+      instruction: portalInstructionForPhase(mechanicState.phase),
       lockedEntry: locked && Number.isInteger(locked.entry) ? locked.entry : null
     } : null;
     return {
@@ -1037,7 +1073,8 @@ class ClearedApp {
         portals: portalStatus ? portalStatus.portals : [],
         portalStatus,
         expectedExit: portalStatus ? portalStatus.expectedExit : null,
-        portalInstruction: portalStatus && portalStatus.phase === 'PORTAL_WAIT' ? '从另一端继续' : null
+        expectedExits: portalStatus ? portalStatus.expectedExits : [],
+        portalInstruction: portalStatus ? portalStatus.instruction : null
       });
     }
 
@@ -1139,7 +1176,8 @@ class ClearedApp {
         portals: portalStatus ? portalStatus.portals : [],
         portalStatus,
         expectedExit: portalStatus ? portalStatus.expectedExit : null,
-        portalInstruction: portalStatus && portalStatus.phase === 'PORTAL_WAIT' ? '从另一端继续' : null
+        expectedExits: portalStatus ? portalStatus.expectedExits : [],
+        portalInstruction: portalStatus ? portalStatus.instruction : null
       });
     }
     return base;
@@ -1154,8 +1192,6 @@ class ClearedApp {
       if (!event || !event.type) return;
       if (event.type === 'step') {
         this.audio.playSfx('step');
-      } else if (event.type === 'portal-wait' && event.action === 'end') {
-        this.platform.triggerHaptic('light');
       } else if (event.type === 'invalid-selection' && event.action === 'end') {
         this.audio.playSfx('error');
       } else if (event.type === 'path-completed' && event.commit) {

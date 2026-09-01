@@ -79,6 +79,7 @@ function run() {
   const lock = portal.moveGesture(1);
   assert.strictEqual(lock.phase, 'PORTAL_LOCKED');
   assert.strictEqual(lock.expectedExit, 6);
+  assert.deepStrictEqual(lock.expectedExits, [6]);
   const lockedState = portal.getMechanicState();
   assert.strictEqual(lockedState.locked.entry, 1);
   assert.strictEqual(lockedState.portals[0].id, 'P1');
@@ -91,6 +92,7 @@ function run() {
   assert.strictEqual(wait.status, 'portal-wait');
   assert.strictEqual(wait.phase, 'PORTAL_WAIT');
   assert.strictEqual(wait.expectedExit, 6);
+  assert.deepStrictEqual(wait.expectedExits, [6]);
   const waitingState = portal.getViewState();
   assert.deepStrictEqual(waitingState.mechanic.pending.entryCells, [0, 1]);
   assert(waitingState.mechanic.pending.usedPairIds.indexOf('P1') >= 0);
@@ -98,6 +100,27 @@ function run() {
   waitingState.mechanic.pending.usedPairIds.push('P2');
   assert.deepStrictEqual(portal.portalPending.entrySegments, [[0, 1]]);
   assert.deepStrictEqual(portal.portalPending.usedPairIds, ['P1']);
+
+  const network = new GameRunner({
+    Id: 'contract-portal-v2',
+    Mechanic: 'portal',
+    PortalRulesVersion: 2,
+    Width: 5,
+    Height: 1,
+    Lines: [{ Start: 0, End: 4 }],
+    Portals: [{ Id: 'P1', Cells: [1, 2, 3] }]
+  }, ['#f00']);
+  network.startGesture(0);
+  const networkLock = network.moveGesture(1);
+  assert.deepStrictEqual(networkLock.expectedExits, [2, 3]);
+  networkLock.expectedExits.push(99);
+  assert.deepStrictEqual(network.portalLock.eligibleExits, [2, 3]);
+  const networkWait = network.endGesture(-1);
+  const networkPending = network.getViewState().mechanic.pending;
+  assert.deepStrictEqual(networkWait.expectedExits, [2, 3]);
+  networkPending.eligibleExits[0] = 99;
+  assert.deepStrictEqual(network.portalPending.eligibleExits, [2, 3],
+    'v2 pending candidates cannot be mutated through the view state');
 
   const cancelled = portal.cancelGesture('navigation');
   assert.strictEqual(cancelled.changed, true);

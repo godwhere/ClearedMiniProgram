@@ -21,6 +21,7 @@ function createWxMock() {
   const storage = {};
   const context = fakeContext();
   const audioContexts = [];
+  const haptics = [];
   let frameId = 0;
   const canvas = {
     width: 390,
@@ -71,7 +72,8 @@ function createWxMock() {
     onHide(handler) { this.hide = handler; },
     onShow(handler) { this.show = handler; },
     onWindowResize(handler) { this.windowResize = handler; },
-    vibrateShort() {},
+    vibrateShort(options) { haptics.push(options && options.type); },
+    haptics,
     audioContexts
   };
 }
@@ -105,6 +107,8 @@ function run() {
 
   const layout = app.renderer.boardLayout;
   assert(layout, 'board layout must be initialized');
+  assert.strictEqual(app.buildModel().portalInstruction, null,
+    'portal instructions stay hidden before a portal is reached');
 
   const cellPoint = (index, id) => {
     const col = index % layout.cols;
@@ -121,6 +125,11 @@ function run() {
   assert.strictEqual(app.runner.selectedLine, 0);
   [1, 6, 5, 10, 11, 16, 15, 20, 21].forEach(c => app.onPointerMove(cellPoint(c, 1)));
   assert.strictEqual(app.runner.portalPhase, 'PORTAL_LOCKED');
+  assert.strictEqual(app.buildModel().portalInstruction, '松开手指');
+  assert.strictEqual(app.buildModel().mechanic.portal.instruction, '松开手指');
+  assert.strictEqual(app.isAnimating(app.levelEnteredAt + 1000), true,
+    'the active portal selection keeps prompt breathing frames alive');
+  assert.deepStrictEqual(api.haptics, [], 'reaching a portal does not vibrate');
 
   // Move after A is ignored
   app.onPointerMove(cellPoint(22, 1));
@@ -130,6 +139,8 @@ function run() {
   assert.strictEqual(app.runner.portalPhase, 'PORTAL_WAIT',
     'touchcancel at a locked portal is treated as releasing at the entry');
   assert.strictEqual(app.pointer, null);
+  assert.strictEqual(app.buildModel().portalInstruction, '从任意其他传送门继续连线');
+  assert.deepStrictEqual(api.haptics, [], 'portal cancellation feedback stays visual only');
 
   // 2. Fast swipe jump over A: traceBoard stops at A
   app.runner.reset();
@@ -140,23 +151,28 @@ function run() {
   app.traceBoard(cellPoint(20, 2), cellPoint(22, 2));
   assert.strictEqual(app.runner.portalPhase, 'PORTAL_LOCKED');
   assert.strictEqual(app.runner.selectedCells[app.runner.selectedCells.length - 1], 21);
+  assert.strictEqual(app.buildModel().portalInstruction, '松开手指');
 
   // 3. Release at A -> enters PORTAL_WAIT (no error sfx)
   app.onPointerEnd(cellPoint(21, 2));
   assert.strictEqual(app.runner.portalPhase, 'PORTAL_WAIT');
   assert.strictEqual(app.pointer, null);
 
-  // Model exposes expectedExit and portalInstruction
+  // Model exposes compatible exit fields and the post-release instruction.
   const model = app.buildModel();
-  assert.strictEqual(model.expectedExit, 2);
-  assert.strictEqual(model.portalInstruction, '从另一端继续');
+  assert.strictEqual(model.expectedExit, null,
+    'Portal v2 exposes candidate exits only through the plural contract');
+  assert.deepStrictEqual(model.expectedExits, [2]);
+  assert.strictEqual(model.portalInstruction, '从任意其他传送门继续连线');
+  assert.strictEqual(model.mechanic.portal.instruction, model.portalInstruction);
+  assert.deepStrictEqual(api.haptics, [], 'releasing at a portal does not vibrate');
 
   // Cancelling an exit-side gesture drops only that side and keeps A waiting.
   app.onPointerStart(cellPoint(2, 30));
   app.onPointerMove(cellPoint(3, 30));
   app.onPointerCancel(cellPoint(3, 30));
   assert.strictEqual(app.runner.portalPhase, 'PORTAL_WAIT');
-  assert.strictEqual(app.runner.portalPending.exit, 2);
+  assert.deepStrictEqual(app.runner.portalPending.eligibleExits, [2]);
   assert.strictEqual(app.runner.selectedCells[app.runner.selectedCells.length - 1], 21);
   assert.strictEqual(app.pointer, null);
 
@@ -165,6 +181,7 @@ function run() {
   assert.strictEqual(app.runner.portalPhase, 'READY');
   assert.strictEqual(app.runner.selectedLine, -1);
   assert.strictEqual(app.pointer, null, 'wrong tap must not create active board pointer');
+  assert.strictEqual(app.buildModel().portalInstruction, null);
 
   // 5. Correct full sequence: 0 -> A(21) -> release -> B(2) -> 24
   assert.strictEqual(app.setClearEffect('fade'), true,
@@ -172,12 +189,17 @@ function run() {
   app.onPointerStart(cellPoint(0, 4));
   [1, 6, 5, 10, 11, 16, 15, 20, 21].forEach(c => app.onPointerMove(cellPoint(c, 4)));
   assert.strictEqual(app.runner.portalPhase, 'PORTAL_LOCKED');
+  assert.strictEqual(app.buildModel().portalInstruction, '松开手指');
   app.onPointerEnd(cellPoint(21, 4));
   assert.strictEqual(app.runner.portalPhase, 'PORTAL_WAIT');
+  assert.strictEqual(app.buildModel().portalInstruction, '从任意其他传送门继续连线');
+  assert.deepStrictEqual(api.haptics, []);
 
   // Tap on B=2
   app.onPointerStart(cellPoint(2, 5));
   assert.strictEqual(app.runner.portalPhase, 'PORTAL_CONTINUE');
+  assert.strictEqual(app.buildModel().portalInstruction, null,
+    'the wait instruction disappears as soon as continuation starts');
   assert.strictEqual(app.boardInput.isActive(), true,
     'the board controller owns the continuation pointer');
   assert.strictEqual(app.pointer, null, 'App no longer duplicates board pointer state');
@@ -187,6 +209,8 @@ function run() {
   app.onPointerEnd(cellPoint(24, 5));
   assert.strictEqual(app.runner.isGameOver, true);
   assert.strictEqual(app.scene, 'result');
+  assert.deepStrictEqual(api.haptics, ['medium'],
+    'only completed-path feedback vibrates during a portal run');
   assert.strictEqual(app.clearAnimation.cells.length, 25,
     'clear animation includes both portal path segments');
   assert.deepStrictEqual(app.clearAnimation.segments.map(segment => segment.length), [10, 15]);

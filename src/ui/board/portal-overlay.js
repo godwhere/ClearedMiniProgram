@@ -1,15 +1,19 @@
 'use strict';
 
-function clamp(value, min, max) {
-  return Math.max(min, Math.min(max, value));
-}
-
 function portalCells(definition) {
   if (!definition || typeof definition !== 'object') return [];
-  if (Array.isArray(definition.cells)) return definition.cells.slice(0, 2);
+  const cells = definition.cells === undefined ? definition.Cells : definition.cells;
+  if (Array.isArray(cells)) return cells.slice();
   const a = definition.A === undefined ? definition.a : definition.A;
   const b = definition.B === undefined ? definition.b : definition.B;
   return [a, b];
+}
+
+function expectedExitCells(portal) {
+  const raw = portal && Array.isArray(portal.expectedExits)
+    ? portal.expectedExits
+    : (portal && Number.isInteger(portal.expectedExit) ? [portal.expectedExit] : []);
+  return new Set(raw.filter(Number.isInteger));
 }
 
 class PortalOverlay {
@@ -23,7 +27,6 @@ class PortalOverlay {
     this.drawTile = typeof opts.drawTile === 'function' ? opts.drawTile : function () {};
     this.drawImageContain = typeof opts.drawImageContain === 'function'
       ? opts.drawImageContain : function () {};
-    this.text = typeof opts.text === 'function' ? opts.text : function () {};
     this.roundedRect = typeof opts.roundedRect === 'function' ? opts.roundedRect : function () {};
     this.invalidate = typeof opts.invalidate === 'function' ? opts.invalidate : function () {};
     this.image = null;
@@ -95,7 +98,7 @@ class PortalOverlay {
     const image = this.ensureImage(portal.icon);
     const isWaiting = portal.phase === 'PORTAL_WAIT';
     const isLocked = portal.phase === 'PORTAL_LOCKED';
-    const expectedExit = isWaiting ? portal.expectedExit : null;
+    const expectedExits = isWaiting ? expectedExitCells(portal) : new Set();
     const lockedEntry = isLocked ? portal.lockedEntry : null;
     const animation = board && board.clearAnimation;
     const clearStartedAt = Number(animation && animation.startedAt);
@@ -108,7 +111,6 @@ class PortalOverlay {
     const cells = board && Array.isArray(board.cells) ? board.cells : [];
 
     portal.portals.forEach(definition => {
-      const id = definition && (definition.id || definition.Id) || 'P1';
       portalCells(definition).forEach(cellIndex => {
         if (!Number.isInteger(cellIndex) || cellIndex < 0) return;
         const state = cells[cellIndex] && cells[cellIndex].index === cellIndex
@@ -141,14 +143,7 @@ class PortalOverlay {
           this.drawFallback(x, y, size, now);
         }
 
-        this.text(String(id), x + size - 6, y + 8, clamp(size * 0.2, 9, 12), {
-          color: '#ffffff',
-          alpha: 0.85,
-          weight: 600,
-          align: 'right'
-        });
-
-        if (isWaiting && cellIndex === expectedExit) {
+        if (isWaiting && expectedExits.has(cellIndex)) {
           const breath = 0.5 + Math.sin(now / 160) * 0.5;
           ctx.save();
           ctx.strokeStyle = '#ffeb3b';

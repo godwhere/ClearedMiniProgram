@@ -11,7 +11,8 @@ const MUTABLE_RUNNER_FIELDS = [
   'completedSegments', 'completedTeleports', 'selectedCells',
   'selectedSegments', 'selectedLine', 'owner', 'fixedLine', 'blockedMask',
   'portalByCell', 'portals', 'completed', 'outcome', 'failureReason',
-  'remainingPlayableCells'
+  'remainingPlayableCells', 'portalDefinitions', 'portalPolicy',
+  'portalRulesVersion'
 ];
 
 function dependencies(source) {
@@ -28,10 +29,10 @@ function dependencies(source) {
   return result;
 }
 
-function forbiddenReason(dependency) {
+function forbiddenReason(dependency, fromDir) {
   const normalized = dependency.replace(/\\/g, '/').toLowerCase();
   const resolved = dependency.startsWith('.')
-    ? path.resolve(CORE_DIR, dependency)
+    ? path.resolve(fromDir || CORE_DIR, dependency)
     : null;
   if (resolved === SRC_DIR || (resolved && resolved.indexOf(`${SRC_DIR}${path.sep}`) === 0)) {
     return 'src runtime/UI layer';
@@ -45,24 +46,36 @@ function forbiddenReason(dependency) {
   return null;
 }
 
+function javascriptFiles(directory) {
+  const result = [];
+  fs.readdirSync(directory, { withFileTypes: true }).forEach(entry => {
+    const absolute = path.join(directory, entry.name);
+    if (entry.isDirectory()) {
+      javascriptFiles(absolute).forEach(file => result.push(file));
+    } else if (entry.isFile() && entry.name.endsWith('.js')) {
+      result.push(absolute);
+    }
+  });
+  return result;
+}
+
 function run() {
-  const files = fs.readdirSync(CORE_DIR)
-    .filter(file => file.endsWith('.js'))
-    .sort();
+  const files = javascriptFiles(CORE_DIR).sort();
 
   assert(files.length > 0, 'core boundary test must inspect at least one JavaScript module');
 
   files.forEach(file => {
-    const source = fs.readFileSync(path.join(CORE_DIR, file), 'utf8');
-    assert(!/\bwx\s*(?:\.|\[)/.test(source), `core/${file} must not access the wx global`);
+    const relative = path.relative(CORE_DIR, file);
+    const source = fs.readFileSync(file, 'utf8');
+    assert(!/\bwx\s*(?:\.|\[)/.test(source), `core/${relative} must not access the wx global`);
     assert(!/\bCanvas(?:RenderingContext2D)?\s*[.(]/.test(source),
-      `core/${file} must not access Canvas globals`);
+      `core/${relative} must not access Canvas globals`);
     assert(!/\b(?:localStorage|sessionStorage)\s*(?:\.|\[)/.test(source),
-      `core/${file} must not access browser storage globals`);
+      `core/${relative} must not access browser storage globals`);
     dependencies(source).forEach(dependency => {
-      const reason = forbiddenReason(dependency);
+      const reason = forbiddenReason(dependency, path.dirname(file));
       assert.strictEqual(reason, null,
-        `core/${file} must not depend on ${reason}: ${dependency}`);
+        `core/${relative} must not depend on ${reason}: ${dependency}`);
     });
   });
 

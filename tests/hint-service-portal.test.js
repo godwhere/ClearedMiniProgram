@@ -41,9 +41,14 @@ function purePortalContext(level) {
     selection: { lineIndex: -1, cells: [], segments: [], teleports: [] },
     mechanic: {
       id: 'portal',
-      rulesVersion: 1,
+      rulesVersion: level.PortalRulesVersion,
       phase: 'READY',
-      portals: level.Portals.map(portal => Object.assign({}, portal)),
+      portals: level.Portals.map(portal => {
+        const cells = portal.Cells || portal.cells;
+        return Array.isArray(cells)
+          ? { id: portal.Id || portal.id, cells: cells.slice() }
+          : Object.assign({}, portal);
+      }),
       pending: null,
       locked: null,
       usedPairIds: []
@@ -100,7 +105,8 @@ function run() {
   reverseRunner.touchEnd(-1);
   assert.strictEqual(reverseRunner.portalPhase, 'PORTAL_WAIT');
   assert.strictEqual(reverseRunner.portalPending.entry, 2);
-  assert.strictEqual(reverseRunner.portalPending.exit, 21);
+  assert.deepStrictEqual(reverseRunner.portalPending.eligibleExits, [21]);
+  assert.strictEqual(reverseRunner.portalPending.selectedExit, null);
 
   const reverseHint = hints.find(reverseRunner);
   assert(reverseHint, 'reverse portal entry must have a wait hint');
@@ -199,6 +205,71 @@ function run() {
     assert.strictEqual(h.source, 'solution');
   });
 
+  // v2 branches from one entry to every other portal in the neutral network.
+  // The first listed exit (5) is a dead end after the network has been used,
+  // so search must continue with exit 6 rather than committing to one pair.
+  const networkLevel = {
+    Id: 'portal-v2-network-search',
+    Mechanic: 'portal',
+    PortalRulesVersion: 2,
+    Width: 4,
+    Height: 2,
+    Lines: [{ Start: 0, End: 3 }],
+    Portals: [{ Id: 'P1', Cells: [1, 5, 6] }]
+  };
+  const networkContext = deepFreeze(purePortalContext(networkLevel));
+  const networkHint = new PortalHintProvider().find(networkContext, null);
+  assert(networkHint, 'v2 search must explore all eligible exits');
+  assert.deepStrictEqual(networkHint.path, [0, 1, 6, 7, 3]);
+  assert.deepStrictEqual(networkHint.segments, [[0, 1], [6, 7, 3]]);
+  assert.deepStrictEqual(networkHint.teleports, [
+    { from: 1, to: 6, portalId: 'P1' }
+  ]);
+
+  const networkStored = [{ Segments: [
+    { Cells: [0, 1], Exit: { PortalId: 'P1', From: 1, To: 6 } },
+    { Cells: [6, 7, 3] }
+  ] }];
+  const networkReadyHint = new PortalHintProvider().find(networkContext, networkStored);
+  assert.strictEqual(networkReadyHint.source, 'solution');
+  assert.deepStrictEqual(networkReadyHint.teleports, [
+    { from: 1, to: 6, portalId: 'P1' }
+  ]);
+
+  const networkWaitContext = purePortalContext(networkLevel);
+  networkWaitContext.selection = {
+    lineIndex: 0,
+    cells: [0, 1],
+    segments: [[0, 1]],
+    teleports: []
+  };
+  networkWaitContext.mechanic.phase = 'PORTAL_WAIT';
+  networkWaitContext.mechanic.pending = {
+    lineIndex: 0,
+    portalId: 'P1',
+    entry: 1,
+    eligibleExits: [5, 6],
+    entryCells: [0, 1]
+  };
+  const networkWaitHint = new PortalHintProvider().find(
+    deepFreeze(networkWaitContext),
+    networkStored
+  );
+  assert(networkWaitHint);
+  assert.strictEqual(networkWaitHint.source, 'solution');
+  assert.strictEqual(networkWaitHint.recommendedExit, 6);
+  assert.deepStrictEqual(networkWaitHint.segments, [[6, 7, 3]]);
+  assert.deepStrictEqual(networkWaitHint.teleports, []);
+
+  const pairIdCompatibility = JSON.parse(JSON.stringify(networkStored));
+  pairIdCompatibility[0].Segments[0].Exit.PairId =
+    pairIdCompatibility[0].Segments[0].Exit.PortalId;
+  delete pairIdCompatibility[0].Segments[0].Exit.PortalId;
+  const compatibilityHint = new PortalHintProvider().find(networkContext, pairIdCompatibility);
+  assert.deepStrictEqual(compatibilityHint.teleports, [
+    { from: 1, to: 6, portalId: 'P1' }
+  ], 'v2 hint output canonicalizes the legacy PairId alias to portalId');
+
   // 9. Legacy non-portal levels return legacy format without segments
   const legacyLevel = {
     Width: 3,
@@ -225,9 +296,15 @@ function run() {
   assert(reversed);
   assert.strictEqual(reversed.start, 24);
   assert.strictEqual(reversed.end, 0);
-  assert.deepStrictEqual(reversed.teleports, [{ pairId: 'P1', from: 2, to: 21 }]);
+  assert.deepStrictEqual(reversed.teleports, [{ from: 2, to: 21, portalId: 'P1' }]);
   assert.strictEqual(JSON.stringify(rawStored), rawBefore,
     'portal solution helpers must not mutate catalog data');
+  assert.strictEqual(portalSolution.normalizeStoredPortalLine({
+    Segments: [{ Cells: [0, , 1] }]
+  }), null, 'stored hints reject sparse cell arrays');
+  assert.strictEqual(portalSolution.normalizeStoredPortalLine({
+    Segments: new Array(1)
+  }), null, 'stored hints reject sparse segment arrays');
 
   // 11. Provider and facade both consume a frozen, runner-free context. This
   // also proves routing uses mechanic.id rather than a mutable runner flag.
@@ -266,9 +343,9 @@ function run() {
   waitContext.mechanic.phase = 'PORTAL_WAIT';
   waitContext.mechanic.pending = {
     lineIndex: 0,
-    pairId: 'P1',
+    portalId: 'P1',
     entry: 21,
-    exit: 2,
+    eligibleExits: [2],
     entryCells: waitContext.selection.cells.slice(),
     usedPairIds: []
   };

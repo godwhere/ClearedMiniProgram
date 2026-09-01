@@ -75,7 +75,8 @@ function run() {
     ['blocked duplicate', Object.assign(clone(manifest.Challenges[0]), { Blocked: [3, 3] })],
     ['blocked endpoint', Object.assign(clone(manifest.Challenges[0]), { Blocked: [0] })],
     ['portal mechanic', Object.assign(clone(manifest.Challenges[0]), {
-      Mechanic: 'portal'
+      Mechanic: 'portal',
+      PortalRulesVersion: 2
     })],
     ['explicit portals', Object.assign(clone(manifest.Challenges[0]), {
       Portals: []
@@ -95,11 +96,12 @@ function run() {
   invalidCases.slice(4, 7).forEach(item => {
     const result = service.validate(item[1]);
     assert(result.errors.indexOf('portal-not-supported') >= 0,
-      `${item[0]} should expose the daily v1 portal gate`);
+      `${item[0]} should expose the daily portal gate`);
   });
 
   const portalSolutionChallenge = Object.assign(clone(manifest.Challenges[0]), {
-    Mechanic: 'portal'
+    Mechanic: 'portal',
+    PortalRulesVersion: 2
   });
   const portalSolutionResult = service.validateSolution(
     portalSolutionChallenge,

@@ -26,14 +26,14 @@
 回廊功能入口、消除特效选择页、“无特效”/“逐渐消失”特效以及首页主题入口迁移契约，记录在
 [`docs/corridor-and-clear-effects.md`](docs/corridor-and-clear-effects.md)。第一版场景、特效和首页回廊入口已接入，旧主题 action 仍兼容保留。
 
-传送门玩法的入口段锁定、松手后从配对出口继续、错误选择回滚、试玩关卡、分段解答格式和
+传送门玩法的入口段锁定、松手后任选同网络其他出口、错误选择回滚、试玩关卡、分段解答格式和
 `GameRunner`/输入/渲染代码边界记录在 [`docs/portal-mechanic.md`](docs/portal-mechanic.md)。
-目前已完成双向传送、分段手势/提示、完整路径清除动画与 5 个试玩关卡（`data/portal-demo.js`）。
+目前已完成 Portal v2 单网络任选出口、分段手势/提示、完整路径清除动画与 5 个试玩关卡（`data/portal-demo.js`），并保留 Portal v1 题面和解答兼容。提示只在到门锁定和松手等待两个阶段出现在棋盘上方，带轻微呼吸效果；门格不显示 `P1`，Portal 阶段不震动，完整线路消除仍保留原有震动。
 传送门以 [`src/mechanics/portal.js`](src/mechanics/portal.js) 作为独立“玩法拓展”定义，不属于主题或特效回廊；试玩通关不写入普通关卡进度、最佳时间或广告计数。门格只显示传送门，不叠加当前主题棋子；默认图标为
 [`assets/icons/portal.png`](assets/icons/portal.png)。
 
 传送门作为首个玩法拓展所暴露的运行上下文、规则查询、输入、提示、渲染与结算边界，以及后续分阶段迁移步骤，记录在
-[`docs/gameplay-extension-architecture.md`](docs/gameplay-extension-architecture.md)。阶段 0—6 的架构重构已经完成：关卡来源与棋盘机制、规则状态与只读视图、输入、提示、结算和渲染现已分层；阶段 7 的通用机制 Registry 仍须等第二种真实玩法或 Portal v2 出现后再实施。
+[`docs/gameplay-extension-architecture.md`](docs/gameplay-extension-architecture.md)。阶段 0—6 的架构重构已经完成；Portal v2 已触发并完成阶段 7 的最小规则版本 Registry，以 allowlist 分派 v1/v2 策略，未知机制或版本不会执行内容脚本。
 
 “高难关卡”主页入口及“每日挑战”模式的棋盘、日期、镂空、存档和实现边界记录在
 [`docs/daily-challenge-mode.md`](docs/daily-challenge-mode.md)；广告/分享增次、复活和货币系统暂未接入。
@@ -69,6 +69,7 @@
 ```text
 game.js                         小游戏入口
 core/game-runner.js             纯规则、结构化手势结果与只读状态查询（支持镂空/Portal）
+core/mechanics/                 机制规则版本 allowlist 与 Portal v1/v2 策略
 core/portal-schema.js           Portal 字段读取、规范化与索引的唯一共享来源
 core/portal-solution.js         Portal 分段解规范化、反转与展平纯函数
 core/portal-validation.js       Portal 题面和分段解答的严格发布校验
@@ -111,6 +112,7 @@ src/skins/vehicles.js           交通工具主题 manifest（10 个交通工具
 src/effects/index.js            内置消除特效注册入口
 src/effects/none.js             “无特效”manifest（不创建清除动画快照）
 src/effects/fade.js             “逐渐消失”特效 manifest
+src/mechanics/index.js          玩法拓展 definition 注册与稳定 ID 查询
 src/mechanics/portal.js         传送门玩法拓展定义、试玩集与解答依赖
 src/config/ads.js               广告位与展示频率配置
 src/config/progression.js       跨关卡组解锁配置
@@ -144,7 +146,7 @@ tests/clear-effect-service.test.js、tests/clear-effect-system.test.js 特效服
 node tests/run.js
 ```
 
-测试覆盖路径连接、回退、阻挡、跨行边界、重画、撤销、122 关数据完整性、进度存储、
+测试覆盖路径连接、回退、阻挡、跨行边界、重画、撤销、Portal v1/v2 与多出口回放、122 关数据完整性、进度存储、
 主题清单/分页/素材回退、回廊与消除特效清单/分页/存档/无特效与淡出回退、每日两关/次数/镂空规则、
 未填满棋盘的失败终局与重试、Canvas 渲染和完整小游戏启动/触控烟雾流程。122 关官方
 解答还会实际驱动规则机，确保全部保持胜利结果。

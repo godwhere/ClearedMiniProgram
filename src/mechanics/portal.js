@@ -11,7 +11,8 @@ module.exports = Object.freeze({
   name: '传送门',
   kind: 'gameplay-extension',
   mechanic: 'portal',
-  rulesVersion: 1,
+  rulesVersion: 2,
+  supportedRulesVersions: Object.freeze([1, 2]),
   icon: 'assets/icons/portal.png',
   enabled: true,
   trial: Object.freeze({

@@ -15,6 +15,7 @@ function eventFromResult(result, action) {
     status: 'ignored',
     phase: null,
     expectedExit: null,
+    expectedExits: [],
     commit: null,
     outcome: 'playing'
   };
@@ -24,6 +25,9 @@ function eventFromResult(result, action) {
     status: value.status || 'ignored',
     phase: value.phase || null,
     expectedExit: Number.isInteger(value.expectedExit) ? value.expectedExit : null,
+    expectedExits: Array.isArray(value.expectedExits)
+      ? value.expectedExits.filter(Number.isInteger)
+      : (Number.isInteger(value.expectedExit) ? [value.expectedExit] : []),
     outcome: value.outcome || 'playing'
   };
 

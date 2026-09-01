@@ -8,6 +8,7 @@ function result(overrides) {
     status: 'ignored',
     phase: 'READY',
     expectedExit: null,
+    expectedExits: [],
     commit: null,
     outcome: 'playing'
   }, overrides || {});
@@ -77,7 +78,8 @@ function run() {
         changed: true,
         status: 'drawing',
         phase: cell === 2 ? 'PORTAL_LOCKED' : 'DRAWING',
-        expectedExit: cell === 2 ? 4 : null
+        expectedExit: cell === 2 ? 4 : null,
+        expectedExits: cell === 2 ? [3, 4] : []
       });
     },
     endGesture(cell) {
@@ -86,7 +88,8 @@ function run() {
         changed: true,
         status: 'portal-wait',
         phase: 'PORTAL_WAIT',
-        expectedExit: 4
+        expectedExit: 4,
+        expectedExits: [3, 4]
       });
     },
     cancelGesture() {
@@ -104,6 +107,10 @@ function run() {
   const waitEvents = portal.end(point(4, 3));
   assert.deepStrictEqual(waitEvents.map(event => event.type), ['portal-wait']);
   assert.strictEqual(waitEvents[0].expectedExit, 4);
+  assert.deepStrictEqual(waitEvents[0].expectedExits, [3, 4]);
+  waitEvents[0].expectedExits.push(99);
+  assert.deepStrictEqual(portalRunner.endGesture(4).expectedExits, [3, 4],
+    'controller events copy candidate exit arrays');
 
   let invalidStarts = 0;
   const invalid = new BoardInputController({

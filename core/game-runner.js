@@ -1,6 +1,7 @@
 'use strict';
 
 const portalSchema = require('./portal-schema.js');
+const mechanicPolicies = require('./mechanics/index.js');
 
 // The runner deliberately owns portal rules, but never knows about Canvas,
 // wx, audio, persistence, or UI copy. A level without a valid `Portals`
@@ -42,7 +43,9 @@ function cloneTeleports(teleports) {
 function cloneRecord(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return value;
   const copy = {};
-  Object.keys(value).forEach(key => { copy[key] = value[key]; });
+  Object.keys(value).forEach(key => {
+    copy[key] = Array.isArray(value[key]) ? value[key].slice() : value[key];
+  });
   return copy;
 }
 
@@ -121,23 +124,21 @@ class GameRunner {
         : (this.level.Portals === undefined ? this.level.portals : this.level.Portals));
     const mechanic = portalSchema.rawMechanic(this.level);
     const rulesVersion = portalSchema.rawRulesVersion(this.level);
-    const usesPortalV1 = mechanic === 'portal' && rulesVersion === 1;
+    const portalPolicy = mechanicPolicies.resolve(mechanic, rulesVersion);
     // Portal fields on legacy, malformed, or future-version levels must not
     // silently change movement semantics. Strict diagnostics remain the
     // authoring validator's responsibility; runtime falls back to ordinary
-    // four-direction movement for every contract other than portal v1.
-    const normalizedPortals = usesPortalV1
-      ? portalSchema.normalizePortalDescriptors(configuredPortals, {
-        total,
-        requireUnique: true
-      })
+    // four-direction movement for every contract outside the local allowlist.
+    const normalizedPortals = portalPolicy
+      ? portalPolicy.normalize(configuredPortals, total)
       : [];
-    // v1 requires exactly one well-formed pair. Invalid authoring data keeps
-    // ordinary movement semantics rather than partially enabling a mechanic.
-    this.portalDefinitions = Array.isArray(configuredPortals) &&
-      configuredPortals.length === 1 && normalizedPortals.length === 1
-      ? normalizedPortals
-      : [];
+    // Unknown versions and malformed declarations retain ordinary movement
+    // semantics. Publishing validation remains strict and reports diagnostics.
+    this.portalDefinitions = portalPolicy &&
+      portalPolicy.accepts(configuredPortals, normalizedPortals)
+      ? normalizedPortals : [];
+    this.portalPolicy = this.portalDefinitions.length ? portalPolicy : null;
+    this.portalRulesVersion = this.portalPolicy ? this.portalPolicy.rulesVersion : null;
     this.portalEnabled = this.portalDefinitions.length > 0;
     this.reset();
   }
@@ -192,26 +193,27 @@ class GameRunner {
     const seenCells = Object.create(null);
     const seenIds = Object.create(null);
     this.portalDefinitions.forEach(definition => {
-      const a = definition.A;
-      const b = definition.B;
+      const cells = Array.isArray(definition.cells)
+        ? definition.cells.slice()
+        : [definition.A, definition.B];
       // Runtime is deliberately defensive; strict authoring validation is
       // performed by portal-validation.js. Invalid endpoint/blocked conflicts
       // are ignored here so a malformed level cannot make a cell unplayable.
-      if (!this.isPlayableCell(a) || !this.isPlayableCell(b) ||
-          this.fixedLine[a] >= 0 || this.fixedLine[b] >= 0) return;
-      if (seenCells[a] || seenCells[b] || seenIds[definition.id]) return;
-      const portal = {
-        id: definition.id,
-        A: a,
-        B: b,
-        cells: [a, b]
-      };
+      if (cells.length < 2 || cells.some(cell => (
+        !this.isPlayableCell(cell) || this.fixedLine[cell] >= 0 || seenCells[cell]
+      )) || seenIds[definition.id]) return;
+      const portal = { id: definition.id, cells };
+      if (this.portalRulesVersion === 1) {
+        portal.A = cells[0];
+        portal.B = cells[1];
+      }
       portals.push(portal);
       seenIds[portal.id] = true;
-      seenCells[a] = true;
-      seenCells[b] = true;
+      cells.forEach(cell => { seenCells[cell] = true; });
     });
-    const index = portalSchema.buildPortalIndex(portals);
+    const index = this.portalPolicy
+      ? this.portalPolicy.buildIndex(portals)
+      : portalSchema.buildPortalIndex([]);
     this.portals = index.portals;
     this.portalByCell = index.portalByCell;
     this.portalById = index.portalById;
@@ -273,10 +275,26 @@ class GameRunner {
     if (!this.isValidCell(index)) return null;
     const value = this.portalByCell && this.portalByCell[index];
     if (!value) return null;
-    return { id: value.id, entry: value.entry, exit: value.exit };
+    if (this.portalRulesVersion === 1 && Number.isInteger(value.exit)) {
+      return { id: value.id, entry: value.entry, exit: value.exit };
+    }
+    return {
+      id: value.id,
+      portalId: value.portalId || value.id,
+      entry: value.entry,
+      exits: Array.isArray(value.exits) ? value.exits.slice() : []
+    };
+  }
+
+  portalExits(index) {
+    const portal = this.portalAt(index);
+    if (!portal) return [];
+    if (Array.isArray(portal.exits)) return portal.exits.slice();
+    return Number.isInteger(portal.exit) ? [portal.exit] : [];
   }
 
   portalExit(index) {
+    if (this.portalRulesVersion !== 1) return -1;
     const portal = this.portalAt(index);
     return portal ? portal.exit : -1;
   }
@@ -310,8 +328,14 @@ class GameRunner {
     const pending = this.portalPending ? {
       lineIndex: this.portalPending.lineIndex,
       pairId: this.portalPending.pairId || null,
+      portalId: this.portalPending.portalId || this.portalPending.pairId || null,
       entry: this.portalPending.entry,
-      exit: this.portalPending.exit,
+      exit: Number.isInteger(this.portalPending.exit) ? this.portalPending.exit : null,
+      eligibleExits: Array.isArray(this.portalPending.eligibleExits)
+        ? this.portalPending.eligibleExits.slice()
+        : (Number.isInteger(this.portalPending.exit) ? [this.portalPending.exit] : []),
+      selectedExit: Number.isInteger(this.portalPending.selectedExit)
+        ? this.portalPending.selectedExit : null,
       entryCells: this.flattenSegments(this.portalPending.entrySegments),
       entrySegments: cloneSegments(this.portalPending.entrySegments) || [],
       entryTeleports: cloneTeleports(this.portalPending.entryTeleports) || [],
@@ -323,14 +347,19 @@ class GameRunner {
     const locked = this.portalLock ? cloneRecord(this.portalLock) : null;
     return {
       id: this.portalEnabled ? 'portal' : null,
-      rulesVersion: this.portalEnabled ? 1 : null,
+      rulesVersion: this.portalEnabled ? this.portalRulesVersion : null,
       phase: this.portalPhase,
-      portals: this.portals.map(portal => ({
-        id: portal.id,
-        A: portal.A,
-        B: portal.B,
-        cells: Array.isArray(portal.cells) ? portal.cells.slice() : [portal.A, portal.B]
-      })),
+      portals: this.portals.map(portal => {
+        const result = {
+          id: portal.id,
+          cells: Array.isArray(portal.cells) ? portal.cells.slice() : [portal.A, portal.B]
+        };
+        if (this.portalRulesVersion === 1) {
+          result.A = portal.A;
+          result.B = portal.B;
+        }
+        return result;
+      }),
       pending,
       locked,
       usedPairIds: Array.from(this.portalUsedPairs || [])
@@ -383,8 +412,13 @@ class GameRunner {
       phase: this.portalPhase,
       lineIndex: this.selectedLine >= 0 ? this.selectedLine : (context.lineIndex === undefined ? -1 : context.lineIndex),
       pairId: context.pairId || null,
+      portalId: context.portalId || context.pairId || null,
       entry: context.entry === undefined ? null : context.entry,
-      exit: context.exit === undefined ? null : context.exit,
+      exit: Number.isInteger(context.exit) ? context.exit : null,
+      eligibleExits: Array.isArray(context.eligibleExits)
+        ? context.eligibleExits.slice()
+        : (Number.isInteger(context.exit) ? [context.exit] : []),
+      selectedExit: Number.isInteger(context.selectedExit) ? context.selectedExit : null,
       entryCells: this.flattenSegments(entrySegments),
       usedPairIds: Array.from(this.portalUsedPairs || [])
     };
@@ -513,18 +547,33 @@ class GameRunner {
     return this.selectedSegments[this.selectedSegments.length - 1];
   }
 
-  portalExitAvailable(portal, lineIndex) {
-    if (!portal || !this.isPlayableCell(portal.exit)) return false;
-    if (this.blockedMask[portal.exit]) return false;
-    if (this.fixedLine[portal.exit] >= 0 && this.fixedLine[portal.exit] !== lineIndex) return false;
-    if (this.owner[portal.exit] >= 0 && this.owner[portal.exit] !== lineIndex) return false;
-    if (this.selectedContains(portal.exit)) return false;
+  portalExitAvailableAt(exit, lineIndex) {
+    if (!this.isPlayableCell(exit)) return false;
+    if (this.blockedMask[exit]) return false;
+    if (this.fixedLine[exit] >= 0 && this.fixedLine[exit] !== lineIndex) return false;
+    if (this.owner[exit] >= 0 && this.owner[exit] !== lineIndex) return false;
+    if (this.selectedContains(exit)) return false;
     return true;
+  }
+
+  portalExitAvailable(portal, lineIndex) {
+    return !!portal && Number.isInteger(portal.exit) &&
+      this.portalExitAvailableAt(portal.exit, lineIndex);
+  }
+
+  eligiblePortalExits(portal, lineIndex) {
+    if (!portal) return [];
+    const exits = Array.isArray(portal.exits)
+      ? portal.exits
+      : (Number.isInteger(portal.exit) ? [portal.exit] : []);
+    return exits.filter(exit => this.portalExitAvailableAt(exit, lineIndex));
   }
 
   canEnterPortal(portal) {
     if (!portal || this.portalUsedPairs.has(portal.id)) return false;
-    return this.portalExitAvailable(portal, this.selectedLine);
+    const maxTeleports = this.portalPolicy && this.portalPolicy.maxTeleportsPerLine;
+    if (Number.isInteger(maxTeleports) && this.selectedTeleports.length >= maxTeleports) return false;
+    return this.eligiblePortalExits(portal, this.selectedLine).length > 0;
   }
 
   gestureResult(action, before, legacyValue, commit) {
@@ -545,14 +594,18 @@ class GameRunner {
       status = 'drawing';
     }
     const mechanic = this.getMechanicState();
-    const expectedExit = mechanic.pending
-      ? mechanic.pending.exit
-      : (mechanic.locked ? mechanic.locked.exit : null);
+    const activePortal = mechanic.pending || mechanic.locked;
+    const expectedExits = activePortal && Array.isArray(activePortal.eligibleExits)
+      ? activePortal.eligibleExits.slice()
+      : (activePortal && Number.isInteger(activePortal.exit) ? [activePortal.exit] : []);
+    const expectedExit = this.portalRulesVersion === 1 && expectedExits.length === 1
+      ? expectedExits[0] : null;
     const result = {
       changed,
       status,
       phase: this.portalPhase,
       expectedExit: Number.isInteger(expectedExit) ? expectedExit : null,
+      expectedExits,
       commit: commit || null,
       outcome: this.outcome
     };
@@ -623,29 +676,33 @@ class GameRunner {
     // cancels the A segment; it must not fall through to normal endpoint
     // redraw logic or start the accidentally pressed line.
     if (this.portalPending && this.portalPhase === PORTAL_PHASE.PORTAL_WAIT) {
-      if (index !== this.portalPending.exit) {
+      const eligibleExits = Array.isArray(this.portalPending.eligibleExits)
+        ? this.portalPending.eligibleExits
+        : (Number.isInteger(this.portalPending.exit) ? [this.portalPending.exit] : []);
+      if (eligibleExits.indexOf(index) < 0) {
         this.cancelPortalContinuation();
         return false;
       }
       const portal = this.portalAt(this.portalPending.entry);
-      if (!portal || !this.portalExitAvailable({
-        id: portal.id,
-        entry: this.portalPending.entry,
-        exit: this.portalPending.exit
-      }, this.portalPending.lineIndex)) return false;
+      const currentExits = this.eligiblePortalExits(portal, this.portalPending.lineIndex);
+      if (!portal || currentExits.indexOf(index) < 0) return false;
 
       this.selectedLine = this.portalPending.lineIndex;
       this.setSelectedSegments(cloneSegments(this.portalPending.entrySegments));
       this.selectedSegments.push([index]);
       this.selectedCells = [index];
       this.selectedTeleports = cloneTeleports(this.portalPending.entryTeleports) || [];
-      this.selectedTeleports.push({
-        pairId: this.portalPending.pairId,
+      const teleport = {
         from: this.portalPending.entry,
-        to: this.portalPending.exit
-      });
+        to: index
+      };
+      const portalId = this.portalPending.portalId || this.portalPending.pairId;
+      if (this.portalRulesVersion === 1) teleport.pairId = portalId;
+      else teleport.portalId = portalId;
+      this.selectedTeleports.push(teleport);
       this.portalUsedPairs = new Set(this.portalPending.usedPairIds || []);
-      this.portalUsedPairs.add(this.portalPending.pairId);
+      this.portalUsedPairs.add(portalId);
+      this.portalPending.selectedExit = index;
       this.portalPending.continuationStarted = true;
       this.portalPhase = PORTAL_PHASE.PORTAL_CONTINUE;
       this.notify();
@@ -693,14 +750,17 @@ class GameRunner {
     const portal = this.portalAt(index);
     if (portal) {
       if (!this.canEnterPortal(portal)) return false;
+      const eligibleExits = this.eligiblePortalExits(portal, this.selectedLine);
       segment.push(index);
       this.selectedCells = segment.slice();
       this.portalUsedPairs.add(portal.id);
       this.portalLock = {
-        pairId: portal.id,
+        pairId: this.portalRulesVersion === 1 ? portal.id : null,
+        portalId: portal.id,
         lineIndex: this.selectedLine,
         entry: portal.entry,
-        exit: portal.exit
+        exit: this.portalRulesVersion === 1 ? eligibleExits[0] : null,
+        eligibleExits
       };
       this.portalPhase = PORTAL_PHASE.PORTAL_LOCKED;
       this.notify();
@@ -722,8 +782,13 @@ class GameRunner {
     this.portalPending = {
       lineIndex: this.selectedLine,
       pairId: lock.pairId,
+      portalId: lock.portalId || lock.pairId,
       entry: lock.entry,
       exit: lock.exit,
+      eligibleExits: Array.isArray(lock.eligibleExits)
+        ? lock.eligibleExits.slice()
+        : (Number.isInteger(lock.exit) ? [lock.exit] : []),
+      selectedExit: null,
       entrySegments: cloneSegments(this.selectedSegments),
       entryTeleports: cloneTeleports(this.selectedTeleports) || [],
       prePortalSnapshot: cloneSnapshot(this.pendingSnapshot || this.snapshot()),
@@ -744,10 +809,11 @@ class GameRunner {
     this.portalUsedPairs = new Set(this.portalPending.usedPairIds || []);
     // The currently pending pair is represented by the lock, not a completed
     // use. It remains retryable from B after an invalid B-side attempt.
-    this.portalUsedPairs.add(this.portalPending.pairId);
+    this.portalUsedPairs.add(this.portalPending.portalId || this.portalPending.pairId);
     this.portalPhase = PORTAL_PHASE.PORTAL_WAIT;
     this.portalLock = null;
     this.portalPending.continuationStarted = false;
+    this.portalPending.selectedExit = null;
     this.notify();
     return true;
   }
@@ -953,9 +1019,16 @@ class GameRunner {
     return this.completed.length > 0 && this.completed.every(Boolean);
   }
 
+  isRequiredCoverageCell(index) {
+    if (!this.isValidCell(index) || this.blockedMask[index]) return false;
+    if (this.portalPolicy && this.portalPolicy.requiresPortalCoverage === false &&
+        this.isPortalCell(index)) return false;
+    return true;
+  }
+
   remainingCellCount() {
     return this.owner.reduce((count, lineIndex, index) => (
-      count + (!this.blockedMask[index] && lineIndex < 0 ? 1 : 0)
+      count + (this.isRequiredCoverageCell(index) && lineIndex < 0 ? 1 : 0)
     ), 0);
   }
 
@@ -988,7 +1061,7 @@ class GameRunner {
     if (!this.allLinesCompleted()) return false;
     if (this.portalPending || this.portalLock || this.portalPhase === PORTAL_PHASE.PORTAL_CONTINUE) return false;
     return this.owner.every((lineIndex, index) => (
-      this.blockedMask[index] || lineIndex >= 0
+      !this.isRequiredCoverageCell(index) || lineIndex >= 0
     ));
   }
 }

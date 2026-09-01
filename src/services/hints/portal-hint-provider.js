@@ -4,7 +4,8 @@ const OrdinaryHintProvider = require('./ordinary-hint-provider.js');
 const {
   flattenPortalSegments,
   normalizeStoredPortalLine,
-  reverseStoredPortalLine
+  reverseStoredPortalLine,
+  teleportPortalId
 } = require('../../../core/portal-solution.js');
 
 const boardOf = OrdinaryHintProvider.boardOf;
@@ -15,6 +16,29 @@ const isCompleted = OrdinaryHintProvider.isCompleted;
 function mechanicOf(context) {
   return context && context.mechanic && typeof context.mechanic === 'object'
     ? context.mechanic : {};
+}
+
+function isPortalV2(context) {
+  return mechanicOf(context).rulesVersion === 2;
+}
+
+function pendingExits(pending) {
+  if (!pending || typeof pending !== 'object') return [];
+  if (Array.isArray(pending.eligibleExits)) return pending.eligibleExits.slice();
+  return Number.isInteger(pending.exit) ? [pending.exit] : [];
+}
+
+function pendingPortalId(pending) {
+  return pending && (pending.portalId || pending.pairId) || null;
+}
+
+function cloneTeleportForContext(context, teleport) {
+  const result = {
+    from: teleport && teleport.from,
+    to: teleport && teleport.to
+  };
+  result[isPortalV2(context) ? 'portalId' : 'pairId'] = teleportPortalId(teleport);
+  return result;
 }
 
 class PortalHintProvider {
@@ -48,29 +72,34 @@ class PortalHintProvider {
       const definition = portals[portalIndex];
       if (!definition || typeof definition !== 'object') continue;
       const cells = Array.isArray(definition.cells) ? definition.cells : null;
+      const id = definition.id === undefined ? definition.Id : definition.id;
+      if (cells && cells.indexOf(index) >= 0) {
+        const exits = cells.filter(cell => cell !== index);
+        return { id, entry: index, exits, exit: exits.length === 1 ? exits[0] : undefined };
+      }
       const a = definition.A === undefined
-        ? (definition.a === undefined && cells ? cells[0] : definition.a)
+        ? definition.a
         : definition.A;
       const b = definition.B === undefined
-        ? (definition.b === undefined && cells ? cells[1] : definition.b)
+        ? definition.b
         : definition.B;
-      const id = definition.id === undefined ? definition.Id : definition.id;
-      if (index === a) return { id, entry: a, exit: b };
-      if (index === b) return { id, entry: b, exit: a };
+      if (index === a) return { id, entry: a, exit: b, exits: [b] };
+      if (index === b) return { id, entry: b, exit: a, exits: [a] };
     }
     return null;
   }
 
-  portalExitAvailable(context, portal, lineIndex) {
-    if (!portal || !this.ordinary.isPlayable(context, portal.exit)) return false;
+  portalExitAvailable(context, portal, lineIndex, exitOverride) {
+    const exit = Number.isInteger(exitOverride) ? exitOverride : portal && portal.exit;
+    if (!portal || !this.ordinary.isPlayable(context, exit)) return false;
     const board = boardOf(context);
     const owner = Array.isArray(board.owner) ? board.owner : [];
     const fixedLine = Array.isArray(board.fixedLine) ? board.fixedLine : [];
-    const exitOwner = Number.isInteger(owner[portal.exit]) ? owner[portal.exit] : -1;
-    const exitFixedLine = Number.isInteger(fixedLine[portal.exit]) ? fixedLine[portal.exit] : -1;
+    const exitOwner = Number.isInteger(owner[exit]) ? owner[exit] : -1;
+    const exitFixedLine = Number.isInteger(fixedLine[exit]) ? fixedLine[exit] : -1;
     if (exitFixedLine >= 0 && exitFixedLine !== lineIndex) return false;
     if (exitOwner >= 0 && exitOwner !== lineIndex) return false;
-    return !this.selectedContains(context, portal.exit);
+    return !this.selectedContains(context, exit);
   }
 
   pickStoredPortalPath(paths, context) {
@@ -90,6 +119,8 @@ class PortalHintProvider {
       if (isWait) {
         const waitContext = this.portalWaitContext(context, lineIndex);
         if (!waitContext) continue;
+        const eligibleExits = pendingExits(pending);
+        const portalId = pendingPortalId(pending);
         const reversed = reverseStoredPortalLine(stored);
         const directions = reversed ? [stored, reversed] : [stored];
 
@@ -99,25 +130,27 @@ class PortalHintProvider {
 
           const transitionIndex = direction.teleports.findIndex(teleport => (
             teleport.from === pending.entry &&
-            teleport.to === pending.exit &&
-            (!pending.pairId || !teleport.pairId || teleport.pairId === pending.pairId)
+            eligibleExits.indexOf(teleport.to) >= 0 &&
+            (!portalId || !teleportPortalId(teleport) || teleportPortalId(teleport) === portalId)
           ));
           if (transitionIndex < 0) continue;
 
           const remaining = {
             segments: direction.segments.slice(transitionIndex + 1).map(segment => segment.slice()),
-            teleports: direction.teleports.slice(transitionIndex + 1).map(teleport => Object.assign({}, teleport))
+            teleports: direction.teleports.slice(transitionIndex + 1)
+              .map(teleport => cloneTeleportForContext(context, teleport))
           };
           remaining.path = flattenPortalSegments(remaining.segments);
           remaining.start = remaining.path[0];
           remaining.end = remaining.path[remaining.path.length - 1];
 
           const usedPairIds = pending.usedPairIds || mechanic.usedPairIds || [];
-          if (remaining.start !== pending.exit || remaining.end !== waitContext.target) continue;
+          const recommendedExit = direction.teleports[transitionIndex].to;
+          if (remaining.start !== recommendedExit || remaining.end !== waitContext.target) continue;
           if (!this.isStoredPortalPathUsable(context, lineIndex, remaining, {
             forbiddenCells: waitContext.entryCells,
-            initialPortalExit: pending.exit,
-            usedPairIds: usedPairIds.concat(pending.pairId || [])
+            initialPortalExit: recommendedExit,
+            usedPairIds: usedPairIds.concat(portalId || [])
           })) continue;
 
           return {
@@ -126,6 +159,7 @@ class PortalHintProvider {
             teleports: remaining.teleports,
             path: remaining.path,
             source: 'solution',
+            recommendedExit,
             requiresRelease: remaining.segments.length > 1
           };
         }
@@ -143,7 +177,7 @@ class PortalHintProvider {
           return {
             lineIndex,
             segments: direction.segments.map(segment => segment.slice()),
-            teleports: direction.teleports.map(teleport => Object.assign({}, teleport)),
+            teleports: direction.teleports.map(teleport => cloneTeleportForContext(context, teleport)),
             path: direction.path.slice(),
             source: 'solution',
             requiresRelease: direction.segments.length > 1
@@ -183,6 +217,7 @@ class PortalHintProvider {
     const forbidden = new Set(options.forbiddenCells || []);
     const usedPairs = new Set((options.usedPairIds || []).filter(Boolean));
     const seenCells = new Set();
+    let portalUseCount = options.initialPortalExit === undefined ? 0 : 1;
 
     for (let segmentIndex = 0; segmentIndex < candidate.segments.length; segmentIndex++) {
       const segment = candidate.segments[segmentIndex];
@@ -217,10 +252,17 @@ class PortalHintProvider {
         const to = candidate.segments[segmentIndex + 1][0];
         if (teleport.from !== from || teleport.to !== to) return false;
         const portal = this.portalAt(context, from);
-        if (!portal || portal.exit !== to) return false;
-        if (teleport.pairId && portal.id !== teleport.pairId) return false;
-        if (usedPairs.has(portal.id)) return false;
-        usedPairs.add(portal.id);
+        const exits = portal && Array.isArray(portal.exits) ? portal.exits : [];
+        if (!portal || exits.indexOf(to) < 0) return false;
+        const teleportId = teleportPortalId(teleport);
+        if (teleportId && portal.id !== teleportId) return false;
+        if (isPortalV2(context)) {
+          if (portalUseCount >= 1) return false;
+          portalUseCount += 1;
+        } else {
+          if (usedPairs.has(portal.id)) return false;
+          usedPairs.add(portal.id);
+        }
       }
     }
     return true;
@@ -239,10 +281,18 @@ class PortalHintProvider {
 
       const waitContext = isWait ? this.portalWaitContext(context, lineIndex) : null;
       if (isWait && !waitContext) return;
-      const start = isWait ? pending.exit : endpoint(line, 'Start', 'start');
       const end = isWait ? waitContext.target : endpoint(line, 'End', 'end');
-      const result = this.shortestPortalPath(context, lineIndex, start, end, isWait);
-      if (result) candidates.push(Object.assign({ lineIndex, source: 'search' }, result));
+      const starts = isWait ? pendingExits(pending) : [endpoint(line, 'Start', 'start')];
+      starts.forEach(start => {
+        const result = this.shortestPortalPath(context, lineIndex, start, end, isWait);
+        if (result) {
+          candidates.push(Object.assign({
+            lineIndex,
+            source: 'search',
+            recommendedExit: isWait ? start : undefined
+          }, result));
+        }
+      });
     });
 
     candidates.sort((one, two) => one.path.length - two.path.length);
@@ -263,7 +313,8 @@ class PortalHintProvider {
     const initialUsedPairs = new Set();
     if (pending) {
       (pending.usedPairIds || mechanic.usedPairIds || []).forEach(pairId => initialUsedPairs.add(pairId));
-      if (pending.pairId) initialUsedPairs.add(pending.pairId);
+      const portalId = pendingPortalId(pending);
+      if (portalId) initialUsedPairs.add(portalId);
     }
 
     const canUseCell = (index, state) => {
@@ -285,7 +336,7 @@ class PortalHintProvider {
       cell: start,
       parent: null,
       edgeType: 'grid',
-      pairId: null,
+      portalId: null,
       fromCell: null,
       toCell: null,
       arrivedViaTeleport: !!isWait,
@@ -307,29 +358,30 @@ class PortalHintProvider {
       const portal = this.portalAt(context, current);
       if (portal && !state.arrivedViaTeleport) {
         if (state.usedPairs.has(portal.id)) continue;
-        if (!this.portalExitAvailable(context, portal, lineIndex)) continue;
-        if (!canUseCell(portal.exit, state)) continue;
-
-        const usedPairs = new Set(state.usedPairs);
-        usedPairs.add(portal.id);
-        const visited = new Set(state.visited);
-        visited.add(portal.exit);
-        const nextState = {
-          cell: portal.exit,
-          parent: state,
-          edgeType: 'teleport',
-          pairId: portal.id,
-          fromCell: portal.entry,
-          toCell: portal.exit,
-          arrivedViaTeleport: true,
-          usedPairs,
-          visited
-        };
-        const key = keyFor(nextState);
-        if (!visitedStates.has(key)) {
-          visitedStates.add(key);
-          queue.push(nextState);
-        }
+        (portal.exits || []).forEach(exit => {
+          if (!this.portalExitAvailable(context, portal, lineIndex, exit)) return;
+          if (!canUseCell(exit, state)) return;
+          const usedPairs = new Set(state.usedPairs);
+          usedPairs.add(portal.id);
+          const visited = new Set(state.visited);
+          visited.add(exit);
+          const nextState = {
+            cell: exit,
+            parent: state,
+            edgeType: 'teleport',
+            portalId: portal.id,
+            fromCell: portal.entry,
+            toCell: exit,
+            arrivedViaTeleport: true,
+            usedPairs,
+            visited
+          };
+          const key = keyFor(nextState);
+          if (!visitedStates.has(key)) {
+            visitedStates.add(key);
+            queue.push(nextState);
+          }
+        });
         continue;
       }
 
@@ -351,7 +403,7 @@ class PortalHintProvider {
           cell: next,
           parent: state,
           edgeType: 'grid',
-          pairId: null,
+          portalId: null,
           fromCell: current,
           toCell: next,
           arrivedViaTeleport: false,
@@ -376,7 +428,9 @@ class PortalHintProvider {
     chain.forEach((state, index) => {
       path.push(state.cell);
       if (index > 0 && state.edgeType === 'teleport') {
-        teleports.push({ pairId: state.pairId, from: state.fromCell, to: state.toCell });
+        const teleport = { from: state.fromCell, to: state.toCell };
+        teleport[isPortalV2(context) ? 'portalId' : 'pairId'] = state.portalId;
+        teleports.push(teleport);
         segments.push([state.cell]);
       } else {
         segments[segments.length - 1].push(state.cell);

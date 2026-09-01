@@ -40,13 +40,23 @@ function renderState(runner, options) {
   });
   const portalCells = new Set();
   (state.mechanic.portals || []).forEach(portal => {
-    (portal.cells || [portal.A, portal.B]).forEach(index => portalCells.add(index));
+    (portal.cells || portal.Cells || [portal.A, portal.B]).forEach(index => portalCells.add(index));
   });
+  const pending = state.mechanic.pending;
+  const expectedExits = pending && Array.isArray(pending.eligibleExits)
+    ? pending.eligibleExits
+    : (pending && Array.isArray(pending.expectedExits)
+      ? pending.expectedExits
+      : (pending && Number.isInteger(pending.exit) ? [pending.exit] : []));
   const portal = state.mechanic.id === 'portal' ? {
     icon: 'assets/icons/portal.png',
+    rulesVersion: state.mechanic.rulesVersion,
     portals: state.mechanic.portals,
     phase: state.mechanic.phase,
-    expectedExit: state.mechanic.pending ? state.mechanic.pending.exit : null,
+    expectedExits,
+    expectedExit: state.mechanic.rulesVersion === 1 && expectedExits.length === 1
+      ? expectedExits[0] : null,
+    instruction: opts.portalInstruction || null,
     lockedEntry: state.mechanic.locked ? state.mechanic.locked.entry : null
   } : null;
   return {
@@ -96,15 +106,26 @@ function run() {
 
   const renderer = new CanvasRenderer(platform, skins);
   const tileDraws = [];
+  const textDraws = [];
   const originalDrawTile = renderer.drawTile.bind(renderer);
+  const originalText = renderer.text.bind(renderer);
   renderer.drawTile = (lineIndex, x, y, size, options) => {
     const cellIndex = renderer.cellAt(x + size / 2, y + size / 2);
     tileDraws.push({ lineIndex, cellIndex });
     return originalDrawTile(lineIndex, x, y, size, options);
   };
+  renderer.text = (value, x, y, size, options) => {
+    textDraws.push({ value, x, y, size, options: options || {} });
+    return originalText(value, x, y, size, options);
+  };
 
   const demoLevel = portalDemo.Games[0]; // 5x5, A: 21, B: 2
   const runner = new GameRunner(demoLevel, portalDemo.Palette);
+  const fallbackState = renderer.fallbackBoardViewModel({
+    portalTrial: { icon: 'assets/icons/portal.png' }
+  }, demoLevel);
+  assert.deepStrictEqual(fallbackState.mechanic.portal.portals[0].cells, [21, 2],
+    'raw Portal v2 Cells are normalized for the renderer compatibility path');
 
   // 1. Initial play scene rendering
   const initialState = renderState(runner);
@@ -118,7 +139,8 @@ function run() {
     levelIndex: 0,
     levelEnteredAt: Date.now() - 1000,
     pressedId: null,
-    hintAvailable: true
+    hintAvailable: true,
+    isPortalTrial: true
   }, initialState);
   assert.strictEqual(Object.prototype.hasOwnProperty.call(initialModel, 'runner'), false,
     'portal render model never exposes Runner');
@@ -129,17 +151,60 @@ function run() {
   assert(renderer.boardLayout, 'board layout should exist');
   assert.strictEqual(imageRequested, 'assets/icons/portal.png', 'portal icon should be requested');
   assert(ctx.calls.some(c => c.method === 'drawImage'), 'drawImage should be called for portal');
+  assert(textDraws.some(call => call.value === demoLevel.Name),
+    'portal trial keeps a stable level title in the header');
+  assert.strictEqual(textDraws.some(call => call.value === demoLevel.Instructions), false,
+    'static portal instructions no longer occupy the title');
+  assert.strictEqual(textDraws.some(call => call.value === 'P1'), false,
+    'portal ids remain internal and are never drawn');
+  const initialLayout = Object.assign({}, renderer.boardLayout);
   assert(tileDraws.filter(call => call.cellIndex === 2 || call.cellIndex === 21)
     .every(call => call.lineIndex === -1), 'portal cells render only an empty base tile');
 
-  // 2. PORTAL_WAIT rendering: expectedExit highlight & prompt text
+  // 2. Portal instructions use a stable band above the board and breathe.
   runner.touchStart(0);
   [1, 6, 5, 10, 11, 16, 15, 20, 21].forEach(c => runner.touchMove(c));
+  assert.strictEqual(runner.portalPhase, 'PORTAL_LOCKED');
+
+  const lockedModel = Object.assign({
+    scene: 'play',
+    set: portalDemo,
+    level: demoLevel,
+    levelIndex: 0,
+    levelEnteredAt: 0,
+    pressedId: null,
+    hintAvailable: true,
+    isPortalTrial: true,
+    portalInstruction: '松开手指'
+  }, renderState(runner, { portalInstruction: '松开手指' }));
+  textDraws.length = 0;
+  renderer.render(lockedModel, 1800);
+  const lockedPromptA = textDraws.find(call => call.value === '松开手指');
+  assert(lockedPromptA, 'PORTAL_LOCKED draws the release instruction');
+  assert.deepStrictEqual(renderer.boardLayout, initialLayout,
+    'reserving the portal prompt band keeps the board stationary');
+  const headerBottom = platform.metrics.safeTop + classic.layout.playTopUiOffset + 70;
+  assert(lockedPromptA.y > headerBottom && lockedPromptA.y < renderer.boardLayout.y,
+    'portal instructions sit between the header and board');
+  assert(renderer.boardLayout.y - lockedPromptA.y >= 8,
+    'portal instructions keep clear space above the board');
+
+  textDraws.length = 0;
+  renderer.render(lockedModel, 2250);
+  const lockedPromptB = textDraws.find(call => call.value === '松开手指');
+  assert(lockedPromptB.size > lockedPromptA.size,
+    'portal instruction font size changes gently across the breathing cycle');
+  assert(lockedPromptB.options.alpha > lockedPromptA.options.alpha,
+    'portal instruction opacity changes gently across the breathing cycle');
+  assert.strictEqual(lockedPromptB.y, lockedPromptA.y,
+    'breathing never moves the instruction band');
+
   runner.touchEnd(-1);
   assert.strictEqual(runner.portalPhase, 'PORTAL_WAIT');
 
   ctx.calls.length = 0;
   tileDraws.length = 0;
+  textDraws.length = 0;
   renderer.render(Object.assign({
     scene: 'play',
     set: portalDemo,
@@ -148,15 +213,42 @@ function run() {
     levelEnteredAt: Date.now() - 1000,
     pressedId: null,
     hintAvailable: true,
+    isPortalTrial: true,
     expectedExit: 2,
-    portalInstruction: '从另一端继续'
-  }, renderState(runner)), Date.now());
+    expectedExits: [2],
+    portalInstruction: '从任意其他传送门继续连线'
+  }, renderState(runner, {
+    portalInstruction: '从任意其他传送门继续连线'
+  })), Date.now());
 
-  assert(ctx.calls.some(c => c.method === 'fillText' && c.args[0] === '从另一端继续'),
-    'instruction text "从另一端继续" must be rendered during PORTAL_WAIT');
+  assert(textDraws.some(call => call.value === '从任意其他传送门继续连线'),
+    'PORTAL_WAIT draws the continuation instruction');
+  assert(textDraws.some(call => call.value === demoLevel.Name),
+    'portal phase changes never replace the stable header title');
+  assert.deepStrictEqual(renderer.boardLayout, initialLayout,
+    'LOCKED and WAIT share the same board layout');
   assert(tileDraws.filter(call => call.cellIndex === 2 || call.cellIndex === 21)
     .every(call => call.lineIndex === -1),
   'selected portal entry must not draw a themed line tile under the icon');
+
+  runner.touchStart(2);
+  assert.strictEqual(runner.portalPhase, 'PORTAL_CONTINUE');
+  textDraws.length = 0;
+  renderer.render(Object.assign({
+    scene: 'play',
+    set: portalDemo,
+    level: demoLevel,
+    levelIndex: 0,
+    levelEnteredAt: 0,
+    pressedId: null,
+    hintAvailable: true,
+    isPortalTrial: true
+  }, renderState(runner)), 2300);
+  assert.strictEqual(textDraws.some(call =>
+    call.value === '松开手指' || call.value === '从任意其他传送门继续连线'), false,
+  'portal instruction disappears once continuation begins');
+  assert.deepStrictEqual(renderer.boardLayout, initialLayout,
+    'hiding the portal instruction does not move the board');
 
   // 3. drawHintPath with segmented hint
   const segmentedHint = {
@@ -165,7 +257,7 @@ function run() {
       [0, 1, 6, 5, 10, 11, 16, 15, 20, 21],
       [2, 3, 4, 9, 8, 7, 12, 13, 14, 19, 18, 17, 22, 23, 24]
     ],
-    teleports: [{ pairId: 'P1', from: 21, to: 2 }]
+    teleports: [{ portalId: 'P1', from: 21, to: 2 }]
   };
   ctx.calls.length = 0;
   tileDraws.length = 0;
@@ -354,7 +446,6 @@ function run() {
     getSkin() { return classic; },
     drawTile() { overlayTileCalls.push(Array.prototype.slice.call(arguments)); },
     drawImageContain() { overlayImageCalls.push(Array.prototype.slice.call(arguments)); },
-    text() {},
     roundedRect() { ringCalls.push(Array.prototype.slice.call(arguments)); }
   });
   const overlayBoard = deepFreeze({
@@ -366,6 +457,7 @@ function run() {
     icon: 'assets/icons/portal.png',
     portals: [{ id: 'P1', A: 21, B: 2 }],
     phase: 'READY',
+    expectedExits: [],
     expectedExit: null,
     lockedEntry: null
   });
@@ -388,24 +480,43 @@ function run() {
   assert.strictEqual(overlayImageCalls.length, 0,
     'owned portal icons disappear immediately when no effect is selected');
 
+  overlayImageCalls.length = 0;
   const waitingPortal = deepFreeze({
     icon: 'assets/icons/portal.png',
-    portals: [{ id: 'P1', A: 21, B: 2 }],
+    portals: [{ id: 'portal-network', Cells: [21, 2, 10] }],
     phase: 'PORTAL_WAIT',
-    expectedExit: 2,
+    expectedExits: [2, 10],
+    expectedExit: null,
     lockedEntry: null
   });
   const waitingBefore = JSON.stringify(waitingPortal);
   overlay.draw(waitingPortal, overlayBoard, overlayLayout, 3, 100);
-  assert.strictEqual(ringCalls.length, 1, 'PORTAL_WAIT draws exactly one expected-exit ring');
+  assert.deepStrictEqual(PortalOverlay.portalCells(waitingPortal.portals[0]), [21, 2, 10],
+    'PortalOverlay keeps every cell in a portal network');
+  assert.strictEqual(overlayImageCalls.length, 3,
+    'PortalOverlay draws every portal in a network');
+  assert.strictEqual(ringCalls.length, 2,
+    'PORTAL_WAIT draws a ring around every eligible exit');
   assert.strictEqual(JSON.stringify(waitingPortal), waitingBefore,
     'PortalOverlay does not mutate its frozen ViewModel');
 
   ringCalls.length = 0;
+  overlay.draw(deepFreeze({
+    icon: 'assets/icons/portal.png',
+    portals: [{ id: 'legacy-pair', A: 21, B: 2 }],
+    phase: 'PORTAL_WAIT',
+    expectedExit: 2,
+    lockedEntry: null
+  }), overlayBoard, overlayLayout, 3, 100);
+  assert.strictEqual(ringCalls.length, 1,
+    'PortalOverlay retains the singular expectedExit compatibility path');
+
+  ringCalls.length = 0;
   const lockedPortal = deepFreeze({
     icon: 'assets/icons/portal.png',
-    portals: [{ id: 'P1', A: 21, B: 2 }],
+    portals: [{ id: 'portal-network', Cells: [21, 2, 10] }],
     phase: 'PORTAL_LOCKED',
+    expectedExits: [],
     expectedExit: null,
     lockedEntry: 21
   });

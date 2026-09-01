@@ -1,23 +1,25 @@
-# 玩法拓展架构整理方案（以传送门 v1 为基线）
+# 玩法拓展架构整理方案（Portal v1/v2 基线）
 
 > 记录日期：2026-09-01  
 > 审阅基线：`main@4a3c34aab0f4034b886cdbf2a5cbaf14b1d038cc`  
-> 文档状态：阶段 0—6 已实施并进入回归基线；阶段 7 尚未触发
+> 文档状态：阶段 0—7 已实施并进入回归基线
 > 关联文档：[`portal-mechanic.md`](portal-mechanic.md)、[`daily-challenge-mode.md`](daily-challenge-mode.md)、[`../AGENTS.md`](../AGENTS.md)
 
 ## 1. 审阅结论
 
-这次传送门提交已经把 v1 从“实验逻辑”推进为可发布校验的完整玩法：
+传送门已经从固定门对的 v1 演进到单中性网络任选出口的 v2，并保留版本化兼容：
 
-- `Mechanic: 'portal'` 与 `PortalRulesVersion: 1` 成为显式启用条件，非法、缺失或未来版本不会悄悄改变普通关卡规则；
+- `Mechanic: 'portal'` 与 `PortalRulesVersion` 成为显式启用条件，`core/mechanics/index.js` 只允许 portal@1 和 portal@2；
+- v1 保留 `{ Id, A, B }`、固定出口和门格必填覆盖；v2 使用 `{ Id, Cells }`、任选其他可用出口和非必填门格；
 - `PORTAL_LOCKED → PORTAL_WAIT → PORTAL_CONTINUE` 的触摸边界更完整，`touchcancel` 不再被简单等同为整段取消；
 - 存储解支持正反向、分段提示和传送边，运行时搜索也不再把门两端当成普通相邻格；
 - 试玩关卡从普通 catalog、普通进度、最佳时间和广告计数中隔离；
-- 门格拥有独立视觉语义，不再叠加主题棋子、提示棋子和清除棋子；
+- 门格拥有独立视觉语义，不显示内部 ID，也不再叠加主题棋子、提示棋子和清除棋子；
+- 到门和松手提示只在对应 phase 出现在棋盘上方；Portal 阶段不震动，完整线路消除震动保留；
 - `portal-publishing.test.js` 会校验并逐段重放 5 个真实试玩关卡，形成了可靠的内容发布门槛；
-- 每日挑战 v1 明确拒绝传送门题面，避免在尚无分段存档契约时错误兼容。
+- 每日挑战仍明确拒绝传送门题面，避免在尚无分段存档契约时错误兼容。
 
-这些行为应当作为后续重构的回归基线，不能为了拆文件而改变。
+这些行为是当前回归基线，不能为了拆文件而改变。
 
 审阅基线当时最主要的问题不是传送门规则不完整，而是**玩法拓展的边界只在 manifest 层出现，运行时边界仍然分散在 `GameRunner`、`ClearedApp`、`HintService` 和 `CanvasRenderer` 中**。如果在该结构上直接增加第二种玩法，中心文件会继续扩张，并产生更多 `if (mechanic === ...)` 分支。
 
@@ -104,7 +106,7 @@ Portal 初次接入后：
 4. `src/mechanics/*.js` 保持 data-only manifest，不允许注入任意回调、平台对象或存档对象。
 5. 主题和清除特效仍是纯视觉能力，不能改变棋盘拓扑。
 6. `home:portalTrial`、`corridor:portalTrial` 兼容别名、`portal` manifest ID、关卡 ID、存档 key 和已发布 action ID 不重命名。
-7. 普通 122 关、每日挑战和传送门试玩的进度域继续隔离。
+7. 普通 catalog 只包含连续编号 1—92、最大 8×8 的关卡；内部 `setIndex/levelIndex` 仍作为稳定身份。每日挑战和传送门试玩继续使用独立进度域，8×10 只由高难／每日内容来源提供。
 8. `pages/` 与根目录旧小程序页面不进入新架构。
 9. 每个重构提交都必须先通过 `node tests/run.js`，再进入下一阶段。
 10. 不在同一提交中同时进行大规模搬文件、改玩法规则和改视觉表现。
@@ -155,7 +157,8 @@ core     → 只依赖纯数据和纯函数
   id: 'portal',
   kind: 'gameplay-extension',
   mechanic: 'portal',
-  rulesVersion: 1,
+  rulesVersion: 2,
+  supportedRulesVersions: [1, 2],
   icon: 'assets/icons/portal.png',
   enabled: true,
   trial: {
@@ -169,7 +172,7 @@ core     → 只依赖纯数据和纯函数
 
 它可以声明：
 
-- 稳定 ID 与规则版本；
+- 稳定 ID、当前规则版本与受支持版本 allowlist；
 - 展示名称和资源；
 - 试玩入口与内容依赖；
 - 是否启用。
@@ -182,7 +185,7 @@ core     → 只依赖纯数据和纯函数
 - `wx` API；
 - 任意远程脚本。
 
-只有当第二个真实玩法拓展进入实现时，才新增 `src/mechanics/index.js` 或 registry。当前只有 portal 时，不创建空的通用插件框架。
+Portal v2 触发阶段 7 后，`src/mechanics/index.js` 已作为有调用者的 definition registry 接入 bootstrap。它只注册 data-only manifest；不得承载规则函数或远程脚本。
 
 ### 5.2 `RunContext`：明确关卡来源、进度域和机制
 
@@ -197,7 +200,7 @@ core     → 只依赖纯数据和纯函数
   progressionScope: 'ordinary' | 'none' | 'daily',
   mechanic: {
     id: null | 'portal',
-    rulesVersion: null | 1
+    rulesVersion: null | 1 | 2
   },
   setIndex: null | 0,
   levelIndex: 0,
@@ -248,18 +251,19 @@ cancelGesture('pointer-cancel' | 'navigation' | 'reset') -> GestureResult
   changed: true,
   status: 'drawing' | 'portal-wait' | 'completed' | 'cancelled' | 'ignored',
   phase: 'READY' | 'DRAWING' | 'PORTAL_LOCKED' | 'PORTAL_WAIT' | 'PORTAL_CONTINUE',
-  expectedExit: null | 12,
+  expectedExit: null,            // v2 恒为 null；v1 返回唯一出口 12
+  expectedExits: [12, 21],       // 所有版本都返回候选出口副本
   commit: null | {
     lineIndex: 0,
     cells: [/* 完整覆盖格 */],
-    segments: [[/* A 段 */], [/* B 段 */]],
-    teleports: [{ pairId: 'P1', from: 21, to: 2 }]
+    segments: [[/* 入口段 */], [/* 出口段 */]],
+    teleports: [{ portalId: 'P1', from: 21, to: 2 }]
   },
   outcome: 'playing' | 'won' | 'failed'
 }
 ```
 
-App 只根据结果触发音效、震动、清除动画与结算，不再在 `touchEnd()` 后读取 `completedPaths[lineIndex]`。
+App 只根据结果触发音效、清除动画、完整线路消除震动与结算，不再在 `touchEnd()` 后读取 `completedPaths[lineIndex]`。`portal-wait` 仅表达状态变化，不触发震动。
 
 #### 查询接口
 
@@ -293,16 +297,23 @@ getViewState()
   },
   mechanic: {
     id: null | 'portal',
-    rulesVersion: null | 1,
+    rulesVersion: null | 1 | 2,
     phase,
     portals,
-    pending: null | { lineIndex, pairId, entry, exit, entryCells },
-    locked: null | { lineIndex, pairId, entry, exit }
+    pending: null | {
+      lineIndex,
+      portalId,
+      entry,
+      eligibleExits,
+      selectedExit,
+      entryCells
+    },
+    locked: null | { lineIndex, portalId, entry, eligibleExits }
   }
 }
 ```
 
-棋盘最大仅 8×10，按帧复制几十个整数的成本可控。若未来性能数据证明有问题，再改为版本号加缓存；不要现在暴露可变数组换取未经证明的微小优化。
+普通 catalog 的棋盘最大为 8×8；共享 Runner 仍需支持每日挑战的 8×10。当前所有来源的棋盘最大仅 8×10，按帧复制几十个整数的成本可控。若未来性能数据证明有问题，再改为版本号加缓存；不要现在暴露可变数组换取未经证明的微小优化。
 
 ### 5.4 输入控制器：只翻译 pointer，不重新判断规则
 
@@ -328,7 +339,7 @@ getViewState()
 
 ```js
 { type: 'step' }
-{ type: 'portal-wait', expectedExit: 2 }
+{ type: 'portal-wait', expectedExit: null, expectedExits: [2, 12] } // v2
 { type: 'path-completed', commit }
 { type: 'invalid-selection' }
 { type: 'cancelled' }
@@ -336,7 +347,7 @@ getViewState()
 
 App 继续负责：
 
-- 音效与震动；
+- 音效与完整线路消除震动；
 - 清除动画；
 - result/dailyResult 转场；
 - 结算与存档；
@@ -435,8 +446,10 @@ settleDaily(context)
       icon,
       portals,
       phase,
-      expectedExit,
-      lockedEntry
+      expectedExit,   // v1 兼容
+      expectedExits,  // v2 候选出口
+      lockedEntry,
+      instruction
     }
   }
 }
@@ -453,9 +466,9 @@ src/ui/board/interaction-map.js
 边界：
 
 - `board-renderer.js` 负责底板、普通格、路径、提示、清除动画的绘制顺序；
-- `portal-overlay.js` 只负责门格底板、图标、编号、锁定/等待光圈和资源回退；
+- `portal-overlay.js` 只负责门格底板、图标、锁定/等待光圈和资源回退，不绘内部 Portal ID；
 - `interaction-map.js` 保存 hit 与 board layout，提供 `hitTest/cellAt/getBoardLayout/clear`；
-- `canvas-renderer.js` 保持场景分发和公共绘图原语，在迁移完成前作为兼容门面；
+- `canvas-renderer.js` 保持场景分发和公共 Canvas 原语，并在棋盘上方固定提示带绘制 LOCKED/WAIT 分阶段呼吸文案；
 - Portal overlay 必须最后绘制，但不得自行读取 Runner 或修改 App 状态。
 
 ## 6. 文件级代码边界
@@ -464,12 +477,16 @@ src/ui/board/interaction-map.js
 | --- | --- | --- | --- |
 | `src/bootstrap.js` | platform、配置、数据、服务构造器 | 实例化和注入 | 场景状态、portal phase、结算 |
 | `src/mechanics/portal.js` | portal demo、solutions 路径数据 | data-only 描述与入口元数据 | 规则函数、Canvas、存档、wx |
+| `src/mechanics/index.js` | data-only mechanic definitions | definition 注册与稳定 ID 查询 | Runner 规则、Canvas、远程脚本 |
 | `src/gameplay/run-context.js` | catalog/manifest 的纯数据 | 规范化关卡来源和进度域 | 规则执行、绘制、持久化 |
 | `src/gameplay/board-input-controller.js` | Runner 命令接口、cell locator | pointer 生命周期和逐格采样 | portal 合法性、结算、绘制 |
 | `src/gameplay/completion-policies.js` | ProgressStore、DailyStore、Ads 的窄接口 | 按 progressionScope 结算 | 棋盘规则、触摸、Canvas |
+| `core/mechanics/index.js` | data-only 规则策略 | `mechanic@rulesVersion` allowlist 与查询 | 执行远程脚本、UI、存档 |
+| `core/mechanics/portal-v1.js` | portal schema | 固定门对、门格必填覆盖策略 | 状态机、Canvas、平台 |
+| `core/mechanics/portal-v2.js` | portal schema | 单网络、任选出口、门格非必填覆盖策略 | 状态机、Canvas、平台 |
 | `core/portal-schema.js` | 无或纯 helper | 字段读取、规范化、索引 | UI、错误文案、存档 |
 | `core/portal-validation.js` | portal schema/solution | 严格题面和发布诊断 | 运行时状态、自动修复题面 |
-| `core/game-runner.js` | portal schema | 棋盘规则、状态机、撤销、结果 | wx、Canvas、提示、音效、存档 |
+| `core/game-runner.js` | mechanic allowlist、portal schema | 棋盘规则、状态机、撤销、结果 | wx、Canvas、提示、音效、存档 |
 | `src/services/hint-service.js` | provider | 兼容门面和 provider 选择 | portal BFS 细节、UI |
 | `src/services/hints/portal-hint-provider.js` | 只读 HintContext、纯 solution helper | 分段提示和搜索 | Runner 修改、结算 |
 | `src/ui/board/board-renderer.js` | Canvas 原语、纯 ViewModel | 棋盘绘制顺序 | 读取存档、调用规则命令 |
@@ -478,7 +495,7 @@ src/ui/board/interaction-map.js
 
 ## 7. 分阶段实施步骤
 
-> 实施记录（2026-09-01）：阶段 0—6 已按下述边界落地。以下步骤继续作为回归、审阅和后续拆分的验收契约；阶段 7 仍须满足其触发条件后另案实施。
+> 实施记录（2026-09-01）：阶段 0—7 已按下述边界落地。以下步骤继续作为回归、审阅和后续拆分的验收契约。
 
 每一阶段独立提交；禁止把后续阶段的空目录或空抽象提前加入。
 
@@ -506,7 +523,7 @@ docs/gameplay-extension-architecture.md    本文
 **验收**：
 
 - 全量 Node 测试通过；
-- 普通 122 关和 5 个 portal 试玩解答均能重放；
+- 普通 92 关和 5 个 portal 试玩解答均能重放；
 - 微信开发者工具与真机验收仍单独记录，Node 测试不宣称覆盖设备行为。
 
 **建议提交**：`test: freeze gameplay extension architecture contracts`
@@ -530,14 +547,14 @@ tests/portal-publishing.test.js    保持/补充
 
 1. 将纯读取函数迁入 `portal-schema.js`：字段 alias、尺寸、portal descriptor、index 构建。
 2. Validator 调用共享 schema，并继续产生现有稳定错误码。
-3. Runner 调用同一 schema，但只消费 validator-safe 的规范化结果；非法 v1 仍回退普通移动。
+3. Runner 调用同一 schema，但只消费规则 allowlist 与 validator-safe 的规范化结果；非法 v1/v2 仍安全回退普通移动。
 4. `core/portal-validation.js` 保留当前默认导出和所有公开 alias，避免脚本/测试调用失效。
 5. 加入“同一题面在 validator 和 runner 中得到一致 portal index”的交叉测试。
 
 **验收**：
 
 - 错误码集合不变；
-- 缺失/未来版本仍不启用 portal；
+- 缺失/未知版本仍不启用 portal；
 - 普通关不受影响；
 - 5 个试玩 publishing replay 全部通过。
 
@@ -631,7 +648,7 @@ tests/app-portal.test.js                 收缩为场景/结算测试
 2. 输入控制器接管 board pointer 的 start/move/end/cancel。
 3. 迁移 `traceBoard()`，继续按 cell 的 0.32 倍步长逐格采样。
 4. Runner 返回 `PORTAL_LOCKED` 后立即停止同次插值。
-5. 输入控制器输出事件；App 负责音频、震动、动画和转场。
+5. 输入控制器输出事件；App 负责音频、动画、完整线路消除震动和转场，Portal phase 本身不震动。
 6. 首页、选关、主题、回廊和特效的 UI pointer 仍暂留 App，避免一次性重写所有输入。
 
 **验收**：
@@ -694,11 +711,13 @@ tests/renderer-portal.test.js        修改
 **步骤**：
 
 1. 从普通 play/daily 共用代码中提取 board layout 和基础格绘制。
-2. 把 portal icon 加载、fallback、编号、锁定环和等待环迁入 portal overlay。
+2. 把 portal icon 加载、fallback、锁定环和等待环迁入 portal overlay；内部 ID 不进入视觉层。
 3. App/Presenter 根据 Runner 只读状态构建 board ViewModel。
 4. Renderer 按固定顺序绘制：底板 → 普通格/路径 → 清除动画 → 提示 → portal overlay。
-5. Portal 格继续跳过主题、提示和清除棋子；清除期间底板和门图标保留。
-6. `CanvasRenderer` 继续负责场景分发、按钮和公共 Canvas 原语，不在本阶段拆首页/画廊。
+5. Portal 格继续跳过主题、路径提示和清除棋子；清除期间底板和门图标保留。
+6. `CanvasRenderer` 继续负责场景分发、按钮和公共 Canvas 原语，并为 Portal 关固定预留棋盘上方提示带。
+7. `PORTAL_LOCKED`/`PORTAL_WAIT` 分别显示两段呼吸提示；提示切换不得改变棋盘 layout。
+8. Portal phase 变化不触发震动，完整线路消除仍由 App 统一反馈。
 
 **验收**：
 
@@ -706,29 +725,31 @@ tests/renderer-portal.test.js        修改
 - 普通 play 与 daily 共用同一 BoardRenderer；
 - 门图缺失仍有矢量回退且不阻塞输入；
 - portal 提示不画跨门直线；
+- 棋盘不显示 `P1`，分阶段提示位于棋盘上方且出现时不跳位；
 - Blocked、portal、endpoint 的层级无视觉回归。
 
 **建议提交**：`refactor(ui): isolate board and portal rendering`
 
-### 阶段 7：第二种玩法出现后再建立 Registry
+### 阶段 7：规则版本 Registry（已实施）
 
-**触发条件**：满足以下任一条件才实施：
-
-- 第二种会改变棋盘规则的 gameplay extension 进入开发；
-- Portal v2 支持多对门或链式门，需要按 rulesVersion 选择不同规则实现；
-- 远程内容需要基于 allowlist 解析 mechanic。
-
-届时新增：
+Portal v2 已满足按 `rulesVersion` 选择不同规则的触发条件。当前落地的是最小 definition registry 与 core allowlist，而不是通用脚本插件系统：
 
 ```text
-src/mechanics/index.js                 definition 注册与查询
-core/mechanics/index.js                规则版本 allowlist
-core/mechanics/portal-v1.js            如确有必要，从 GameRunner 拆出状态策略
+src/mechanics/index.js         data-only definition 注册与查询
+core/mechanics/index.js        `mechanic@rulesVersion` allowlist
+core/mechanics/portal-v1.js    固定门对、门格必填覆盖策略
+core/mechanics/portal-v2.js    单中性网络、任选出口、门格非必填覆盖策略
 ```
 
-Registry 只返回已知 definition/规则适配器；未知 ID 或版本必须拒绝或降级，不允许执行内容中携带的代码。
+实现约束：
 
-在触发条件出现前，`GameRunner` 继续作为唯一规则权威，避免为单一 portal 实现提前搭建复杂插件框架。
+1. Registry 只返回仓库内已知 data-only 策略；当前只允许 `portal@1` 和 `portal@2`。
+2. v1/v2 策略负责规范化、接受条件、索引和稳定规则参数；`GameRunner` 继续作为唯一状态机权威。
+3. 未知机制或版本必须拒绝或安全降级，不允许执行关卡内容携带的函数或远程脚本。
+4. `src/mechanics/portal.js` 继续作为用户可见入口 manifest，并声明当前版本 2 与 `supportedRulesVersions: [1, 2]`。
+5. `src/mechanics/index.js` 只提供稳定 ID 查询并由 bootstrap 实际消费；不把规则策略复制到 manifest 层。
+
+**验收**：v1 题面/PairId 解答继续回放；v2 Cells/PortalId 解答、多出口和 required coverage 通过；未知版本不启用 Portal。
 
 ## 8. 建议的 PR 与提交边界
 
@@ -764,16 +785,19 @@ git diff --check
 
 传送门专项必须持续覆盖：
 
-- v1 显式启用与非法版本降级；
-- 双向入口/出口；
+- v1/v2 显式启用、兼容回放与未知版本降级；
+- v2 单网络任意候选出口、不可用出口过滤和每线一次；
+- v2 未使用门非必填覆盖，v1 门格仍保持必填覆盖；
 - 大步采样停在入口；
 - 错误出口回滚入口段；
 - 出口段取消只回滚出口段；
 - reset、undo、onHide 和切关不会遗留 pending；
-- 分段提示正反向与等待态；
+- PortalId 分段提示、正反向、多出口与等待态；
 - 门格不叠加主题/提示/清除棋子；
+- LOCKED/WAIT 文案位于棋盘上方、轻微呼吸且不改变棋盘 layout；
+- 棋盘不显示内部 Portal ID，Portal 阶段不震动，完整线路消除震动保留；
 - 试玩通关不写普通进度和广告计数；
-- 5 个真实题面/解答逐段重放并全板覆盖。
+- 5 个 v2 真实题面/解答、三门未用门 fixture 与 v1 fixture 逐段重放。
 
 设备验收：
 
@@ -782,16 +806,17 @@ git diff --check
 - 系统打断产生的 `touchcancel`；
 - 快速拖动、边缘释放、第二指干扰；
 - 小屏、安全区、高 DPR 和图片加载失败；
-- 等待出口提示是否足够明确。
+- 分阶段提示是否足够明确、棋盘是否稳定、到门是否无震动。
 
 ## 10. 完成标准
 
-阶段 1—6 已完成，当前实现达到：
+阶段 1—7 已完成，当前实现达到：
 
 - 新玩法试玩不再要求修改 App 的普通进度分支；
 - 正式 portal 普通关可以写普通进度，试玩 portal 仍不写，二者只由 run source 区分；
 - App、Hint 和 Renderer 不读取 Runner 可变内部数组；
 - Portal schema 在 runtime、validator 和 publishing gate 中只有一个解释来源；
+- Portal v1/v2 由最小 allowlist 分派，未知版本不会执行内容逻辑；
 - Board 输入、Portal 提示和 Portal 绘制均可独立测试；
 - `src/app.js` 与 `src/ui/canvas-renderer.js` 不再因每个玩法拓展成比例增长；
 - 未引入框架、构建系统、任意脚本插件或无真实调用者的抽象。
@@ -809,6 +834,6 @@ git diff --check
 | 4 | `BoardInputController` 接管棋盘 pointer、逐格采样和 Portal 锁定早停；`InteractionMap` 接管命中与棋盘定位，App 只消费输入事件。 |
 | 5 | `HintService` 缩为兼容门面；普通与 Portal provider 只消费纯 HintContext；`core/portal-solution.js` 承担分段解规范化、反转和展平。 |
 | 6 | App 构建纯棋盘 ViewModel；普通与每日场景共用 `BoardRenderer`，Portal 图标、锁定/等待态和资源回退由 `PortalOverlay` 最后绘制。 |
-| 7 | 未实施。当前仍只有 Portal v1，没有第二种真实棋盘机制、Portal v2 或远程 allowlist 需求。 |
+| 7 | `src/mechanics/index.js` 注册 data-only definition；`core/mechanics/index.js` 建立最小 `mechanic@rulesVersion` allowlist；`portal-v1.js` 与 `portal-v2.js` 分离固定门对/必填覆盖和单网络任选出口/非必填门格策略。 |
 
 自动化继续以 `node tests/run.js` 和 `git diff --check` 为本地完成门槛。微信开发者工具编译/预览、iOS 与 Android 真机触摸、安全区、高 DPR 和图片加载失败仍属于发布前人工验收，不能由 Node 测试替代。

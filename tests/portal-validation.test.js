@@ -68,6 +68,7 @@ function run() {
     'portal-blocked-out-of-range',
     'portal-blocked-required-array',
     'portal-board-dimensions-invalid',
+    'portal-cell-count-insufficient',
     'portal-cell-duplicate',
     'portal-cell-integer',
     'portal-cell-out-of-range',
@@ -76,11 +77,13 @@ function run() {
     'portal-id-duplicate',
     'portal-id-required',
     'portal-mechanic-invalid',
+    'portal-network-count-invalid',
     'portal-not-object',
     'portal-pair-count-exceeded',
     'portal-pair-required',
     'portal-rules-version-invalid',
     'portal-solution-required',
+    'portal-v2-pair-fields-forbidden',
     'portals-required-array',
     'solution-cell-non-integer',
     'solution-cell-out-of-range',
@@ -89,10 +92,12 @@ function run() {
     'solution-line-count',
     'solution-overlap',
     'solution-path-duplicate',
+    'solution-portal-network-invalid',
     'solution-portal-order',
     'solution-portal-pair-invalid',
     'solution-portal-reuse',
     'solution-portal-transition-required',
+    'solution-portal-use-count-exceeded',
     'solution-segment-non-adjacent',
     'solution-segment-not-object',
     'solution-segment-required',
@@ -139,6 +144,105 @@ function run() {
   normalizePortalSolution(source, validSolution());
   assert.deepStrictEqual(source, sourceCopy);
 
+  // v2 declares one neutral portal network with two or more interchangeable
+  // cells. Unused portal cells are optional coverage, while a stored answer
+  // still records the concrete exit chosen for deterministic replay.
+  const v2Level = baseLevel({
+    PortalRulesVersion: 2,
+    Width: 4,
+    Height: 2,
+    Blocked: [5],
+    Lines: [{ Start: 0, End: 2 }],
+    Portals: [{ Id: 'P1', Cells: [1, 4, 6] }]
+  });
+  const v2Solution = [{
+    Segments: [
+      { Cells: [0, 1], Exit: { PortalId: 'P1', From: 1, To: 6 } },
+      { Cells: [6, 7, 3, 2] }
+    ]
+  }];
+  const v2Structural = validatePortals(v2Level);
+  assert.strictEqual(v2Structural.ok, true);
+  assert.deepStrictEqual(v2Structural.portals[0].cells, [1, 4, 6]);
+  assert.deepStrictEqual(v2Structural.portalByCell[1].exits, [4, 6]);
+  assert.deepStrictEqual(v2Structural.portalByCell[4].exits, [1, 6]);
+  assert.strictEqual(validatePortalSolution(v2Level, v2Solution).ok, true,
+    'the unused portal at cell 4 must not be required for v2 coverage');
+  assert.deepStrictEqual(normalizePortalSolution(v2Level, v2Solution)[0].Segments[0].Exit, {
+    From: 1,
+    To: 6,
+    PortalId: 'P1'
+  });
+
+  const v2PairIdAlias = JSON.parse(JSON.stringify(v2Solution));
+  v2PairIdAlias[0].Segments[0].Exit.PairId =
+    v2PairIdAlias[0].Segments[0].Exit.PortalId;
+  delete v2PairIdAlias[0].Segments[0].Exit.PortalId;
+  assert.strictEqual(validatePortalSolution(v2Level, v2PairIdAlias).ok, true,
+    'v2 readers keep PairId compatibility for existing tooling');
+
+  [
+    [baseLevel({ PortalRulesVersion: 2, Portals: [] }), 'portal-network-count-invalid'],
+    [baseLevel({ PortalRulesVersion: 2, Portals: [
+      { Id: 'P1', Cells: [1, 6] },
+      { Id: 'P2', Cells: [2, 5] }
+    ] }), 'portal-network-count-invalid'],
+    [baseLevel({ PortalRulesVersion: 2, Portals: [{ Id: 'P1', Cells: [1] }] }),
+      'portal-cell-count-insufficient'],
+    [baseLevel({ PortalRulesVersion: 2, Portals: [
+      { Id: 'P1', Cells: [1, 6], A: 2, B: 5 }
+    ] }), 'portal-v2-pair-fields-forbidden'],
+    [baseLevel({ PortalRulesVersion: 2, Portals: [{ Id: 'P1', Cells: [1, 1, 6] }] }),
+      'portal-cell-duplicate'],
+    [baseLevel({ PortalRulesVersion: 2, Portals: [{ Id: 'P1', Cells: [1, , 6] }] }),
+      'portal-cell-integer'],
+    [baseLevel({ PortalRulesVersion: 2, Portals: [{ Id: 'P1', Cells: [1, 99] }] }),
+      'portal-cell-out-of-range'],
+    [baseLevel({ PortalRulesVersion: 2, Portals: [{ Id: 'P1', Cells: [0, 6] }] }),
+      'portal-endpoint-conflict'],
+    [baseLevel({ PortalRulesVersion: 2, Blocked: [6], Portals: [{ Id: 'P1', Cells: [1, 6] }] }),
+      'portal-blocked-conflict']
+  ].forEach(([item, code]) => {
+    const invalid = validatePortals(item);
+    assert.strictEqual(invalid.ok, false);
+    assert(has(invalid, code), `${code} should be reported for v2`);
+  });
+
+  const v2SelfExit = JSON.parse(JSON.stringify(v2Solution));
+  v2SelfExit[0].Segments[0].Exit.To = 1;
+  v2SelfExit[0].Segments[1].Cells[0] = 1;
+  let v2Result = validatePortalSolution(v2Level, v2SelfExit);
+  assert.strictEqual(v2Result.ok, false);
+  assert(has(v2Result, 'solution-portal-network-invalid'));
+
+  const v2MissingTransition = [{ Segments: [{ Cells: [0, 3, 2] }] }];
+  v2Result = validatePortalSolution(v2Level, v2MissingTransition);
+  assert.strictEqual(v2Result.ok, false);
+  assert(has(v2Result, 'solution-portal-transition-required'),
+    'a portal level must exercise the mechanic even though unused gates are optional');
+
+  const v2Repeated = [{ Segments: [
+    { Cells: [0, 1], Exit: { PortalId: 'P1', From: 1, To: 6 } },
+    { Cells: [6, 4], Exit: { PortalId: 'P1', From: 4, To: 1 } },
+    { Cells: [1, 2] }
+  ] }];
+  v2Result = validatePortalSolution(v2Level, v2Repeated);
+  assert.strictEqual(v2Result.ok, false);
+  assert(has(v2Result, 'solution-portal-use-count-exceeded'));
+
+  const v2SparseSolution = JSON.parse(JSON.stringify(v2Solution));
+  v2SparseSolution[0].Segments[1].Cells = [6, , 7, 3, 2];
+  v2Result = validatePortalSolution(v2Level, v2SparseSolution);
+  assert.strictEqual(v2Result.ok, false);
+  assert(has(v2Result, 'solution-cell-non-integer'),
+    'sparse solution cell arrays cannot bypass adjacency validation');
+
+  const sparsePortals = baseLevel({ PortalRulesVersion: 2, Portals: new Array(1) });
+  const sparsePortalResult = validatePortals(sparsePortals);
+  assert.strictEqual(sparsePortalResult.ok, false);
+  assert(has(sparsePortalResult, 'portal-not-object'),
+    'sparse portal descriptor arrays are rejected at the publishing boundary');
+
   const malformedCases = [
     [baseLevel({ Mechanic: undefined }), 'portal-mechanic-invalid'],
     [baseLevel({ Portals: null }), 'portals-required-array'],
@@ -159,7 +263,7 @@ function run() {
       Lines: [{ Start: 0, End: 7 }],
       Blocked: [2, 2]
     }), 'portal-blocked-duplicate'],
-    [baseLevel({ PortalRulesVersion: 2 }), 'portal-rules-version-invalid'],
+    [baseLevel({ PortalRulesVersion: 3 }), 'portal-rules-version-invalid'],
     [baseLevel({ Portals: [] }), 'portal-pair-required'],
     [{ Mechanic: 'normal', Portals: [{ Id: 'P1', A: 1, B: 6 }] }, 'portal-mechanic-invalid']
   ];

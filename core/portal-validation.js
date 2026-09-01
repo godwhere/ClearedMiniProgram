@@ -1,14 +1,13 @@
 'use strict';
 
 /**
- * Pure validation and normalization helpers for the v1 portal mechanic.
+ * Pure validation and normalization helpers for Portal v1 and v2.
  *
  * This module deliberately has no dependency on GameRunner, Canvas, wx, or
  * persistence.  It can be used by catalog/build checks as well as by the
- * daily-content validator.  The canonical authoring shape uses PascalCase
- * fields (`Mechanic`, `Portals`, `Id`, `A`, `B`, `Lines`, `Blocked`), while
- * lower-case aliases are accepted at the boundary for data imported from
- * JSON or older tooling.
+ * daily-content validator. Canonical authoring uses `{ Id, A, B }` for v1
+ * pairs and `{ Id, Cells }` for one v2 network. Common level fields retain
+ * PascalCase, while lower-case aliases are accepted at import boundaries.
  */
 
 const portalSchema = require('./portal-schema.js');
@@ -35,8 +34,10 @@ const CODES = Object.freeze({
   ID_DUPLICATE: 'portal-id-duplicate',
   CELL_INTEGER: 'portal-cell-integer',
   CELL_ARRAY_INVALID: 'portal-cells-array-invalid',
+  V2_PAIR_FIELDS_FORBIDDEN: 'portal-v2-pair-fields-forbidden',
   CELL_OUT_OF_RANGE: 'portal-cell-out-of-range',
   CELL_DUPLICATE: 'portal-cell-duplicate',
+  CELL_COUNT_INSUFFICIENT: 'portal-cell-count-insufficient',
   ENDPOINT_CONFLICT: 'portal-endpoint-conflict',
   BLOCKED_CONFLICT: 'portal-blocked-conflict',
   BLOCKED_REQUIRED_ARRAY: 'portal-blocked-required-array',
@@ -45,6 +46,7 @@ const CODES = Object.freeze({
   BLOCKED_DUPLICATE: 'portal-blocked-duplicate',
   PAIR_COUNT_EXCEEDED: 'portal-pair-count-exceeded',
   PAIR_REQUIRED: 'portal-pair-required',
+  NETWORK_COUNT_INVALID: 'portal-network-count-invalid',
   RULES_VERSION_INVALID: 'portal-rules-version-invalid',
   BOARD_DIMENSIONS_INVALID: 'portal-board-dimensions-invalid',
   SOLUTION_REQUIRED: 'portal-solution-required',
@@ -61,7 +63,9 @@ const CODES = Object.freeze({
   SOLUTION_SEGMENT_NON_ADJACENT: 'solution-segment-non-adjacent',
   SOLUTION_TRANSITION_REQUIRED: 'solution-portal-transition-required',
   SOLUTION_PAIR_INVALID: 'solution-portal-pair-invalid',
+  SOLUTION_NETWORK_INVALID: 'solution-portal-network-invalid',
   SOLUTION_REUSE: 'solution-portal-reuse',
+  SOLUTION_USE_COUNT_EXCEEDED: 'solution-portal-use-count-exceeded',
   SOLUTION_ORDER: 'solution-portal-order',
   SOLUTION_NOT_OBJECT: 'solution-segment-not-object'
 });
@@ -122,8 +126,19 @@ function blockedSet(level, board) {
   return inspectBlocked(level, board || dimensions(level)).valid;
 }
 
+function v2PortalCells(raw) {
+  return first(raw, ['Cells', 'cells']);
+}
+
+function portalCells(portal) {
+  if (!portal || typeof portal !== 'object') return [];
+  if (Array.isArray(portal.cells)) return portal.cells;
+  if (Array.isArray(portal.Cells)) return portal.Cells;
+  return [portal.A, portal.B];
+}
+
 function structuralResult(errors, level, portals, rulesVersion) {
-  const index = buildPortalIndex(portals);
+  const index = buildPortalIndex(portals, { rulesVersion });
   return {
     ok: errors.length === 0,
     errors,
@@ -165,11 +180,16 @@ function validatePortals(level, options) {
     return structuralResult(errors, level, [], rulesVersion);
   }
 
-  if (!Number.isInteger(explicitVersion) || explicitVersion !== 1) {
+  if (!Number.isInteger(explicitVersion) || (explicitVersion !== 1 && explicitVersion !== 2)) {
     add(errors, CODES.RULES_VERSION_INVALID);
   }
-  if (source.value.length === 0) add(errors, CODES.PAIR_REQUIRED);
-  if (source.value.length > 1) add(errors, CODES.PAIR_COUNT_EXCEEDED);
+  const isV2 = explicitVersion === 2;
+  if (isV2) {
+    if (source.value.length !== 1) add(errors, CODES.NETWORK_COUNT_INVALID);
+  } else {
+    if (source.value.length === 0) add(errors, CODES.PAIR_REQUIRED);
+    if (source.value.length > 1) add(errors, CODES.PAIR_COUNT_EXCEEDED);
+  }
 
   const board = dimensions(level);
   if (!board.valid) add(errors, CODES.BOARD_DIMENSIONS_INVALID);
@@ -181,11 +201,81 @@ function validatePortals(level, options) {
   const seenCells = new Set();
   const validPortals = [];
 
+  for (let sourceIndex = 0; sourceIndex < source.value.length; sourceIndex += 1) {
+    if (!Object.prototype.hasOwnProperty.call(source.value, sourceIndex)) {
+      add(errors, CODES.NOT_OBJECT);
+    }
+  }
+
   source.value.forEach((raw, sourceIndex) => {
     if (!isRecord(raw)) {
       add(errors, CODES.NOT_OBJECT);
       return;
     }
+    if (isV2) {
+      const id = first(raw, ['Id', 'id']);
+      const cells = v2PortalCells(raw);
+      const hasPairFields = own(raw, 'A') || own(raw, 'a') || own(raw, 'B') || own(raw, 'b');
+      if (hasPairFields) add(errors, CODES.V2_PAIR_FIELDS_FORBIDDEN);
+      const validId = typeof id === 'string' && id.trim().length > 0;
+      if (!validId) {
+        add(errors, CODES.ID_REQUIRED);
+      } else if (seenIds.has(id)) {
+        add(errors, CODES.ID_DUPLICATE);
+      } else {
+        seenIds.add(id);
+      }
+      if (!Array.isArray(cells)) {
+        add(errors, CODES.CELL_ARRAY_INVALID);
+        return;
+      }
+      if (cells.length < 2) add(errors, CODES.CELL_COUNT_INSUFFICIENT);
+      let descriptorValid = validId && cells.length >= 2 && !hasPairFields;
+      const localCells = new Set();
+      for (let cellIndex = 0; cellIndex < cells.length; cellIndex += 1) {
+        const cell = cells[cellIndex];
+        if (!Object.prototype.hasOwnProperty.call(cells, cellIndex)) {
+          add(errors, CODES.CELL_INTEGER);
+          descriptorValid = false;
+          continue;
+        }
+        if (!Number.isInteger(cell)) {
+          add(errors, CODES.CELL_INTEGER);
+          descriptorValid = false;
+          continue;
+        }
+        if (!board.valid || cell < 0 || cell >= board.total) {
+          add(errors, CODES.CELL_OUT_OF_RANGE);
+          descriptorValid = false;
+          continue;
+        }
+        if (localCells.has(cell) || seenCells.has(cell)) {
+          add(errors, CODES.CELL_DUPLICATE);
+          descriptorValid = false;
+        }
+        localCells.add(cell);
+        seenCells.add(cell);
+        if (blocked.has(cell)) {
+          add(errors, CODES.BLOCKED_CONFLICT);
+          descriptorValid = false;
+        }
+        if (endpoints.has(cell)) {
+          add(errors, CODES.ENDPOINT_CONFLICT);
+          descriptorValid = false;
+        }
+      }
+      if (descriptorValid) {
+        validPortals.push({
+          id,
+          Id: id,
+          cells: cells.slice(),
+          Cells: cells.slice(),
+          sourceIndex
+        });
+      }
+      return;
+    }
+
     const portal = readPortal(raw, sourceIndex);
     const compactCells = first(raw, ['Cells', 'cells']);
     // If the compact form is present alongside A/B, A/B remain authoritative;
@@ -285,6 +375,11 @@ function exitField(exit, upper, lower) {
   return solutionField(exit, upper, lower);
 }
 
+function exitPortalId(exit) {
+  return exitField(exit, 'PortalId', 'portalId') ||
+    exitField(exit, 'PairId', 'pairId') || exitField(exit, 'Id', 'id');
+}
+
 function canonicalSegments(lineSolution) {
   if (!isRecord(lineSolution)) return null;
   const segments = solutionField(lineSolution, 'Segments', 'segments');
@@ -327,6 +422,8 @@ function validatePortalSolution(level, solution) {
   const covered = new Set();
   const usedPortalCells = new Set();
   const byId = structural.portalById;
+  const isV2 = structural.rulesVersion === 2;
+  let portalTransitionCount = 0;
 
   lines.forEach((line, lineIndex) => {
     const lineSolution = paths[lineIndex];
@@ -334,6 +431,12 @@ function validatePortalSolution(level, solution) {
     if (!segments || segments.length === 0) {
       add(errors, CODES.SOLUTION_SEGMENT_REQUIRED);
       return;
+    }
+    for (let segmentIndex = 0; segmentIndex < segments.length; segmentIndex += 1) {
+      if (!Object.prototype.hasOwnProperty.call(segments, segmentIndex)) {
+        add(errors, CODES.SOLUTION_SEGMENT_REQUIRED);
+        return;
+      }
     }
     const start = lineEndpoint(line, 'start');
     const end = lineEndpoint(line, 'end');
@@ -351,6 +454,11 @@ function validatePortalSolution(level, solution) {
       if (!Array.isArray(cells) || cells.length === 0) {
         add(errors, CODES.SOLUTION_SEGMENT_REQUIRED);
         return;
+      }
+      for (let cellIndex = 0; cellIndex < cells.length; cellIndex += 1) {
+        if (!Object.prototype.hasOwnProperty.call(cells, cellIndex)) {
+          add(errors, CODES.SOLUTION_CELL_INTEGER);
+        }
       }
       const exit = segmentExit(segment);
       cells.forEach((cell, order) => {
@@ -399,22 +507,33 @@ function validatePortalSolution(level, solution) {
         if (!nextSegment || !Array.isArray(nextCells) || nextCells.length === 0) {
           add(errors, CODES.SOLUTION_ORDER);
         }
-        const pairId = exitField(exit, 'PairId', 'pairId') ||
-          exitField(exit, 'Id', 'id');
+        const pairId = exitPortalId(exit);
         const from = exitField(exit, 'From', 'from');
         const to = exitField(exit, 'To', 'to');
         const pair = typeof pairId === 'string' ? byId[pairId] : null;
         if (!pair) {
-          add(errors, CODES.SOLUTION_PAIR_INVALID);
+          add(errors, isV2 ? CODES.SOLUTION_NETWORK_INVALID : CODES.SOLUTION_PAIR_INVALID);
         } else {
-          const expectedOther = from === pair.A ? pair.B :
-            (from === pair.B ? pair.A : null);
-          if (expectedOther === null || to !== expectedOther || from !== last ||
-              !portalAtLast) {
-            add(errors, CODES.SOLUTION_PAIR_INVALID);
+          if (isV2) {
+            const networkCells = portalCells(pair);
+            if (from === to || networkCells.indexOf(from) < 0 ||
+                networkCells.indexOf(to) < 0 || from !== last || !portalAtLast) {
+              add(errors, CODES.SOLUTION_NETWORK_INVALID);
+            } else {
+              portalTransitionCount += 1;
+            }
+            if (transitions.length >= 1) add(errors, CODES.SOLUTION_USE_COUNT_EXCEEDED);
+            transitions.push(pairId);
+          } else {
+            const expectedOther = from === pair.A ? pair.B :
+              (from === pair.B ? pair.A : null);
+            if (expectedOther === null || to !== expectedOther || from !== last ||
+                !portalAtLast) {
+              add(errors, CODES.SOLUTION_PAIR_INVALID);
+            }
+            if (transitions.indexOf(pairId) >= 0) add(errors, CODES.SOLUTION_REUSE);
+            transitions.push(pairId);
           }
-          if (transitions.indexOf(pairId) >= 0) add(errors, CODES.SOLUTION_REUSE);
-          transitions.push(pairId);
         }
         if (!Array.isArray(nextCells) || nextCells[0] !== to) {
           add(errors, CODES.SOLUTION_ORDER);
@@ -460,16 +579,24 @@ function validatePortalSolution(level, solution) {
     }
   });
 
-  const expected = board.total - blocked.size;
-  if (expected > 0 && covered.size !== expected) add(errors, CODES.SOLUTION_INCOMPLETE);
-  // A portal pair's cells are ordinary coverable cells.  If either is absent,
-  // the coverage check above catches it; this explicit check gives malformed
-  // solutions a more actionable portal-order diagnostic as well.
-  structural.portals.forEach(portal => {
-    [portal.A, portal.B].forEach(cell => {
-      if (!usedPortalCells.has(cell)) add(errors, CODES.SOLUTION_ORDER);
+  if (isV2) {
+    for (let cell = 0; cell < board.total; cell += 1) {
+      if (!blocked.has(cell) && !structural.portalByCell[cell] && !covered.has(cell)) {
+        add(errors, CODES.SOLUTION_INCOMPLETE);
+        break;
+      }
+    }
+    if (portalTransitionCount === 0) add(errors, CODES.SOLUTION_TRANSITION_REQUIRED);
+  } else {
+    const expected = board.total - blocked.size;
+    if (expected > 0 && covered.size !== expected) add(errors, CODES.SOLUTION_INCOMPLETE);
+    // v1 pair cells remain mandatory coverable cells.
+    structural.portals.forEach(portal => {
+      [portal.A, portal.B].forEach(cell => {
+        if (!usedPortalCells.has(cell)) add(errors, CODES.SOLUTION_ORDER);
+      });
     });
-  });
+  }
 
   return {
     ok: errors.length === 0,
@@ -521,6 +648,7 @@ function validatePortalLevel(level, solutionOrOptions) {
 function normalizePortalSolution(level, solution) {
   const paths = extractSolutionPaths(level, solution);
   if (!Array.isArray(paths)) return null;
+  const isV2 = rawRulesVersion(level) === 2;
   return paths.map(lineSolution => {
     const segments = canonicalSegments(lineSolution);
     if (!segments) return { Segments: [] };
@@ -531,11 +659,8 @@ function normalizePortalSolution(level, solution) {
         const result = { Cells: Array.isArray(cells) ? cells.slice() : [] };
         const exit = segmentExit(segment);
         if (isRecord(exit)) {
-          result.Exit = {
-            PairId: exitField(exit, 'PairId', 'pairId') || exitField(exit, 'Id', 'id'),
-            From: exitField(exit, 'From', 'from'),
-            To: exitField(exit, 'To', 'to')
-          };
+          result.Exit = { From: exitField(exit, 'From', 'from'), To: exitField(exit, 'To', 'to') };
+          result.Exit[isV2 ? 'PortalId' : 'PairId'] = exitPortalId(exit);
         }
         return result;
       })
