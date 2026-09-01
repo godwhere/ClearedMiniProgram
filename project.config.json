@@ -1,0 +1,109 @@
+{
+  "description": "Cleared puzzle game rebuilt as a lightweight WeChat Mini Game",
+  "packOptions": {
+    "ignore": [
+      {
+        "value": "pages",
+        "type": "folder"
+      },
+      {
+        "value": "tests",
+        "type": "folder"
+      },
+      {
+        "value": "scripts",
+        "type": "folder"
+      },
+      {
+        "value": "app.js",
+        "type": "file"
+      },
+      {
+        "value": "app.json",
+        "type": "file"
+      },
+      {
+        "value": "app.wxss",
+        "type": "file"
+      },
+      {
+        "value": "sitemap.json",
+        "type": "file"
+      },
+      {
+        "value": "README.md",
+        "type": "file"
+      },
+      {
+        "value": "THIRD_PARTY_NOTICES.md",
+        "type": "file"
+      },
+      {
+        "value": "data/clearedset_train.json",
+        "type": "file"
+      },
+      {
+        "value": "data/clearedset5.json",
+        "type": "file"
+      },
+      {
+        "value": "data/clearedset6.json",
+        "type": "file"
+      },
+      {
+        "value": "data/clearedset7.json",
+        "type": "file"
+      },
+      {
+        "value": "data/clearedset8.json",
+        "type": "file"
+      },
+      {
+        "value": "data/clearedset9.json",
+        "type": "file"
+      },
+      {
+        "value": "assets/audio/victory.m4a",
+        "type": "file"
+      },
+      {
+        "value": "assets/skins/animals/drafts",
+        "type": "folder"
+      }
+    ],
+    "include": []
+  },
+  "compileType": "game",
+  "libVersion": "widelyUsed",
+  "appid": "wx7fb1a0811192cd97",
+  "isGameTourist": false,
+  "projectname": "ClearedMiniGame",
+  "setting": {
+    "urlCheck": false,
+    "es6": true,
+    "enhance": true,
+    "postcss": true,
+    "minified": true,
+    "compileHotReLoad": false,
+    "minifyJS": true,
+    "minifyWXML": true,
+    "minifyWXSS": true,
+    "compileWorklet": false,
+    "uglifyFileName": false,
+    "uploadWithSourceMap": true,
+    "packNpmManually": false,
+    "packNpmRelationList": [],
+    "localPlugins": false,
+    "disableUseStrict": false,
+    "useCompilerPlugins": false,
+    "condition": false,
+    "babelSetting": {
+      "ignore": [],
+      "disablePlugins": [],
+      "outputPath": ""
+    }
+  },
+  "condition": {},
+  "simulatorPluginLibVersion": {},
+  "editorSetting": {}
+}

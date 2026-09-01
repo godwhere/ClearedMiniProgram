@@ -1,0 +1,14 @@
+<view class="page home">
+  <view class="hero">
+    <text class="logo">Cleared!</text>
+    <text class="subtitle">Connect every color and clear the board.</text>
+  </view>
+
+  <view class="card">
+    <text class="card-title">152 个关卡</text>
+    <text class="card-copy">从训练关开始，逐步挑战 5×5 到 8×10 棋盘。</text>
+  </view>
+
+  <button class="button primary" bindtap="startGame">开始游戏</button>
+  <button class="button secondary" bindtap="chooseLevel">选择关卡</button>
+</view>

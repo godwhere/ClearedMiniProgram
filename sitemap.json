@@ -1,0 +1,4 @@
+{
+  "desc": "Cleared Mini Program sitemap",
+  "rules": [{ "action": "allow", "page": "*" }]
+}

@@ -1,0 +1,2199 @@
+const GameRunner = require('../../core/game-runner.js');
+
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+
+const EFFECT_MIN_DURATION_MS = 80;
+const EFFECT_MAX_DURATION_MS = 500;
+const DEFAULT_FADE_PARAMS = {
+  alphaFrom: 1,
+  alphaTo: 0,
+  scaleFrom: 1,
+  scaleTo: 1.14,
+  staggerRatio: 0.018
+};
+
+class CanvasRenderer {
+  constructor(platform, skinService, clearEffects) {
+    this.platform = platform;
+    this.ctx = platform.context;
+    this.skinService = skinService;
+    // Read-only effect queries are injected by the app. The renderer never
+    // selects effects or writes settings; a missing service simply renders the
+    // classic fade fallback for older hosts/tests.
+    this.clearEffects = clearEffects || null;
+    this.hits = [];
+    this.images = {};
+    // Optional non-gallery preview assets remain cacheable for future screens.
+    // The theme gallery itself uses the first four tile elements instead.
+    this.previewImages = {};
+    this.previewSources = {};
+    this.previewLoads = {};
+    // Theme-card previews use the first four tile elements rather than a
+    // separately generated preview image. Tile sheets are loaded lazily per
+    // theme so opening the gallery does not eagerly load every future theme.
+    this.themeTileImages = {};
+    this.themeTileSources = {};
+    this.themeTileLoads = {};
+    this.effectPreviewImages = {};
+    this.effectPreviewSources = {};
+    this.effectPreviewLoads = {};
+    this.effectSceneGeneration = 0;
+    this.lastScene = null;
+    this.assetGeneration = 0;
+    this.boardLayout = null;
+    this.portalImage = null;
+    this.portalImageLoading = false;
+    this.invalidate = function () {};
+    this.loadSkinAssets();
+  }
+
+  setInvalidate(callback) {
+    this.invalidate = callback || function () {};
+  }
+
+  invalidateEffectPreviews() {
+    // A scene transition can happen between two animation frames. Bump the
+    // generation immediately so a callback that arrives before the next
+    // render cannot commit an image for a page that is no longer visible.
+    this.effectSceneGeneration += 1;
+  }
+
+  loadSkinAssets() {
+    const generation = ++this.assetGeneration;
+    const skinId = this.skinService.current().id;
+    this.images = {};
+    const assets = this.skinService.current().assets || {};
+    Object.keys(assets).forEach(name => {
+      // Theme cards now build their preview from the first four tile frames;
+      // keep optional generated preview art out of the normal load path.
+      if (name === 'preview' || name === 'previewImage' || name === 'themePreview') return;
+      if (typeof assets[name] !== 'string' || !assets[name]) return;
+      this.platform.createImage(assets[name], (error, image) => {
+        if (generation !== this.assetGeneration || this.skinService.current().id !== skinId) return;
+        if (!error) this.images[name] = image;
+        this.invalidate();
+      });
+    });
+  }
+
+  render(model, now) {
+    const scene = model && model.scene;
+    if (scene !== this.lastScene) {
+      this.lastScene = scene;
+      // Invalidate outstanding effect preview callbacks whenever the page is
+      // left/re-entered. A late image may still be cached for that source, but
+      // it must not invalidate or overwrite a newer page generation.
+      this.effectSceneGeneration += 1;
+    }
+    switch (model.scene) {
+      case 'levels':
+        this.drawLevels(model, now);
+        break;
+      case 'play':
+      case 'result':
+        this.drawPlay(model, now);
+        break;
+      case 'daily':
+      case 'dailyResult':
+        this.drawDaily(model, now);
+        break;
+      case 'themes':
+        this.drawThemes(model, now);
+        break;
+      case 'corridor':
+        this.drawCorridor(model, now);
+        break;
+      case 'effects':
+        this.drawEffects(model, now);
+        break;
+      default:
+        this.drawHome(model, now);
+        break;
+    }
+  }
+
+  begin(background) {
+    const { width, height } = this.platform.metrics;
+    const ctx = this.ctx;
+    ctx.save();
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.clearRect(0, 0, width, height);
+    ctx.fillStyle = background;
+    ctx.fillRect(0, 0, width, height);
+    ctx.restore();
+    this.hits = [];
+    this.boardLayout = null;
+  }
+
+  addHit(id, rect, enabled) {
+    if (enabled === false) return;
+    this.hits.push({ id, rect });
+  }
+
+  hitTest(x, y) {
+    for (let index = this.hits.length - 1; index >= 0; index--) {
+      const hit = this.hits[index];
+      const rect = hit.rect;
+      if (x >= rect.x && x <= rect.x + rect.w && y >= rect.y && y <= rect.y + rect.h) {
+        return hit.id;
+      }
+    }
+    return null;
+  }
+
+  cellAt(x, y) {
+    const layout = this.boardLayout;
+    if (!layout) return -1;
+    const col = Math.floor((x - layout.x) / layout.cell);
+    const row = Math.floor((y - layout.y) / layout.cell);
+    if (col < 0 || row < 0 || col >= layout.cols || row >= layout.rows) return -1;
+    return row * layout.cols + col;
+  }
+
+  roundedRect(x, y, width, height, radius) {
+    const ctx = this.ctx;
+    const r = Math.min(radius, width / 2, height / 2);
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + width - r, y);
+    ctx.quadraticCurveTo(x + width, y, x + width, y + r);
+    ctx.lineTo(x + width, y + height - r);
+    ctx.quadraticCurveTo(x + width, y + height, x + width - r, y + height);
+    ctx.lineTo(x + r, y + height);
+    ctx.quadraticCurveTo(x, y + height, x, y + height - r);
+    ctx.lineTo(x, y + r);
+    ctx.quadraticCurveTo(x, y, x + r, y);
+    ctx.closePath();
+  }
+
+  text(value, x, y, size, options) {
+    const ctx = this.ctx;
+    const opts = options || {};
+    ctx.save();
+    ctx.fillStyle = opts.color || this.skinService.current().colors.text;
+    ctx.font = `${opts.weight || 300} ${size}px -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif`;
+    ctx.textAlign = opts.align || 'center';
+    ctx.textBaseline = opts.baseline || 'middle';
+    ctx.globalAlpha = opts.alpha === undefined ? 1 : opts.alpha;
+    if (opts.maxWidth) ctx.fillText(String(value), x, y, opts.maxWidth);
+    else ctx.fillText(String(value), x, y);
+    ctx.restore();
+  }
+
+  button(id, rect, label, options, pressedId) {
+    const skin = this.skinService.current();
+    const opts = options || {};
+    const enabled = opts.enabled !== false;
+    const pressed = id === pressedId;
+    const ctx = this.ctx;
+    ctx.save();
+    ctx.globalAlpha = enabled ? 1 : 0.32;
+    this.roundedRect(rect.x, rect.y, rect.w, rect.h, opts.radius || skin.layout.buttonRadius);
+    ctx.fillStyle = pressed
+      ? skin.colors.levelCellPressed
+      : (opts.fill || skin.colors.levelCell);
+    ctx.fill();
+    if (opts.stroke) {
+      ctx.strokeStyle = opts.stroke;
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
+    ctx.restore();
+    const labelX = rect.x + rect.w / 2 + (opts.icon ? 13 : 0);
+    if (opts.icon) {
+      ctx.save();
+      ctx.globalAlpha = enabled ? 1 : 0.5;
+      this.drawIcon(opts.icon, rect.x + rect.w / 2 - 24, rect.y + rect.h / 2, (opts.fontSize || 18) * 1.25);
+      ctx.restore();
+    }
+    this.text(label, labelX, rect.y + rect.h / 2, opts.fontSize || 18, {
+      weight: opts.weight || 400,
+      alpha: enabled ? 1 : 0.5
+    });
+    this.addHit(id, rect, enabled);
+  }
+
+  /**
+   * Return the preview source declared by a theme manifest.  The manifest is
+   * intentionally data-only, so this method accepts both the short
+   * `preview: '...'` form and the asset-map form used by the skin service.
+   */
+  previewSource(theme) {
+    if (!theme) return null;
+    if (theme.preview && typeof theme.preview === 'object') {
+      // Accept an already-created image object, while still handling a
+      // declarative `{ src: '...' }` descriptor without passing it to canvas
+      // as if it were an image.
+      if (typeof theme.preview.src === 'string' &&
+          !this.imageSize(theme.preview).width) return theme.preview.src;
+      return theme.preview;
+    }
+    if (typeof theme.preview === 'string' && theme.preview) return theme.preview;
+    const assets = theme.assets || {};
+    return assets.preview || assets.previewImage || assets.themePreview || null;
+  }
+
+  /**
+   * Lazily load a gallery preview.  Each request gets its own token; a late
+   * callback can therefore never replace a newer request for the same theme.
+   * Failed requests are memoized as null until the declared source changes,
+   * which avoids starting an image request on every render frame.
+   */
+  ensurePreviewImage(theme) {
+    if (!theme || !theme.id) return null;
+    const id = String(theme.id);
+    const source = this.previewSource(theme);
+    if (source && typeof source !== 'string') return source;
+
+    // A selected theme's preview may already have been loaded as one of its
+    // regular assets by loadSkinAssets().
+    if (!source && id === this.skinService.current().id && this.images.preview) {
+      return this.images.preview;
+    }
+    if (!source) return null;
+
+    // Reuse a preview that was loaded through the selected skin's regular
+    // asset pipeline (the gem manifest declares the same file in both places).
+    if (id === this.skinService.current().id) {
+      const currentAssets = this.skinService.current().assets || {};
+      const previewKey = Object.keys(currentAssets).find(name =>
+        (name === 'preview' || name === 'previewImage' || name === 'themePreview') &&
+        currentAssets[name] === source);
+      if (previewKey && this.images[previewKey]) return this.images[previewKey];
+    }
+
+    if (this.previewSources[id] === source &&
+        Object.prototype.hasOwnProperty.call(this.previewImages, id)) {
+      return this.previewImages[id];
+    }
+    const active = this.previewLoads[id];
+    if (active && active.source === source) return null;
+
+    const request = { source };
+    this.previewLoads[id] = request;
+    try {
+      this.platform.createImage(source, (error, image) => {
+        // The theme may have been re-described (or a newer request may have
+        // started) while this image was loading.
+        if (this.previewLoads[id] !== request) return;
+        this.previewSources[id] = source;
+        this.previewImages[id] = error || !image ? null : image;
+        this.invalidate();
+      });
+    } catch (error) {
+      if (this.previewLoads[id] === request) {
+        this.previewSources[id] = source;
+        this.previewImages[id] = null;
+        this.invalidate();
+      }
+    }
+    return null;
+  }
+
+  imageSize(image) {
+    if (!image) return { width: 0, height: 0 };
+    return {
+      width: Number(image.width || image.naturalWidth || image.videoWidth || 0),
+      height: Number(image.height || image.naturalHeight || image.videoHeight || 0)
+    };
+  }
+
+  drawImageContain(image, rect, options) {
+    if (!image || !this.ctx || typeof this.ctx.drawImage !== 'function') return false;
+    const opts = options || {};
+    const dimensions = this.imageSize(image);
+    const iw = dimensions.width;
+    const ih = dimensions.height;
+    // Some test doubles and a few canvas implementations do not expose the
+    // intrinsic dimensions.  A direct draw still works for a normal image;
+    // sprite sheets are handled separately where dimensions are required.
+    if (!(iw > 0 && ih > 0)) {
+      if (opts.allowUnknownSize === false) return false;
+      this.ctx.drawImage(image, rect.x, rect.y, rect.w, rect.h);
+      return true;
+    }
+    const fit = opts.fit || 'contain';
+    const ratio = fit === 'cover'
+      ? Math.max(rect.w / iw, rect.h / ih)
+      : Math.min(rect.w / iw, rect.h / ih);
+    const dw = iw * ratio;
+    const dh = ih * ratio;
+    this.ctx.drawImage(image, rect.x + (rect.w - dw) / 2, rect.y + (rect.h - dh) / 2, dw, dh);
+    return true;
+  }
+
+  tileVisualConfig(skin) {
+    const raw = (skin && skin.tileVisuals) || {};
+    const nested = raw.spriteSheet && typeof raw.spriteSheet === 'object' ? raw.spriteSheet : {};
+    return Object.assign({}, raw, nested);
+  }
+
+  tileFallbackColor(skin, lineIndex, explicitColor, explicitPalette) {
+    if (explicitColor) return explicitColor;
+    const visuals = this.tileVisualConfig(skin);
+    const colors = visuals.fallbackColors || visuals.colors || visuals.palette;
+    if (Array.isArray(colors) && colors.length && lineIndex >= 0) {
+      return colors[lineIndex % colors.length] || (skin && skin.colors && skin.colors.emptyCell);
+    }
+    if (colors && typeof colors === 'object' && lineIndex >= 0) {
+      const value = colors[lineIndex] || colors[String(lineIndex)];
+      if (value) return value;
+    }
+    const palette = explicitPalette || (skin && skin.palette);
+    if (Array.isArray(palette) && palette.length && lineIndex >= 0) {
+      return palette[lineIndex % palette.length] || (skin.colors && skin.colors.emptyCell);
+    }
+    return (skin && skin.colors && skin.colors.emptyCell) || '#ffffff';
+  }
+
+  tileImageForLine(skin, lineIndex, images) {
+    const visuals = this.tileVisualConfig(skin);
+    const variants = visuals.variants || visuals.images;
+    let assetName = visuals.asset || visuals.image || visuals.sheet;
+    if (Array.isArray(variants) && variants.length && lineIndex >= 0) {
+      assetName = variants[lineIndex % variants.length];
+    } else if (variants && typeof variants === 'object' && lineIndex >= 0) {
+      assetName = variants[lineIndex] || variants[String(lineIndex)] || assetName;
+    }
+    if (!assetName) return null;
+    if (typeof assetName !== 'string') return assetName;
+    const imageMap = images || this.images;
+    if (imageMap[assetName]) return imageMap[assetName];
+    const assets = (skin && skin.assets) || {};
+    const key = Object.keys(assets).find(name => assets[name] === assetName);
+    return key ? imageMap[key] : null;
+  }
+
+  tileBackgroundStyle(skin, visuals, options) {
+    const opts = options || {};
+    if (opts.background === false || visuals.background === false ||
+        opts.backgroundColor === false || visuals.backgroundColor === false) return null;
+
+    let value = opts.backgroundColor;
+    if (value === undefined) value = visuals.backgroundColor;
+    if (value === undefined) value = visuals.background;
+    if (value === undefined) value = skin && skin.colors && skin.colors.emptyCell;
+
+    let alpha = opts.backgroundAlpha;
+    if (alpha === undefined) alpha = visuals.backgroundAlpha;
+    if (alpha === undefined) alpha = 1;
+
+    if (value && typeof value === 'object') {
+      if (value.color !== undefined) value = value.color;
+      if (value.alpha !== undefined && opts.backgroundAlpha === undefined &&
+          visuals.backgroundAlpha === undefined) alpha = value.alpha;
+    }
+    // Allow a manifest to name a semantic token (for example `emptyCell`) or
+    // provide a literal CSS color.  Invalid values fall back to the classic
+    // translucent tile token rather than leaking a token name to Canvas.
+    if (typeof value === 'string' && skin && skin.colors && skin.colors[value]) {
+      value = skin.colors[value];
+    }
+    if (typeof value !== 'string' || !value) {
+      value = skin && skin.colors && skin.colors.emptyCell;
+    }
+    if (typeof value !== 'string' || !value) return null;
+    alpha = Number(alpha);
+    if (!Number.isFinite(alpha)) alpha = 1;
+    alpha = clamp(alpha, 0, 1);
+    return { color: value, alpha };
+  }
+
+  /**
+   * Draw one logical board tile.  All board states (fixed endpoint, selected
+   * path, hint and clear animation) use this adapter, so a manifest can swap
+   * a color fill for a sprite sheet without changing game geometry or rules.
+   */
+  drawTile(lineIndex, x, y, size, options) {
+    const opts = options || {};
+    const skin = opts.skin || this.skinService.current();
+    const ctx = this.ctx;
+    const alpha = opts.alpha === undefined ? 1 : opts.alpha;
+    const scale = Number(opts.scale) > 0 ? Number(opts.scale) : 1;
+    const drawSize = Math.max(0, size * scale);
+    const drawX = x - (drawSize - size) / 2;
+    const drawY = y - (drawSize - size) / 2;
+    const color = this.tileFallbackColor(skin, lineIndex, opts.color, opts.palette);
+    const visuals = this.tileVisualConfig(skin);
+    const visualScale = Number(visuals.scale) > 0 ? Number(visuals.scale) : 1;
+    const imageSize = drawSize * visualScale;
+    const imageX = drawX + (drawSize - imageSize) / 2;
+    const imageY = drawY + (drawSize - imageSize) / 2;
+    let drawn = false;
+
+    ctx.save();
+    ctx.globalAlpha = alpha;
+
+    const image = lineIndex >= 0 ? this.tileImageForLine(skin, lineIndex, opts.images) : null;
+    const type = visuals.type || (visuals.columns ? 'spriteSheet' : '');
+    // Image-backed themes retain the same translucent square tile that the
+    // classic renderer shows beneath a color block. Draw it before the
+    // transparent theme art so the board grid remains visible around every
+    // endpoint/path tile. Color-only classic tiles keep their old behavior.
+    const background = image ? this.tileBackgroundStyle(skin, visuals, opts) : null;
+    if (background && typeof ctx.fillRect === 'function') {
+      ctx.globalAlpha = alpha * background.alpha;
+      ctx.fillStyle = background.color;
+      ctx.fillRect(drawX, drawY, drawSize, drawSize);
+      ctx.globalAlpha = alpha;
+    }
+    if (image && typeof ctx.drawImage === 'function' && type === 'spriteSheet') {
+      const dimensions = this.imageSize(image);
+      const columns = Math.max(1, Number(visuals.columns) || 1);
+      const rows = Math.max(1, Number(visuals.rows) || 1);
+      const count = Math.max(1, Number(visuals.count) || columns * rows);
+      if (dimensions.width > 0 && dimensions.height > 0) {
+        const frame = ((lineIndex % count) + count) % count;
+        const sourceWidth = dimensions.width / columns;
+        const sourceHeight = dimensions.height / rows;
+        const sourceX = (frame % columns) * sourceWidth;
+        const sourceY = Math.floor(frame / columns) * sourceHeight;
+        const padding = Math.max(0, Number(visuals.padding) || 0);
+        const target = Math.max(1, imageSize - padding * 2);
+        const fit = visuals.fit || 'contain';
+        const ratio = fit === 'cover'
+          ? Math.max(target / sourceWidth, target / sourceHeight)
+          : Math.min(target / sourceWidth, target / sourceHeight);
+        const dw = sourceWidth * ratio;
+        const dh = sourceHeight * ratio;
+        try {
+          ctx.drawImage(image, sourceX, sourceY, sourceWidth, sourceHeight,
+            imageX + padding + (target - dw) / 2,
+            imageY + padding + (target - dh) / 2,
+            dw, dh);
+          drawn = true;
+        } catch (error) {
+          drawn = false;
+        }
+      }
+    } else if (image && typeof ctx.drawImage === 'function' && type !== 'spriteSheet') {
+      try {
+        drawn = this.drawImageContain(image, { x: imageX, y: imageY, w: imageSize, h: imageSize }, {
+          fit: visuals.fit || 'contain'
+        });
+      } catch (error) {
+        drawn = false;
+      }
+    }
+
+    if (!drawn && typeof ctx.fillRect === 'function') {
+      ctx.fillStyle = color;
+      ctx.fillRect(drawX, drawY, drawSize, drawSize);
+    }
+
+    const overlay = opts.overlay;
+    if (overlay && typeof ctx.fillRect === 'function') {
+      const overlayColor = typeof overlay === 'string' ? overlay : overlay.color;
+      const overlayAlpha = typeof overlay === 'object' && overlay.alpha !== undefined
+        ? overlay.alpha
+        : 1;
+      if (overlayColor) {
+        ctx.globalAlpha = alpha * overlayAlpha;
+        ctx.fillStyle = overlayColor;
+        ctx.fillRect(drawX, drawY, drawSize, drawSize);
+      }
+    }
+    if (opts.stroke && typeof ctx.strokeRect === 'function') {
+      ctx.globalAlpha = alpha;
+      ctx.strokeStyle = opts.stroke;
+      ctx.lineWidth = opts.lineWidth || 1;
+      ctx.strokeRect(drawX, drawY, drawSize, drawSize);
+    }
+    ctx.restore();
+    return drawn;
+  }
+
+  iconButton(id, rect, icon, enabled, pressedId) {
+    const ctx = this.ctx;
+    const pressed = id === pressedId;
+    ctx.save();
+    ctx.globalAlpha = enabled === false ? 0.22 : (pressed ? 0.62 : 0.9);
+    if (pressed) {
+      this.roundedRect(rect.x, rect.y, rect.w, rect.h, 8);
+      ctx.fillStyle = this.skinService.current().colors.controlPressed;
+      ctx.fill();
+    }
+    this.drawIcon(icon, rect.x + rect.w / 2, rect.y + rect.h / 2, Math.min(rect.w, rect.h) * 0.48);
+    ctx.restore();
+    this.addHit(id, rect, enabled !== false);
+  }
+
+  drawIcon(type, x, y, size) {
+    const ctx = this.ctx;
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.strokeStyle = this.skinService.current().colors.icon;
+    ctx.fillStyle = this.skinService.current().colors.icon;
+    ctx.lineWidth = Math.max(2, size * 0.11);
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.beginPath();
+
+    if (type === 'back' || type === 'next') {
+      const direction = type === 'back' ? -1 : 1;
+      ctx.moveTo(-direction * size * 0.34, -size * 0.42);
+      ctx.lineTo(direction * size * 0.12, 0);
+      ctx.lineTo(-direction * size * 0.34, size * 0.42);
+      ctx.stroke();
+    } else if (type === 'reset') {
+      ctx.arc(0, 0, size * 0.34, -Math.PI * 0.5, Math.PI * 1.32);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(-size * 0.34, -size * 0.24);
+      ctx.lineTo(-size * 0.46, size * 0.05);
+      ctx.lineTo(-size * 0.16, size * 0.02);
+      ctx.closePath();
+      ctx.fill();
+    } else if (type === 'undo') {
+      ctx.moveTo(size * 0.38, size * 0.26);
+      ctx.quadraticCurveTo(size * 0.22, -size * 0.28, -size * 0.23, -size * 0.16);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(-size * 0.18, -size * 0.4);
+      ctx.lineTo(-size * 0.43, -size * 0.1);
+      ctx.lineTo(-size * 0.08, -size * 0.04);
+      ctx.closePath();
+      ctx.fill();
+    } else if (type === 'check') {
+      ctx.moveTo(-size * 0.42, 0);
+      ctx.lineTo(-size * 0.1, size * 0.3);
+      ctx.lineTo(size * 0.46, -size * 0.34);
+      ctx.stroke();
+    } else if (type === 'home') {
+      ctx.moveTo(-size * 0.42, -size * 0.02);
+      ctx.lineTo(0, -size * 0.4);
+      ctx.lineTo(size * 0.42, -size * 0.02);
+      ctx.moveTo(-size * 0.3, -size * 0.08);
+      ctx.lineTo(-size * 0.3, size * 0.38);
+      ctx.lineTo(size * 0.3, size * 0.38);
+      ctx.lineTo(size * 0.3, -size * 0.08);
+      ctx.stroke();
+    } else if (type === 'lock') {
+      ctx.arc(0, -size * 0.12, size * 0.24, Math.PI, Math.PI * 2);
+      ctx.stroke();
+      ctx.fillRect(-size * 0.34, -size * 0.08, size * 0.68, size * 0.48);
+    } else if (type === 'sound' || type === 'mute') {
+      ctx.fillRect(-size * 0.43, -size * 0.14, size * 0.18, size * 0.28);
+      ctx.beginPath();
+      ctx.moveTo(-size * 0.25, -size * 0.14);
+      ctx.lineTo(-size * 0.03, -size * 0.36);
+      ctx.lineTo(-size * 0.03, size * 0.36);
+      ctx.lineTo(-size * 0.25, size * 0.14);
+      ctx.closePath();
+      ctx.fill();
+      if (type === 'sound') {
+        ctx.beginPath();
+        ctx.arc(-size * 0.01, 0, size * 0.36, -Math.PI * 0.55, Math.PI * 0.55);
+        ctx.stroke();
+      } else {
+        ctx.beginPath();
+        ctx.moveTo(size * 0.08, -size * 0.30);
+        ctx.lineTo(size * 0.42, size * 0.30);
+        ctx.stroke();
+      }
+    } else if (type === 'hint') {
+      ctx.arc(0, -size * 0.08, size * 0.28, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(-size * 0.14, size * 0.24);
+      ctx.lineTo(size * 0.14, size * 0.24);
+      ctx.moveTo(-size * 0.10, size * 0.38);
+      ctx.lineTo(size * 0.10, size * 0.38);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(0, -size * 0.56);
+      ctx.lineTo(0, -size * 0.42);
+      ctx.moveTo(-size * 0.42, -size * 0.38);
+      ctx.lineTo(-size * 0.32, -size * 0.28);
+      ctx.moveTo(size * 0.42, -size * 0.38);
+      ctx.lineTo(size * 0.32, -size * 0.28);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  ensurePortalImage() {
+    if (this.portalImage) return this.portalImage;
+    if (this.portalImageLoading) return null;
+    this.portalImageLoading = true;
+    try {
+      this.platform.createImage('assets/icons/portal.png', (error, image) => {
+        this.portalImageLoading = false;
+        if (!error && image) {
+          this.portalImage = image;
+          this.invalidate();
+        }
+      });
+    } catch (error) {
+      this.portalImageLoading = false;
+    }
+    return this.portalImage;
+  }
+
+  drawPortalFallback(x, y, size, now) {
+    const ctx = this.ctx;
+    const cx = x + size / 2;
+    const cy = y + size / 2;
+    const r = size * 0.42;
+    const pulse = 0.5 + Math.sin(now / 240) * 0.5;
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.fillStyle = '#0a1d37';
+    ctx.fill();
+    ctx.strokeStyle = '#f5a623';
+    ctx.lineWidth = Math.max(2, size * 0.08);
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.arc(cx, cy, r * 0.72, 0, Math.PI * 2);
+    ctx.fillStyle = '#00a8ff';
+    ctx.globalAlpha = 0.85 + pulse * 0.15;
+    ctx.fill();
+
+    ctx.beginPath();
+    ctx.arc(cx, cy, r * (0.32 + pulse * 0.08), 0, Math.PI * 2);
+    ctx.fillStyle = '#e0f7fa';
+    ctx.fill();
+    ctx.restore();
+  }
+
+  drawPortals(portals, runner, setStyle, now, boardLayout, gap) {
+    if (!Array.isArray(portals) || !portals.length || !boardLayout) return;
+    const { x: boardX, y: boardY, cell, cols } = boardLayout;
+    const ctx = this.ctx;
+    const portalImage = this.ensurePortalImage();
+    const isWaiting = !!(runner && runner.portalPending && runner.portalPhase === 'PORTAL_WAIT');
+    const isLocked = !!(runner && runner.portalLock && runner.portalPhase === 'PORTAL_LOCKED');
+    const expectedExit = isWaiting ? runner.portalPending.exit : -1;
+    const lockedEntry = isLocked ? runner.portalLock.entry : -1;
+
+    portals.forEach(portal => {
+      const id = portal.id || portal.Id || 'P1';
+      const cells = [portal.A !== undefined ? portal.A : portal.a, portal.B !== undefined ? portal.B : portal.b];
+
+      cells.forEach(cellIndex => {
+        if (!Number.isInteger(cellIndex) || cellIndex < 0) return;
+        if (runner && runner.owner && runner.owner[cellIndex] >= 0) return;
+
+        const col = cellIndex % cols;
+        const row = Math.floor(cellIndex / cols);
+        const x = boardX + col * cell + gap;
+        const y = boardY + row * cell + gap;
+        const size = Math.max(1, cell - gap * 2);
+
+        if (portalImage) {
+          this.drawImageContain(portalImage, { x: x + 2, y: y + 2, w: size - 4, h: size - 4 }, { fit: 'contain' });
+        } else {
+          this.drawPortalFallback(x, y, size, now);
+        }
+
+        // Pair marker badge
+        this.text(String(id), x + size - 6, y + 8, clamp(size * 0.2, 9, 12), {
+          color: '#ffffff',
+          alpha: 0.85,
+          weight: 600,
+          align: 'right'
+        });
+
+        // Pulsing highlight ring on expected exit B when awaiting continuation
+        if (isWaiting && cellIndex === expectedExit) {
+          const breath = 0.5 + Math.sin(now / 160) * 0.5;
+          ctx.save();
+          ctx.strokeStyle = '#ffeb3b';
+          ctx.lineWidth = Math.max(2, 2.5 + breath * 1.5);
+          ctx.globalAlpha = 0.82 + breath * 0.18;
+          this.roundedRect(x - 1, y - 1, size + 2, size + 2, 6);
+          ctx.stroke();
+          ctx.restore();
+        }
+
+        // Lock pulse on entry A
+        if (isLocked && cellIndex === lockedEntry) {
+          const breath = 0.5 + Math.sin(now / 120) * 0.5;
+          ctx.save();
+          ctx.strokeStyle = '#00e5ff';
+          ctx.lineWidth = Math.max(2, 2 + breath * 2);
+          ctx.globalAlpha = 0.85 + breath * 0.15;
+          this.roundedRect(x - 1, y - 1, size + 2, size + 2, 6);
+          ctx.stroke();
+          ctx.restore();
+        }
+      });
+    });
+  }
+
+  drawHome(model) {
+    const skin = this.skinService.current();
+    const { width, height, safeTop, safeBottom } = this.platform.metrics;
+    const ctx = this.ctx;
+    this.begin(skin.colors.homeBackground);
+    this.iconButton('home:sound', { x: width - 58, y: safeTop + (skin.layout.homeTopUiOffset || 0) + 8, w: 44, h: 44 },
+      model.soundEnabled ? 'sound' : 'mute', true, model.pressedId);
+
+    const trialBtnWidth = 110;
+    const trialBtnHeight = 44;
+    const trialBtnX = 18;
+    const trialBtnY = safeTop + (skin.layout.homeTopUiOffset || 0) + 8;
+    this.button('home:portalTrial', {
+      x: trialBtnX,
+      y: trialBtnY,
+      w: trialBtnWidth,
+      h: trialBtnHeight
+    }, '传送门试玩', {
+      fill: skin.colors.secondaryButton,
+      stroke: skin.colors.primaryButtonStroke,
+      fontSize: 14
+    }, model.pressedId);
+
+    const buttonHeight = 54;
+    const buttonGap = 12;
+    // The home actions use a two-row composition: daily challenge and themes
+    // share the first row, while the resume/start action spans the second row.
+    // Keep the geometry explicit so hit regions and rendering stay in lockstep
+    // across screen sizes and safe-area insets.
+    const buttonStackHeight = buttonHeight * 2 + buttonGap;
+    const configuredBottomInset = skin.layout && skin.layout.homeButtonBottomInset;
+    const buttonBottomInset = Number.isFinite(Number(configuredBottomInset))
+      ? Math.max(0, Number(configuredBottomInset))
+      : 40;
+    const firstY = safeBottom - buttonStackHeight - buttonBottomInset;
+
+    // Keep the available logo area responsive with the three home actions.
+    // Preserve the familiar composition on normal devices, but shift
+    // the logo upward (and only then scale it down) so its completion text
+    // never collides with the button stack.
+    let logoSize = Math.min(width * 0.58, height * 0.32, 260);
+    const logoBottomLimit = firstY - 18;
+    const usableTop = safeTop + 12;
+    let logoY = safeTop + (safeBottom - safeTop) * 0.38;
+    const minLogoY = usableTop + logoSize / 2;
+    const maxLogoY = logoBottomLimit - logoSize * 0.79;
+    if (logoY > maxLogoY) logoY = maxLogoY;
+    if (logoY < minLogoY) {
+      const available = Math.max(1, logoBottomLimit - usableTop);
+      logoSize = Math.min(logoSize, available / 1.29);
+      logoY = usableTop + logoSize / 2;
+    }
+    ctx.save();
+    ctx.globalAlpha = 1;
+    ctx.strokeStyle = skin.colors.homeMotif;
+    ctx.lineWidth = Math.max(18, logoSize * 0.13);
+    ctx.beginPath();
+    ctx.arc(width / 2, logoY, logoSize * 0.67, Math.PI * 0.18, Math.PI * 0.82, true);
+    ctx.stroke();
+    ctx.fillStyle = skin.colors.homeMotif;
+    ctx.fillRect(width / 2 - logoSize * 0.06, logoY + logoSize * 0.57, logoSize * 0.12, logoSize * 0.45);
+    ctx.restore();
+
+    if (this.images.logo) {
+      ctx.drawImage(this.images.logo, width / 2 - logoSize / 2, logoY - logoSize / 2, logoSize, logoSize);
+    } else {
+      this.drawFallbackLogo(width / 2, logoY, logoSize * 0.72);
+    }
+
+    this.text('CLEARED!', width / 2, logoY + logoSize * 0.63, 21, { weight: 300, alpha: 0.78 });
+    this.text(`已完成 ${model.completedCount} / ${model.totalLevels}`, width / 2, logoY + logoSize * 0.79, 14, {
+      alpha: 0.62
+    });
+
+    const buttonWidth = Math.min(width - 56, 360);
+    // Keep the bottom inset while stacking both rows. The stack is derived
+    // from safeBottom so it remains above gesture areas on devices with a
+    // home indicator.
+    const buttonX = (width - buttonWidth) / 2;
+    const columnWidth = (buttonWidth - buttonGap) / 2;
+    const dailyEntryKnown = model && (model.dailyDebugUnlimited === true ||
+      (model.dailyEntriesRemaining !== undefined && model.dailyEntryLimit !== undefined));
+    const dailyEntryRemaining = dailyEntryKnown ? Number(model.dailyEntriesRemaining) : 0;
+    const dailyEntryLimit = dailyEntryKnown ? Number(model.dailyEntryLimit) : 0;
+    // In the development/unlimited-entry state the compact status belongs to
+    // the daily button itself, so leave the space above the row clear. Finite
+    // entry states keep the wider status line above the actions.
+    if (dailyEntryKnown && model.dailyDebugUnlimited !== true) {
+      const dailyStatus = model.dailyAvailable === false
+        ? '今日暂无关卡'
+        : dailyEntryRemaining > 0
+          ? `剩余次数 ${Math.max(0, dailyEntryRemaining)} / ${Math.max(1, dailyEntryLimit)}`
+          : '今日次数已用完';
+      this.text(dailyStatus, width / 2, firstY - 13, 11, { alpha: 0.58 });
+    }
+    const dailyButtonRect = {
+      x: buttonX,
+      y: firstY,
+      w: columnWidth,
+      h: buttonHeight
+    };
+    this.button('home:dailyChallenge', dailyButtonRect, '高难关卡', {
+      fill: skin.colors.primaryButton,
+      stroke: skin.colors.primaryButtonStroke,
+      fontSize: 19,
+      enabled: model.dailyAvailable !== false && model.dailyEntryAvailable !== false
+    }, model.pressedId);
+    if (model.dailyDebugUnlimited === true) {
+      this.text('次数不限', dailyButtonRect.x + dailyButtonRect.w - 8,
+        dailyButtonRect.y + dailyButtonRect.h - 7, 10, {
+          align: 'right',
+          baseline: 'bottom',
+          alpha: 0.68
+        });
+    }
+    const galleryAction = model && model.homeMigration === true
+      ? 'home:corridor' : 'home:themes';
+    const galleryLabel = model && model.homeMigration === true ? '回廊' : '主题';
+    this.button(galleryAction, {
+      x: buttonX + columnWidth + buttonGap,
+      y: firstY,
+      w: columnWidth,
+      h: buttonHeight
+    }, galleryLabel, {
+      fill: skin.colors.primaryButton,
+      stroke: skin.colors.primaryButtonStroke,
+      fontSize: 18
+    }, model.pressedId);
+    this.button('home:start', {
+      x: buttonX,
+      y: firstY + buttonHeight + buttonGap,
+      w: buttonWidth,
+      h: buttonHeight
+    }, model.completedCount ? '继续游戏' : '开始游戏', {
+      fill: skin.colors.primaryButton,
+      stroke: skin.colors.primaryButtonStroke,
+      fontSize: 19
+    }, model.pressedId);
+  }
+
+  drawFallbackLogo(x, y, size) {
+    const ctx = this.ctx;
+    const colors = this.skinService.current().logoPalette;
+    const cell = size / 3;
+    ctx.save();
+    ctx.translate(x - size / 2, y - size / 2);
+    colors.forEach((color, index) => {
+      if (!color) return;
+      ctx.fillStyle = color;
+      ctx.fillRect((index % 3) * cell, Math.floor(index / 3) * cell, cell + 0.5, cell + 0.5);
+    });
+    ctx.restore();
+  }
+
+  themeList(model) {
+    if (model && Array.isArray(model.themes)) return model.themes;
+    if (this.skinService && typeof this.skinService.list === 'function') {
+      const list = this.skinService.list();
+      if (Array.isArray(list)) return list;
+    }
+    const current = this.skinService && this.skinService.current
+      ? this.skinService.current()
+      : null;
+    return current ? [current] : [];
+  }
+
+  themePalette(theme, fallbackSkin) {
+    const candidate = theme && (theme.palette || (theme.colors && theme.colors.palette));
+    if (Array.isArray(candidate) && candidate.length) return candidate;
+    const visuals = this.tileVisualConfig(theme || {});
+    if (Array.isArray(visuals.fallbackColors) && visuals.fallbackColors.length) {
+      return visuals.fallbackColors;
+    }
+    const fallback = fallbackSkin && (fallbackSkin.palette || (fallbackSkin.colors && fallbackSkin.colors.palette));
+    if (Array.isArray(fallback) && fallback.length) return fallback;
+    return ['#ffeb3b', '#ff9800', '#f44336', '#8bc34a', '#009688', '#03a9f4', '#673ab7', '#f28ab2'];
+  }
+
+  themeManifest(theme) {
+    if (!theme) return null;
+    if (theme.id && this.skinService && typeof this.skinService.get === 'function') {
+      return this.skinService.get(theme.id) || theme;
+    }
+    return theme;
+  }
+
+  tileAssetReference(skin) {
+    const visuals = this.tileVisualConfig(skin || {});
+    let reference = visuals.asset || visuals.image || visuals.sheet;
+    if (!reference && Array.isArray(visuals.variants) && visuals.variants.length) {
+      reference = visuals.variants[0];
+    }
+    if (reference && typeof reference === 'object') {
+      reference = reference.asset || reference.image || reference.src;
+    }
+    return typeof reference === 'string' && reference ? reference : null;
+  }
+
+  tileAssetInfo(skin, reference) {
+    if (!skin || !reference) return { key: null, source: null };
+    const assets = skin.assets || {};
+    if (assets[reference] && typeof assets[reference] === 'string') {
+      return { key: reference, source: assets[reference] };
+    }
+    if (reference.indexOf('/') >= 0 || reference.indexOf('.') >= 0) {
+      return { key: reference, source: reference };
+    }
+    const key = Object.keys(assets).find(name => assets[name] === reference);
+    return key ? { key, source: assets[key] } : { key: null, source: null };
+  }
+
+  ensureThemeTileImage(theme) {
+    const manifest = this.themeManifest(theme);
+    if (!manifest || !manifest.id) return { key: null, image: null };
+    const reference = this.tileAssetReference(manifest);
+    const info = this.tileAssetInfo(manifest, reference);
+    if (!info.source) return { key: info.key, image: null };
+
+    const current = this.skinService && this.skinService.current
+      ? this.skinService.current()
+      : null;
+    if (current && String(current.id) === String(manifest.id) &&
+        info.key && this.images[info.key]) {
+      return { key: info.key, image: this.images[info.key] };
+    }
+
+    const id = String(manifest.id);
+    if (this.themeTileSources[id] === info.source &&
+        Object.prototype.hasOwnProperty.call(this.themeTileImages, id)) {
+      return { key: info.key, image: this.themeTileImages[id] };
+    }
+    const active = this.themeTileLoads[id];
+    if (active && active.source === info.source) return { key: info.key, image: null };
+
+    const request = { source: info.source };
+    this.themeTileLoads[id] = request;
+    try {
+      this.platform.createImage(info.source, (error, image) => {
+        if (this.themeTileLoads[id] !== request) return;
+        this.themeTileSources[id] = info.source;
+        this.themeTileImages[id] = error || !image ? null : image;
+        this.invalidate();
+      });
+    } catch (error) {
+      if (this.themeTileLoads[id] === request) {
+        this.themeTileSources[id] = info.source;
+        this.themeTileImages[id] = null;
+        this.invalidate();
+      }
+    }
+    // Some hosts (and our lightweight test platform) invoke the image
+    // callback synchronously. Re-read the cache so those callers can render
+    // the first four elements immediately; real async hosts still return a
+    // null image and invalidate once loading completes.
+    const loaded = this.themeTileSources[id] === info.source &&
+      Object.prototype.hasOwnProperty.call(this.themeTileImages, id)
+      ? this.themeTileImages[id]
+      : null;
+    return { key: info.key, image: loaded };
+  }
+
+  drawThemeFallbackPreview(theme, rect, fallbackSkin) {
+    const ctx = this.ctx;
+    const palette = this.themePalette(theme, fallbackSkin);
+    const columns = 2;
+    const rows = 2;
+    const gap = clamp(Math.min(rect.w, rect.h) * 0.045, 2, 6);
+    const cell = Math.min(
+      (rect.w - gap * (columns - 1)) / columns,
+      (rect.h - gap * (rows - 1)) / rows
+    );
+    if (!(cell > 0)) return;
+    const gridW = cell * columns + gap * (columns - 1);
+    const gridH = cell * rows + gap * (rows - 1);
+    const startX = rect.x + (rect.w - gridW) / 2;
+    const startY = rect.y + (rect.h - gridH) / 2;
+    for (let index = 0; index < columns * rows; index++) {
+      const x = startX + (index % columns) * (cell + gap);
+      const y = startY + Math.floor(index / columns) * (cell + gap);
+      ctx.save();
+      ctx.globalAlpha = 0.92;
+      this.roundedRect(x, y, cell, cell, Math.min(7, cell * 0.18));
+      ctx.fillStyle = palette[index % palette.length] || '#ffffff';
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+
+  drawThemeElementsPreview(theme, rect, fallbackSkin) {
+    const manifest = this.themeManifest(theme) || theme || {};
+    const palette = this.themePalette(manifest, fallbackSkin);
+    const asset = this.ensureThemeTileImage(manifest);
+    const columns = 2;
+    const rows = 2;
+    const gap = clamp(Math.min(rect.w, rect.h) * 0.06, 3, 8);
+    const cell = Math.min(
+      (rect.w - gap * (columns - 1)) / columns,
+      (rect.h - gap * (rows - 1)) / rows
+    );
+    if (!(cell > 0)) return;
+    const gridW = cell * columns + gap * (columns - 1);
+    const gridH = cell * rows + gap * (rows - 1);
+    const startX = rect.x + (rect.w - gridW) / 2;
+    const startY = rect.y + (rect.h - gridH) / 2;
+    const images = asset.image && asset.key ? { [asset.key]: asset.image } : {};
+
+    for (let index = 0; index < 4; index++) {
+      const x = startX + (index % columns) * (cell + gap);
+      const y = startY + Math.floor(index / columns) * (cell + gap);
+      this.drawTile(index, x, y, cell, {
+        skin: manifest,
+        images,
+        color: palette[index % palette.length] || '#ffffff',
+        alpha: 0.96
+      });
+    }
+  }
+
+  drawThemes(model, now) {
+    const skin = this.skinService.current();
+    const metrics = this.platform.metrics;
+    const width = metrics.width;
+    const height = metrics.height;
+    const safeTop = metrics.safeTop || 0;
+    const safeBottom = metrics.safeBottom || height;
+    const themes = this.themeList(model);
+    const pageSize = 6;
+    const pageCount = Math.max(1,
+      Number(model && model.themePageCount) || Math.ceil(themes.length / pageSize));
+    const rawPage = Number(model && model.themePageIndex);
+    const pageIndex = clamp(Number.isFinite(rawPage) ? rawPage : 0, 0, pageCount - 1);
+    const currentThemeId = (model && model.currentThemeId) || skin.id;
+    const ctx = this.ctx;
+
+    this.begin(skin.colors.homeBackground);
+
+    const headerTop = safeTop + 4;
+    const headerHeight = 68;
+    const requestedThemesOffset = Number(skin.layout.themesTopUiOffset);
+    // The base button position is headerTop + 8 and the header is 68px tall;
+    // cap the configurable offset so the 44px button remains inside the
+    // header band and cannot overlap the card grid.
+    const themesTopUiOffset = clamp(
+      Number.isFinite(requestedThemesOffset) ? requestedThemesOffset : 0,
+      0,
+      Math.max(0, headerHeight - 52)
+    );
+    const topButtonY = headerTop + 8 + themesTopUiOffset;
+    const backAction = model && (model.backAction === 'themes:corridor' || model.backAction === 'themes:home')
+      ? model.backAction
+      : 'themes:home';
+    this.iconButton(backAction, { x: 10, y: topButtonY, w: 44, h: 44 },
+      'home', true, model && model.pressedId);
+    // Keep the sound affordance available on the gallery just like the home
+    // and play scenes.  Apps that do not route this action can simply ignore
+    // the optional hit; the required gallery IDs remain unchanged.
+    this.iconButton('themes:sound', { x: width - 58, y: topButtonY, w: 44, h: 44 },
+      model && model.soundEnabled === false ? 'mute' : 'sound', true,
+      model && model.pressedId);
+    this.text('主题', width / 2, headerTop + 27, 25, { weight: 300 });
+    this.text(`${pageIndex + 1} / ${pageCount}`, width / 2, headerTop + 53, 12, { alpha: 0.58 });
+
+    const sidePadding = clamp(width * 0.055, 16, 24);
+    const columnGap = clamp(width * 0.032, 9, 14);
+    const rowGap = clamp(width * 0.032, 9, 14);
+    const gridTop = headerTop + headerHeight + 8;
+    const controlsHeight = 70;
+    const availableHeight = Math.max(0, safeBottom - gridTop - controlsHeight - 12);
+    const cardWidth = Math.max(1, (width - sidePadding * 2 - columnGap) / 2);
+    const cardHeight = Math.min(186, Math.max(64, (availableHeight - rowGap * 2) / 3));
+    const gridHeight = cardHeight * 3 + rowGap * 2;
+    const gridY = gridTop + Math.max(0, (availableHeight - gridHeight) / 2);
+    const previewPadding = clamp(cardWidth * 0.055, 6, 10);
+    const labelHeight = clamp(cardHeight * 0.22, 25, 38);
+    const previewHeight = Math.max(1, cardHeight - labelHeight - previewPadding * 1.5);
+
+    for (let slot = 0; slot < pageSize; slot++) {
+      const row = Math.floor(slot / 2);
+      const column = slot % 2;
+      const rect = {
+        x: sidePadding + column * (cardWidth + columnGap),
+        y: gridY + row * (cardHeight + rowGap),
+        w: cardWidth,
+        h: cardHeight
+      };
+      const themeIndex = pageIndex * pageSize + slot;
+      const rawTheme = themes[themeIndex];
+      const theme = typeof rawTheme === 'string' ? { id: rawTheme, name: rawTheme } : rawTheme;
+      const valid = !!(theme && theme.id);
+      const selected = valid && String(theme.id) === String(currentThemeId);
+
+      ctx.save();
+      this.roundedRect(rect.x, rect.y, rect.w, rect.h, skin.layout.buttonRadius || 8);
+      if (!valid) {
+        ctx.globalAlpha = 0.26;
+        ctx.fillStyle = skin.colors.panel;
+        ctx.fill();
+        ctx.restore();
+        continue;
+      }
+      ctx.fillStyle = selected ? skin.colors.levelCellPressed : skin.colors.levelCell;
+      ctx.globalAlpha = selected ? 1 : 0.92;
+      ctx.fill();
+      if (selected) {
+        ctx.strokeStyle = skin.colors.levelCompletedStroke || skin.colors.hairline;
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+      }
+      ctx.restore();
+
+      const previewRect = {
+        x: rect.x + previewPadding,
+        y: rect.y + previewPadding,
+        w: rect.w - previewPadding * 2,
+        h: previewHeight
+      };
+      // Theme cards intentionally preview the first four tile elements in a
+      // 2 x 2 arrangement. The optional generated preview image is not used
+      // by this screen.
+      this.drawThemeElementsPreview(theme, previewRect, skin);
+
+      const name = theme.name || theme.title || theme.id;
+      this.text(name, rect.x + rect.w / 2, rect.y + cardHeight - labelHeight * 0.56,
+        clamp(cardWidth * 0.105, 13, 18), { weight: selected ? 500 : 300, maxWidth: rect.w - 18 });
+      if (selected) {
+        this.text('✓', rect.x + rect.w - 14, rect.y + 14, 13, { weight: 500, alpha: 0.86 });
+      }
+      this.addHit(`theme:${theme.id}`, rect, true);
+    }
+
+    const controlY = safeBottom - controlsHeight + 8;
+    this.iconButton('themes:prev', { x: width / 2 - 92, y: controlY, w: 52, h: 44 },
+      'back', pageIndex > 0, model && model.pressedId);
+    this.iconButton('themes:next', { x: width / 2 + 40, y: controlY, w: 52, h: 44 },
+      'next', pageIndex < pageCount - 1, model && model.pressedId);
+    this.text('左右滑动切换主题', width / 2, controlY + 50, 11, { alpha: 0.42 });
+  }
+
+  // --- Corridor / clear-effect galleries ---------------------------------
+
+  corridorEntries(model) {
+    if (model && Array.isArray(model.corridorEntries)) return model.corridorEntries;
+    return [
+      { id: 'themes', name: '主题', action: 'corridor:themes' },
+      { id: 'effects', name: '特效', action: 'corridor:effects' }
+    ];
+  }
+
+  effectList(model) {
+    if (model && Array.isArray(model.effects)) return model.effects;
+    if (this.clearEffects && typeof this.clearEffects.list === 'function') {
+      try {
+        const list = this.clearEffects.list();
+        return Array.isArray(list) ? list : [];
+      } catch (error) {
+        return [];
+      }
+    }
+    return [];
+  }
+
+  effectManifest(effect) {
+    if (!effect) return null;
+    if (this.clearEffects && typeof this.clearEffects.get === 'function' && effect.id) {
+      try {
+        return this.clearEffects.get(effect.id) || effect;
+      } catch (error) {
+        return effect;
+      }
+    }
+    return effect;
+  }
+
+  effectPreviewSource(effect) {
+    const manifest = this.effectManifest(effect) || effect;
+    if (!manifest) return null;
+    if (manifest.preview && typeof manifest.preview === 'object') {
+      // A host may inject an already-created image object for tests. Do not
+      // pass arbitrary descriptor objects to Canvas as if they were images.
+      const dimensions = this.imageSize(manifest.preview);
+      if (dimensions.width > 0 && dimensions.height > 0) return manifest.preview;
+      if (typeof manifest.preview.src === 'string' && manifest.preview.src) return manifest.preview.src;
+      return null;
+    }
+    if (typeof manifest.preview !== 'string' || !manifest.preview) return null;
+    // Effect previews are bundled assets only. Never turn an injected remote
+    // URL/data URI into a platform image request.
+    if (/^(?:[a-z][a-z0-9+.-]*:|\/\/)/i.test(manifest.preview.trim())) return null;
+    return manifest.preview;
+  }
+
+  ensureEffectPreviewImage(effect) {
+    if (!effect || effect.id === undefined || effect.id === null) return null;
+    const id = String(effect.id);
+    const source = this.effectPreviewSource(effect);
+    if (source && typeof source !== 'string') return source;
+    if (!source) return null;
+
+    if (this.effectPreviewSources[id] === source &&
+        Object.prototype.hasOwnProperty.call(this.effectPreviewImages, id)) {
+      return this.effectPreviewImages[id];
+    }
+    const active = this.effectPreviewLoads[id];
+    if (active && active.source === source && active.generation === this.effectSceneGeneration) return null;
+
+    const request = { source, generation: this.effectSceneGeneration };
+    this.effectPreviewLoads[id] = request;
+    try {
+      this.platform.createImage(source, (error, image) => {
+        // Requests are valid only for the page generation that started them;
+        // this prevents a late callback from a hidden effects page from
+        // invalidating or replacing a newly entered page.
+        if (this.effectPreviewLoads[id] !== request ||
+            request.generation !== this.effectSceneGeneration ||
+            this.lastScene !== 'effects') return;
+        this.effectPreviewSources[id] = source;
+        this.effectPreviewImages[id] = error || !image ? null : image;
+        delete this.effectPreviewLoads[id];
+        this.invalidate();
+      });
+    } catch (error) {
+      if (this.effectPreviewLoads[id] === request &&
+          request.generation === this.effectSceneGeneration &&
+          this.lastScene === 'effects') {
+        this.effectPreviewSources[id] = source;
+        this.effectPreviewImages[id] = null;
+        delete this.effectPreviewLoads[id];
+        this.invalidate();
+      }
+    }
+
+    // Synchronous test platforms invoke callbacks before createImage returns.
+    return this.effectPreviewSources[id] === source &&
+      Object.prototype.hasOwnProperty.call(this.effectPreviewImages, id)
+      ? this.effectPreviewImages[id]
+      : null;
+  }
+
+  drawEffectFallbackPreview(rect, effect) {
+    const ctx = this.ctx;
+    const skin = this.skinService.current();
+    const palette = (skin && skin.palette && skin.palette.length)
+      ? skin.palette
+      : ['#ffffff', '#b3e5fc', '#81d4fa', '#4fc3f7'];
+    const centerX = rect.x + rect.w * 0.45;
+    const centerY = rect.y + rect.h * 0.52;
+    const span = Math.min(rect.w, rect.h);
+    // Three short vector wind strokes communicate "fade away" without
+    // requiring an image asset or introducing a second animation system.
+    ctx.save();
+    ctx.lineCap = 'round';
+    ctx.lineWidth = Math.max(1.5, span * 0.025);
+    for (let line = 0; line < 3; line++) {
+      const y = centerY - span * 0.18 + line * span * 0.15;
+      ctx.globalAlpha = 0.72 - line * 0.16;
+      ctx.strokeStyle = palette[line % palette.length] || '#ffffff';
+      ctx.beginPath();
+      ctx.moveTo(rect.x + span * 0.10, y);
+      ctx.quadraticCurveTo(centerX, y - span * 0.10, rect.x + rect.w * (0.74 + line * 0.04),
+        y - span * 0.04);
+      ctx.stroke();
+    }
+    // A few dissolving squares at the stroke tip remain static and cheap.
+    const square = Math.max(3, span * 0.065);
+    [
+      { x: rect.x + rect.w * 0.74, y: centerY - span * 0.25, a: 0.78 },
+      { x: rect.x + rect.w * 0.84, y: centerY - span * 0.08, a: 0.5 },
+      { x: rect.x + rect.w * 0.91, y: centerY + span * 0.07, a: 0.28 }
+    ].forEach((fragment, index) => {
+      ctx.globalAlpha = fragment.a;
+      ctx.fillStyle = palette[(index + 1) % palette.length] || '#ffffff';
+      ctx.fillRect(fragment.x, fragment.y, square * (1 - index * 0.18), square * (1 - index * 0.18));
+    });
+    ctx.restore();
+  }
+
+  drawCorridorEntryPreview(entry, rect) {
+    const ctx = this.ctx;
+    const id = entry && String(entry.id || '');
+    const skin = this.skinService.current();
+    const palette = skin && skin.palette && skin.palette.length
+      ? skin.palette : ['#ffeb3b', '#03a9f4', '#8bc34a', '#f44336'];
+    ctx.save();
+    if (id === 'effects' || id === 'clear-effects') {
+      this.drawEffectFallbackPreview(rect, entry);
+      ctx.restore();
+      return;
+    }
+    if (id === 'portalTrial') {
+      const portalImage = this.ensurePortalImage();
+      const span = Math.min(rect.w, rect.h);
+      const size = span * 0.72;
+      const x = rect.x + (rect.w - size) / 2;
+      const y = rect.y + (rect.h - size) / 2;
+      if (portalImage) {
+        this.drawImageContain(portalImage, { x, y, w: size, h: size }, { fit: 'contain' });
+      } else {
+        this.drawPortalFallback(x, y, size, Date.now());
+      }
+      ctx.restore();
+      return;
+    }
+    // Theme entry preview: four small color tiles, independent from the
+    // selected theme's runtime sprites.
+    const gap = clamp(Math.min(rect.w, rect.h) * 0.07, 3, 8);
+    const tile = Math.min((rect.w - gap) / 2, (rect.h - gap) / 2);
+    const startX = rect.x + (rect.w - tile * 2 - gap) / 2;
+    const startY = rect.y + (rect.h - tile * 2 - gap) / 2;
+    for (let index = 0; index < 4; index++) {
+      const x = startX + (index % 2) * (tile + gap);
+      const y = startY + Math.floor(index / 2) * (tile + gap);
+      this.roundedRect(x, y, tile, tile, Math.min(7, tile * 0.18));
+      ctx.globalAlpha = 0.82;
+      ctx.fillStyle = palette[index % palette.length] || '#ffffff';
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  drawCorridor(model, now) {
+    const skin = this.skinService.current();
+    const metrics = this.platform.metrics;
+    const width = metrics.width;
+    const height = metrics.height;
+    const safeTop = metrics.safeTop || 0;
+    const safeBottom = metrics.safeBottom || height;
+    const entries = this.corridorEntries(model);
+    const pageSize = Number(model && model.corridorPageSize) || 6;
+    const pageCount = Math.max(1,
+      Number(model && model.corridorPageCount) || Math.ceil(entries.length / pageSize));
+    const rawPage = Number(model && model.corridorPageIndex);
+    const pageIndex = clamp(Number.isFinite(rawPage) ? rawPage : 0, 0, pageCount - 1);
+    const ctx = this.ctx;
+    this.begin(skin.colors.homeBackground);
+
+    const headerTop = safeTop + 4;
+    const headerHeight = 68;
+    const topOffset = clamp(Number(skin.layout.themesTopUiOffset) || 0, 0, headerHeight - 52);
+    const topButtonY = headerTop + 8 + topOffset;
+    const backAction = model && model.backAction === 'corridor:home'
+      ? model.backAction : 'corridor:home';
+    this.iconButton(backAction, { x: 10, y: topButtonY, w: 44, h: 44 },
+      'home', true, model && model.pressedId);
+    this.iconButton('corridor:sound', { x: width - 58, y: topButtonY, w: 44, h: 44 },
+      model && model.soundEnabled === false ? 'mute' : 'sound', true,
+      model && model.pressedId);
+    this.text('回廊', width / 2, headerTop + 27, 25, { weight: 300 });
+    this.text(`${pageIndex + 1} / ${pageCount}`, width / 2, headerTop + 53, 12, { alpha: 0.58 });
+
+    const sidePadding = clamp(width * 0.055, 16, 24);
+    const columnGap = clamp(width * 0.032, 9, 14);
+    const rowGap = clamp(width * 0.032, 9, 14);
+    const gridTop = headerTop + headerHeight + 8;
+    const controlsHeight = pageCount > 1 ? 70 : 42;
+    const availableHeight = Math.max(0, safeBottom - gridTop - controlsHeight - 12);
+    const cardWidth = Math.max(1, (width - sidePadding * 2 - columnGap) / 2);
+    const cardHeight = Math.min(186, Math.max(64, (availableHeight - rowGap * 2) / 3));
+    const gridHeight = cardHeight * 3 + rowGap * 2;
+    const gridY = gridTop + Math.max(0, (availableHeight - gridHeight) / 2);
+    const previewPadding = clamp(cardWidth * 0.055, 6, 10);
+    const labelHeight = clamp(cardHeight * 0.22, 25, 38);
+    const previewHeight = Math.max(1, cardHeight - labelHeight - previewPadding * 1.5);
+
+    for (let slot = 0; slot < pageSize; slot++) {
+      const row = Math.floor(slot / 2);
+      const column = slot % 2;
+      const rect = {
+        x: sidePadding + column * (cardWidth + columnGap),
+        y: gridY + row * (cardHeight + rowGap),
+        w: cardWidth,
+        h: cardHeight
+      };
+      const entry = entries[pageIndex * pageSize + slot];
+      const valid = !!(entry && entry.id && entry.action);
+      ctx.save();
+      this.roundedRect(rect.x, rect.y, rect.w, rect.h, skin.layout.buttonRadius || 8);
+      if (!valid) {
+        ctx.globalAlpha = 0.26;
+        ctx.fillStyle = skin.colors.panel;
+        ctx.fill();
+        ctx.restore();
+        continue;
+      }
+      ctx.globalAlpha = 0.92;
+      ctx.fillStyle = skin.colors.levelCell;
+      ctx.fill();
+      ctx.restore();
+      const previewRect = {
+        x: rect.x + previewPadding,
+        y: rect.y + previewPadding,
+        w: rect.w - previewPadding * 2,
+        h: previewHeight
+      };
+      this.drawCorridorEntryPreview(entry, previewRect);
+      const name = entry.name || entry.title || entry.id;
+      this.text(name, rect.x + rect.w / 2, rect.y + cardHeight - labelHeight * 0.56,
+        clamp(cardWidth * 0.105, 13, 18), { weight: 300, maxWidth: rect.w - 18 });
+      this.addHit(String(entry.action), rect, true);
+    }
+
+    if (pageCount > 1) {
+      const controlY = safeBottom - 70 + 8;
+      this.iconButton('corridor:prev', { x: width / 2 - 92, y: controlY, w: 52, h: 44 },
+        'back', pageIndex > 0, model && model.pressedId);
+      this.iconButton('corridor:next', { x: width / 2 + 40, y: controlY, w: 52, h: 44 },
+        'next', pageIndex < pageCount - 1, model && model.pressedId);
+      this.text('左右滑动切换功能', width / 2, controlY + 50, 11, { alpha: 0.42 });
+    }
+  }
+
+  drawEffects(model, now) {
+    const skin = this.skinService.current();
+    const metrics = this.platform.metrics;
+    const width = metrics.width;
+    const height = metrics.height;
+    const safeTop = metrics.safeTop || 0;
+    const safeBottom = metrics.safeBottom || height;
+    const effects = this.effectList(model);
+    const pageSize = Number(model && model.effectPageSize) || 6;
+    const pageCount = Math.max(1,
+      Number(model && model.effectPageCount) || Math.ceil(effects.length / pageSize));
+    const rawPage = Number(model && model.effectPageIndex);
+    const pageIndex = clamp(Number.isFinite(rawPage) ? rawPage : 0, 0, pageCount - 1);
+    const currentEffectId = model && model.currentEffectId;
+    const ctx = this.ctx;
+    this.begin(skin.colors.homeBackground);
+
+    const headerTop = safeTop + 4;
+    const headerHeight = 68;
+    const topOffset = clamp(Number(skin.layout.themesTopUiOffset) || 0, 0, headerHeight - 52);
+    const topButtonY = headerTop + 8 + topOffset;
+    const backAction = model && (model.backAction === 'effects:corridor' || model.backAction === 'effects:home')
+      ? model.backAction : 'effects:corridor';
+    this.iconButton(backAction, { x: 10, y: topButtonY, w: 44, h: 44 },
+      'home', true, model && model.pressedId);
+    this.iconButton('effects:sound', { x: width - 58, y: topButtonY, w: 44, h: 44 },
+      model && model.soundEnabled === false ? 'mute' : 'sound', true,
+      model && model.pressedId);
+    this.text('消除特效', width / 2, headerTop + 27, 25, { weight: 300 });
+    this.text(`${pageIndex + 1} / ${pageCount}`, width / 2, headerTop + 53, 12, { alpha: 0.58 });
+
+    const sidePadding = clamp(width * 0.055, 16, 24);
+    const columnGap = clamp(width * 0.032, 9, 14);
+    const rowGap = clamp(width * 0.032, 9, 14);
+    const gridTop = headerTop + headerHeight + 8;
+    const controlsHeight = pageCount > 1 ? 70 : 42;
+    const availableHeight = Math.max(0, safeBottom - gridTop - controlsHeight - 12);
+    const cardWidth = Math.max(1, (width - sidePadding * 2 - columnGap) / 2);
+    const cardHeight = Math.min(186, Math.max(64, (availableHeight - rowGap * 2) / 3));
+    const gridHeight = cardHeight * 3 + rowGap * 2;
+    const gridY = gridTop + Math.max(0, (availableHeight - gridHeight) / 2);
+    const previewPadding = clamp(cardWidth * 0.055, 6, 10);
+    const labelHeight = clamp(cardHeight * 0.22, 25, 38);
+    const previewHeight = Math.max(1, cardHeight - labelHeight - previewPadding * 1.5);
+
+    for (let slot = 0; slot < pageSize; slot++) {
+      const row = Math.floor(slot / 2);
+      const column = slot % 2;
+      const rect = {
+        x: sidePadding + column * (cardWidth + columnGap),
+        y: gridY + row * (cardHeight + rowGap),
+        w: cardWidth,
+        h: cardHeight
+      };
+      const effect = effects[pageIndex * pageSize + slot];
+      const valid = !!(effect && effect.id);
+      const selected = valid && currentEffectId !== undefined &&
+        String(effect.id) === String(currentEffectId);
+      ctx.save();
+      this.roundedRect(rect.x, rect.y, rect.w, rect.h, skin.layout.buttonRadius || 8);
+      if (!valid) {
+        ctx.globalAlpha = 0.26;
+        ctx.fillStyle = skin.colors.panel;
+        ctx.fill();
+        ctx.restore();
+        continue;
+      }
+      ctx.fillStyle = selected ? skin.colors.levelCellPressed : skin.colors.levelCell;
+      ctx.globalAlpha = selected ? 1 : 0.92;
+      ctx.fill();
+      if (selected) {
+        ctx.strokeStyle = skin.colors.levelCompletedStroke || skin.colors.hairline;
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+      }
+      ctx.restore();
+
+      const previewRect = {
+        x: rect.x + previewPadding,
+        y: rect.y + previewPadding,
+        w: rect.w - previewPadding * 2,
+        h: previewHeight
+      };
+      const image = this.ensureEffectPreviewImage(effect);
+      if (!image || !this.drawImageContain(image, previewRect, { fit: 'contain' })) {
+        this.drawEffectFallbackPreview(previewRect, effect);
+      }
+      const name = effect.name || effect.title || effect.id;
+      this.text(name, rect.x + rect.w / 2, rect.y + cardHeight - labelHeight * 0.56,
+        clamp(cardWidth * 0.105, 13, 18), { weight: selected ? 500 : 300, maxWidth: rect.w - 18 });
+      if (selected) {
+        this.text('✓', rect.x + rect.w - 14, rect.y + 14, 13, { weight: 500, alpha: 0.86 });
+      }
+      this.addHit(`effect:${effect.id}`, rect, true);
+    }
+
+    if (pageCount > 1) {
+      const controlY = safeBottom - 70 + 8;
+      this.iconButton('effects:prev', { x: width / 2 - 92, y: controlY, w: 52, h: 44 },
+        'back', pageIndex > 0, model && model.pressedId);
+      this.iconButton('effects:next', { x: width / 2 + 40, y: controlY, w: 52, h: 44 },
+        'next', pageIndex < pageCount - 1, model && model.pressedId);
+      this.text('左右滑动切换特效', width / 2, controlY + 50, 11, { alpha: 0.42 });
+    }
+  }
+
+  drawLevels(model) {
+    const skin = this.skinService.current();
+    const { width, height, safeTop, safeBottom } = this.platform.metrics;
+    const set = model.set;
+    const setStyle = this.skinService.setStyle(set);
+    const games = set.Games || [];
+    this.begin(setStyle.background);
+
+    const headerTop = safeTop + 4;
+    const headerHeight = 72;
+    this.iconButton('levels:home', { x: 10, y: headerTop + 8, w: 44, h: 44 }, 'home', true, model.pressedId);
+    this.text(set.Name, width / 2, headerTop + 26, 26, { weight: 300 });
+    this.text(model.setUnlocked
+      ? `${model.setIndex + 1} / ${model.setCount}`
+      : `${model.setIndex + 1} / ${model.setCount} · 未解锁`, width / 2, headerTop + 53, 12, { alpha: 0.58 });
+
+    const columns = games.length <= 5 ? Math.max(1, games.length) : 5;
+    const rows = Math.ceil(games.length / columns);
+    const sidePadding = 22;
+    const gridTop = headerTop + headerHeight + 16;
+    const controlsHeight = 66;
+    const availableHeight = safeBottom - gridTop - controlsHeight - 16;
+    const gap = clamp(width * 0.026, 8, 14);
+    const cell = Math.min(
+      (width - sidePadding * 2 - gap * (columns - 1)) / columns,
+      rows ? (availableHeight - gap * (rows - 1)) / rows : 70,
+      76
+    );
+    const gridWidth = cell * columns + gap * (columns - 1);
+    const gridHeight = cell * rows + gap * (rows - 1);
+    const gridX = (width - gridWidth) / 2;
+    const gridY = gridTop + Math.max(0, (availableHeight - gridHeight) / 2);
+    const ctx = this.ctx;
+
+    games.forEach((game, levelIndex) => {
+      const col = levelIndex % columns;
+      const row = Math.floor(levelIndex / columns);
+      const rect = {
+        x: gridX + col * (cell + gap),
+        y: gridY + row * (cell + gap),
+        w: cell,
+        h: cell
+      };
+      const completed = model.isCompleted(levelIndex);
+      const unlocked = model.isUnlocked ? model.isUnlocked(levelIndex) : true;
+      const pressed = model.pressedId === `level:${levelIndex}`;
+      ctx.save();
+      this.roundedRect(rect.x, rect.y, rect.w, rect.h, 4);
+      if (!unlocked) {
+        ctx.fillStyle = skin.colors.levelLocked;
+        ctx.fill();
+      } else if (completed) {
+        ctx.fillStyle = pressed ? skin.colors.levelCellPressed : skin.colors.levelCompleted;
+        ctx.fill();
+        ctx.strokeStyle = skin.colors.levelCompletedStroke;
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+      } else {
+        ctx.fillStyle = pressed ? skin.colors.levelCellPressed : skin.colors.levelCell;
+        ctx.fill();
+      }
+      ctx.restore();
+      this.text(game.Name || levelIndex + 1, rect.x + rect.w / 2, rect.y + rect.h / 2 - (!unlocked ? 7 : (completed ? 3 : 0)), clamp(cell * 0.31, 15, 23), {
+        weight: 300,
+        alpha: unlocked ? 1 : 0.36
+      });
+      if (!unlocked) {
+        ctx.save();
+        ctx.globalAlpha = 0.42;
+        this.drawIcon('lock', rect.x + rect.w / 2, rect.y + rect.h / 2 + 15, clamp(cell * 0.25, 11, 17));
+        ctx.restore();
+      } else if (completed) {
+        this.text('✓', rect.x + rect.w - 9, rect.y + 10, 11, { alpha: 0.75, weight: 500 });
+      }
+      this.addHit(`level:${levelIndex}`, rect, unlocked);
+    });
+
+    const controlY = safeBottom - controlsHeight + 8;
+    this.iconButton('levels:prev', { x: width / 2 - 92, y: controlY, w: 52, h: 44 }, 'back', model.setIndex > 0, model.pressedId);
+    this.iconButton('levels:next', { x: width / 2 + 40, y: controlY, w: 52, h: 44 }, 'next', model.setIndex < model.setCount - 1, model.pressedId);
+    this.text('左右滑动切换关卡组', width / 2, controlY + 50, 11, { alpha: 0.42 });
+  }
+
+  drawPlay(model, now) {
+    const skin = this.skinService.current();
+    const { width, safeTop, safeBottom } = this.platform.metrics;
+    const setStyle = this.skinService.setStyle(model.set);
+    const game = model.level;
+    const runner = model.runner;
+    this.begin(setStyle.background);
+
+    const headerTop = safeTop;
+    const headerHeight = 70;
+    const topUi = headerTop + (skin.layout.playTopUiOffset || 0);
+    const controlSize = 42;
+    // Preserve the pre-theme control positions.  A manifest can opt into the
+    // newer margin/gap tokens, but classic continues to use playRightShift so
+    // existing layouts and touch targets remain unchanged.
+    const hasExplicitMargin = skin.layout.playRightMargin !== undefined;
+    const hasExplicitGap = skin.layout.playControlGap !== undefined;
+    const rightShift = Number(skin.layout.playRightShift) || 0;
+    const resetX = hasExplicitMargin
+      ? width - Number(skin.layout.playRightMargin) - controlSize
+      : width - 100 + rightShift;
+    const soundX = hasExplicitMargin || hasExplicitGap
+      ? resetX - (hasExplicitGap ? Number(skin.layout.playControlGap) : 8) - controlSize
+      : width - 148 + rightShift;
+    const ctx = this.ctx;
+    ctx.fillStyle = skin.colors.panel;
+    ctx.fillRect(0, 0, width, topUi + headerHeight);
+    this.iconButton('play:back', { x: 8, y: topUi + 12, w: 44, h: 44 }, 'back', true, model.pressedId);
+    this.iconButton('play:sound', { x: soundX, y: topUi + 12, w: controlSize, h: 44 },
+      model.soundEnabled ? 'sound' : 'mute', true, model.pressedId);
+    this.iconButton('play:reset', { x: resetX, y: topUi + 12, w: controlSize, h: 44 }, 'reset', model.scene !== 'result', model.pressedId);
+
+    const isWaiting = runner && (runner.portalPhase === 'PORTAL_WAIT');
+    const title = isWaiting
+      ? '从另一端继续'
+      : (game.Instructions || `${model.levelIndex + 1} / ${(model.set.Games || []).length}`);
+    this.text(title, width / 2, topUi + 27, (game.Instructions || isWaiting) ? 18 : 24, {
+      weight: 300,
+      maxWidth: width - 220,
+      color: isWaiting ? '#ffeb3b' : undefined
+    });
+    this.text(runner.timeText(), width / 2, topUi + 51, 12, { alpha: 0.62 });
+
+    const showActions = model.scene !== 'result';
+    const actionHeight = showActions ? 78 : 0;
+    const actionTop = safeBottom - actionHeight;
+    const boardTop = headerTop + headerHeight + 16;
+    const boardBottom = actionTop - (showActions ? 14 : 20);
+    const cell = Math.min(
+      (width - 24) / game.Width,
+      (boardBottom - boardTop) / game.Height,
+      78
+    );
+    const boardWidth = cell * game.Width;
+    const boardHeight = cell * game.Height;
+    const boardX = (width - boardWidth) / 2;
+    const boardY = boardTop + Math.max(0, (boardBottom - boardTop - boardHeight) / 2);
+    this.boardLayout = { x: boardX, y: boardY, cell, cols: game.Width, rows: game.Height };
+
+    const gap = clamp(cell * skin.layout.cellGapRatio, skin.layout.minCellGap, skin.layout.maxCellGap);
+    const selectedSet = {};
+    if (runner && Array.isArray(runner.selectedSegments) && runner.selectedSegments.length) {
+      runner.selectedSegments.forEach(segment => {
+        if (Array.isArray(segment)) segment.forEach(index => { selectedSet[index] = true; });
+      });
+    } else if (runner && Array.isArray(runner.selectedCells)) {
+      runner.selectedCells.forEach(index => { selectedSet[index] = true; });
+    }
+    const enterElapsed = now - model.levelEnteredAt;
+    const enterMs = skin.animation.boardEnterMs;
+
+    for (let row = 0; row < game.Height; row++) {
+      for (let col = 0; col < game.Width; col++) {
+        const index = row * game.Width + col;
+        if (runner.owner[index] >= 0) continue;
+
+        const stagger = ((row + col) / Math.max(1, game.Width + game.Height - 2)) * 120;
+        const enter = clamp((enterElapsed - stagger) / Math.max(1, enterMs - 120), 0, 1);
+        const x = boardX + col * cell + gap;
+        const y = boardY + row * cell + gap - (1 - enter) * 12;
+        const size = Math.max(1, cell - gap * 2);
+        const fixedLine = runner.fixedLine[index];
+        const selected = !!selectedSet[index];
+        let color = skin.colors.emptyCell;
+        if (selected) color = setStyle.palette[runner.selectedLine % setStyle.palette.length] || '#ffffff';
+        else if (fixedLine >= 0) color = setStyle.palette[fixedLine % setStyle.palette.length] || '#ffffff';
+
+        const activePulse = selected ? (0.5 + Math.sin(now / 180) * 0.5) : 0;
+        const activeScale = selected
+          ? 1 + (skin.layout.activeCellScale - 1) * (0.72 + activePulse * 0.28)
+          : 1;
+        this.drawTile(selected ? runner.selectedLine : fixedLine, x, y, size, {
+          color,
+          alpha: enter,
+          scale: activeScale,
+          overlay: selected ? { color: skin.colors.selectedCellOverlay, alpha: 1 } : null
+        });
+
+        if (fixedLine >= 0 && game.Lines[fixedLine].Text && !selected) {
+          this.text('→', x + size / 2, y + size / 2, clamp(size * 0.44, 14, 28), { alpha: enter, weight: 400 });
+        }
+      }
+    }
+
+    this.drawPortals(game.Portals || runner.portals || [], runner, setStyle, now, this.boardLayout, gap);
+
+    this.drawClearAnimation(model.clearAnimation, setStyle.palette, now, gap);
+
+    if (model.hint && now < model.hintUntil) this.drawHintPath(model.hint, setStyle.palette, now);
+    if (showActions) this.drawPlayActions(model, actionTop, now);
+
+    if (model.scene === 'result') this.drawResult(model, now);
+  }
+
+  drawPlayActions(model, actionTop, now) {
+    const skin = this.skinService.current();
+    const { width } = this.platform.metrics;
+
+    const gap = 12;
+    const margin = 22;
+    const buttonWidth = (width - margin * 2 - gap) / 2;
+    const rectY = actionTop + 12;
+    const rectH = 50;
+    this.button('play:hint', { x: margin, y: rectY, w: buttonWidth, h: rectH }, '提示', {
+      fontSize: 17,
+      icon: 'hint',
+      enabled: model.hintAvailable !== false,
+      fill: skin.colors.primaryButton,
+      stroke: skin.colors.primaryButtonStroke
+    }, model.pressedId);
+    this.button('play:undo', {
+      x: margin + buttonWidth + gap,
+      y: rectY,
+      w: buttonWidth,
+      h: rectH
+    }, '回撤', {
+      fontSize: 17,
+      icon: 'undo',
+      enabled: model.runner.canUndo(),
+      fill: skin.colors.secondaryButton,
+      stroke: skin.colors.primaryButtonStroke
+    }, model.pressedId);
+    if (model.hint && now < model.hintUntil) {
+      this.text('参考路径', width / 2, actionTop - 19, 12, { alpha: 0.76 });
+    }
+  }
+
+  dailyChallenge(model) {
+    if (!model) return null;
+    return model.challenge || model.dailyChallenge || null;
+  }
+
+  dailyDimension(challenge, upper, lower, fallback) {
+    if (!challenge) return fallback;
+    const value = challenge[upper] === undefined ? challenge[lower] : challenge[upper];
+    const number = Number(value);
+    return Number.isFinite(number) && number > 0 ? number : fallback;
+  }
+
+  dailyPalette(challenge, skin) {
+    const palette = challenge && (challenge.Palette || challenge.palette);
+    if (Array.isArray(palette) && palette.length) return palette;
+    const fallback = skin && (skin.palette || (skin.colors && skin.colors.palette));
+    return Array.isArray(fallback) && fallback.length ? fallback : ['#ffffff'];
+  }
+
+  dailyBlocked(challenge, runner, index) {
+    if (runner && runner.blockedMask && runner.blockedMask[index]) return true;
+    const blocked = challenge && (challenge.Blocked || challenge.blocked);
+    return Array.isArray(blocked) && blocked.indexOf(index) >= 0;
+  }
+
+  drawBlockedCell(x, y, size, alpha, skin) {
+    const ctx = this.ctx;
+    const colors = (skin && skin.colors) || {};
+    const fill = colors.blockedCell || 'rgba(0,0,0,0.18)';
+    const stroke = colors.blockedCellStroke || 'rgba(255,255,255,0.12)';
+    ctx.save();
+    ctx.globalAlpha = alpha === undefined ? 1 : alpha;
+    // A blocked cell is deliberately not passed through drawTile: it has no
+    // owner, endpoint, hint, or board hit target.  A subtle inset/outline
+    // keeps the hole legible on both light and dark theme backgrounds.
+    if (typeof ctx.fillRect === 'function') {
+      ctx.fillStyle = fill;
+      ctx.fillRect(x, y, size, size);
+    }
+    if (typeof ctx.strokeRect === 'function') {
+      ctx.strokeStyle = stroke;
+      ctx.lineWidth = 1;
+      ctx.strokeRect(x + 0.5, y + 0.5, Math.max(0, size - 1), Math.max(0, size - 1));
+    }
+    ctx.restore();
+  }
+
+  drawDaily(model, now) {
+    const skin = this.skinService.current();
+    const metrics = this.platform.metrics;
+    const width = metrics.width;
+    const safeTop = metrics.safeTop || 0;
+    const safeBottom = metrics.safeBottom || metrics.height;
+    const challenge = this.dailyChallenge(model);
+    const runner = model && model.runner;
+    const cols = this.dailyDimension(challenge, 'Width', 'width', 8);
+    const rows = this.dailyDimension(challenge, 'Height', 'height', 10);
+    const palette = this.dailyPalette(challenge, skin);
+    const background = (challenge && (challenge.Color || challenge.color)) || skin.colors.homeBackground;
+    this.begin(background);
+
+    const headerTop = safeTop;
+    // Daily headers carry the round indicator and board dimensions in
+    // addition to the date. Keep a little extra vertical room so the 3×3
+    // intro and 8×10 hard board share the same safe-area contract.
+    const headerHeight = 82;
+    const topUi = headerTop + (skin.layout.playTopUiOffset || 0);
+    const controlSize = 42;
+    const hasExplicitMargin = skin.layout.playRightMargin !== undefined;
+    const hasExplicitGap = skin.layout.playControlGap !== undefined;
+    const rightShift = Number(skin.layout.playRightShift) || 0;
+    const resetX = hasExplicitMargin
+      ? width - Number(skin.layout.playRightMargin) - controlSize
+      : width - 100 + rightShift;
+    const soundX = hasExplicitMargin || hasExplicitGap
+      ? resetX - (hasExplicitGap ? Number(skin.layout.playControlGap) : 8) - controlSize
+      : width - 148 + rightShift;
+    const isResult = model && model.scene === 'dailyResult';
+    const soundAction = isResult ? 'dailyResult:sound' : 'daily:sound';
+    // Keep the top-left back affordance distinct from the result-panel home
+    // button so one logical action does not create duplicate hit records.
+    const backAction = isResult ? 'dailyResult:back' : 'daily:home';
+    const ctx = this.ctx;
+    ctx.fillStyle = skin.colors.panel;
+    ctx.fillRect(0, 0, width, topUi + headerHeight);
+    this.iconButton(backAction, { x: 8, y: topUi + 12, w: 44, h: 44 }, 'back', true, model && model.pressedId);
+    this.iconButton(soundAction, { x: soundX, y: topUi + 12, w: controlSize, h: 44 },
+      model && model.soundEnabled === false ? 'mute' : 'sound', true, model && model.pressedId);
+    this.iconButton('daily:reset', { x: resetX, y: topUi + 12, w: controlSize, h: 44 },
+      'reset', !isResult && !!runner, model && model.pressedId);
+
+    const levelIndex = Math.max(0, Number(model && (
+      model.dailyLevelIndex === undefined ? model.levelIndex : model.dailyLevelIndex
+    )) || 0);
+    const levelCount = Math.max(1, Number(model && (
+      model.dailyLevelCount === undefined ? model.levelCount : model.dailyLevelCount
+    )) || 1);
+    const difficulty = challenge && (
+      challenge.DifficultyLabel || challenge.difficultyLabel ||
+      challenge.Difficulty || challenge.difficulty
+    );
+    this.text(`每日挑战  ${Math.min(levelIndex + 1, levelCount)} / ${levelCount}`,
+      width / 2, topUi + 21, 20, { weight: 300, maxWidth: width - 180 });
+    const dateKey = model && model.dailyDateKey;
+    const entryKnown = model && (model.dailyDebugUnlimited === true ||
+      (model.dailyEntriesRemaining !== undefined && model.dailyEntryLimit !== undefined));
+    const entryText = entryKnown
+      ? (model.dailyDebugUnlimited === true
+        ? '次数不限'
+        : `剩余次数 ${Math.max(0, Number(model.dailyEntriesRemaining) || 0)} / ${Math.max(1, Number(model.dailyEntryLimit) || 1)}`)
+      : '';
+    const specText = `${cols} × ${rows}`;
+    this.text(
+      [specText, difficulty || '', dateKey || '', entryText].filter(Boolean).join(' · '),
+      width / 2,
+      topUi + 48,
+      11,
+      { alpha: 0.62, maxWidth: width - 96 }
+    );
+
+    // Keep the same vertical budget as the ordinary board while using the
+    // current daily level's declared geometry (3×3 intro or 8×10 extreme).
+    const showActions = !isResult;
+    const actionHeight = showActions ? 78 : 0;
+    const actionTop = safeBottom - actionHeight;
+    const boardTop = headerTop + headerHeight + 16;
+    const boardBottom = actionTop - (showActions ? 14 : 20);
+    const cell = Math.min(
+      (width - 24) / cols,
+      (boardBottom - boardTop) / rows,
+      78
+    );
+    const boardWidth = cell * cols;
+    const boardHeight = cell * rows;
+    const boardX = (width - boardWidth) / 2;
+    const boardY = boardTop + Math.max(0, (boardBottom - boardTop - boardHeight) / 2);
+    this.boardLayout = { x: boardX, y: boardY, cell, cols, rows };
+
+    if (runner) {
+      const gap = clamp(cell * skin.layout.cellGapRatio, skin.layout.minCellGap, skin.layout.maxCellGap);
+      const selectedSet = {};
+      if (runner && Array.isArray(runner.selectedSegments) && runner.selectedSegments.length) {
+        runner.selectedSegments.forEach(segment => {
+          if (Array.isArray(segment)) segment.forEach(index => { selectedSet[index] = true; });
+        });
+      } else if (runner && Array.isArray(runner.selectedCells)) {
+        runner.selectedCells.forEach(index => { selectedSet[index] = true; });
+      }
+      const enterElapsed = now - (model.levelEnteredAt || 0);
+      const enterMs = skin.animation.boardEnterMs;
+      const lines = challenge && (challenge.Lines || challenge.lines) || [];
+
+      for (let row = 0; row < rows; row++) {
+        for (let col = 0; col < cols; col++) {
+          const index = row * cols + col;
+          const x = boardX + col * cell + gap;
+          const yBase = boardY + row * cell + gap;
+          const size = Math.max(1, cell - gap * 2);
+          if (this.dailyBlocked(challenge, runner, index)) {
+            this.drawBlockedCell(x, yBase, size, 1, skin);
+            continue;
+          }
+          if (runner.owner && runner.owner[index] >= 0) continue;
+
+          const stagger = ((row + col) / Math.max(1, cols + rows - 2)) * 120;
+          const enter = clamp((enterElapsed - stagger) / Math.max(1, enterMs - 120), 0, 1);
+          const y = yBase - (1 - enter) * 12;
+          const fixedLine = runner.fixedLine ? runner.fixedLine[index] : -1;
+          const selected = !!selectedSet[index];
+          let color = skin.colors.emptyCell;
+          if (selected) color = palette[runner.selectedLine % palette.length] || '#ffffff';
+          else if (fixedLine >= 0) color = palette[fixedLine % palette.length] || '#ffffff';
+
+          const activePulse = selected ? (0.5 + Math.sin(now / 180) * 0.5) : 0;
+          const activeScale = selected
+            ? 1 + (skin.layout.activeCellScale - 1) * (0.72 + activePulse * 0.28)
+            : 1;
+          this.drawTile(selected ? runner.selectedLine : fixedLine, x, y, size, {
+            color,
+            alpha: enter,
+            scale: activeScale,
+            overlay: selected ? { color: skin.colors.selectedCellOverlay, alpha: 1 } : null
+          });
+
+          if (fixedLine >= 0 && lines[fixedLine] && lines[fixedLine].Text && !selected) {
+            this.text('→', x + size / 2, y + size / 2, clamp(size * 0.44, 14, 28), { alpha: enter, weight: 400 });
+          }
+        }
+      }
+
+      this.drawPortals(challenge && (challenge.Portals || challenge.portals) || (runner && runner.portals) || [], runner, { palette }, now, this.boardLayout, gap);
+
+      this.drawClearAnimation(model.clearAnimation, palette, now, gap);
+      if (model.hint && now < model.hintUntil) this.drawHintPath(model.hint, palette, now);
+      if (showActions) this.drawDailyActions(model, actionTop, now);
+    }
+
+    if (isResult) this.drawDailyResult(model, now);
+  }
+
+  drawDailyActions(model, actionTop, now) {
+    const skin = this.skinService.current();
+    const width = this.platform.metrics.width;
+    const gap = 12;
+    const margin = 22;
+    const buttonWidth = (width - margin * 2 - gap) / 2;
+    const rectY = actionTop + 12;
+    const rectH = 50;
+    this.button('daily:hint', { x: margin, y: rectY, w: buttonWidth, h: rectH }, '提示', {
+      fontSize: 17,
+      icon: 'hint',
+      enabled: model.hintAvailable !== false,
+      fill: skin.colors.primaryButton,
+      stroke: skin.colors.primaryButtonStroke
+    }, model.pressedId);
+    this.button('daily:undo', {
+      x: margin + buttonWidth + gap,
+      y: rectY,
+      w: buttonWidth,
+      h: rectH
+    }, '回撤', {
+      fontSize: 17,
+      icon: 'undo',
+      enabled: !!(model.runner && typeof model.runner.canUndo === 'function' && model.runner.canUndo()),
+      fill: skin.colors.secondaryButton,
+      stroke: skin.colors.primaryButtonStroke
+    }, model.pressedId);
+    if (model.hint && now < model.hintUntil) {
+      this.text('参考路径', width / 2, actionTop - 19, 12, { alpha: 0.76 });
+    }
+  }
+
+  drawDailyResult(model, now) {
+    const skin = this.skinService.current();
+    const { width, height } = this.platform.metrics;
+    const visibleAt = Number(model.dailyResultVisibleAt || model.resultVisibleAt) || 0;
+    if (now < visibleAt) return;
+    const result = model.result || {};
+    const ctx = this.ctx;
+    // The daily result has one extra status line (round count and remaining
+    // entries). Keep a minimum panel height so that line never overlaps the
+    // action buttons on compact phones.
+    const panelHeight = Math.min(300, Math.max(246, height * 0.34));
+    const panelY = (height - panelHeight) / 2;
+    ctx.fillStyle = skin.colors.strongPanel;
+    ctx.fillRect(0, panelY, width, panelHeight);
+    this.drawIcon('check', width / 2, panelY + 47, 40);
+    const levelCount = Math.max(1, Number(model.dailyLevelCount || (model.levels && model.levels.length) || 1));
+    this.text(`每日挑战完成  ${levelCount} / ${levelCount}`, width / 2, panelY + 92, 22, { weight: 300 });
+    this.text(`用时 ${GameRunner.formatTime(result.elapsedMs || 0)}`, width / 2, panelY + 124, 13, { alpha: 0.72 });
+    if (model.dailyDateKey) {
+      this.text(model.dailyDateKey, width / 2, panelY + 147, 11, { alpha: 0.56 });
+    }
+    if (model.dailyDebugUnlimited === true ||
+        (model.dailyEntriesRemaining !== undefined && model.dailyEntryLimit !== undefined)) {
+      this.text(
+        model.dailyDebugUnlimited === true
+          ? '次数不限'
+          : `剩余次数 ${Math.max(0, Number(model.dailyEntriesRemaining) || 0)} / ${Math.max(1, Number(model.dailyEntryLimit) || 1)}`,
+        width / 2,
+        panelY + 166,
+        11,
+        { alpha: 0.56 }
+      );
+    }
+
+    const gap = 12;
+    const buttonWidth = Math.min(142, (width - 48 - gap) / 2);
+    const totalWidth = buttonWidth * 2 + gap;
+    const x = (width - totalWidth) / 2;
+    const y = panelY + panelHeight - 62;
+    this.button('dailyResult:home', { x, y, w: buttonWidth, h: 46 }, '返回主页', {
+      fontSize: 15,
+      fill: skin.colors.secondaryButton
+    }, model.pressedId);
+    this.button('dailyResult:replay', { x: x + buttonWidth + gap, y, w: buttonWidth, h: 46 }, '重玩', {
+      fontSize: 15,
+      fill: skin.colors.primaryButton,
+      stroke: skin.colors.primaryButtonStroke,
+      enabled: model.dailyEntryAvailable !== false && model.dailyCanEnter !== false
+    }, model.pressedId);
+  }
+
+  drawHintPath(hint, palette, now) {
+    if (!hint || !this.boardLayout) return;
+    const segments = hint.segments || (hint.path && hint.path.length >= 2 ? [hint.path] : null);
+    if (!segments || !segments.length) return;
+    const { x: boardX, y: boardY, cell, cols } = this.boardLayout;
+    const skin = this.skinService.current();
+    const color = palette && palette.length ? palette[hint.lineIndex % palette.length] : '#ffffff';
+    const breath = 0.5 + Math.sin(now / 320) * 0.5;
+    const gap = clamp(cell * 0.085, 2, 5);
+    const tileSize = Math.max(1, cell - gap * 2);
+
+    segments.forEach(segment => {
+      if (!Array.isArray(segment) || !segment.length) return;
+      segment.forEach((index, order) => {
+        const x = boardX + (index % cols) * cell + gap;
+        const y = boardY + Math.floor(index / cols) * cell + gap;
+        const endpointPulse = order === 0 || order === segment.length - 1 ? 1.04 : 1;
+        this.drawTile(hint.lineIndex, x, y, tileSize, {
+          color,
+          alpha: 0.62 + breath * 0.18,
+          scale: (1 + breath * 0.035) * endpointPulse,
+          overlay: { color, alpha: 0.12 },
+          skin
+        });
+      });
+    });
+  }
+
+  drawClearAnimation(animation, palette, now, gap) {
+    if (!animation || !this.boardLayout) return;
+    const skin = this.skinService.current();
+    let effect = null;
+    // Normal app-created snapshots already carry all render inputs. Avoid a
+    // per-frame service lookup/deep clone in that hot path; resolve only for
+    // legacy callers that omitted one of the snapshot fields.
+    let effectType = typeof animation.type === 'string' ? animation.type : null;
+    let effectDuration = Number(animation.durationMs);
+    let params = animation.params && typeof animation.params === 'object'
+      ? animation.params : null;
+    if (!effectType || !params || !(Number.isFinite(effectDuration) && effectDuration > 0)) {
+      if (this.clearEffects) {
+        try {
+          if (typeof this.clearEffects.resolve === 'function') {
+            effect = this.clearEffects.resolve(animation.effectId);
+          } else if (typeof this.clearEffects.current === 'function') {
+            effect = this.clearEffects.current();
+          }
+        } catch (error) {
+          effect = null;
+        }
+      }
+    }
+    if (effect && typeof effect === 'object') {
+      if (!effectType && typeof effect.type === 'string') effectType = effect.type;
+      if (!(Number.isFinite(effectDuration) && effectDuration > 0)) {
+        effectDuration = Number(effect.durationMs);
+      }
+      if (!params && effect.params && typeof effect.params === 'object') params = effect.params;
+    }
+    const rawDuration = Number(animation.durationMs);
+    const legacyDuration = Number(skin.animation && skin.animation.pathClearMs);
+    const duration = Number.isFinite(rawDuration) && rawDuration > 0
+      ? clamp(rawDuration, EFFECT_MIN_DURATION_MS, EFFECT_MAX_DURATION_MS)
+      : Number.isFinite(effectDuration) && effectDuration > 0
+        ? clamp(effectDuration, EFFECT_MIN_DURATION_MS, EFFECT_MAX_DURATION_MS)
+        : Number.isFinite(legacyDuration) && legacyDuration > 0
+          ? clamp(legacyDuration, EFFECT_MIN_DURATION_MS, EFFECT_MAX_DURATION_MS)
+          : 300;
+    if (!params || typeof params !== 'object') params = DEFAULT_FADE_PARAMS;
+    // Only the fade algorithm is enabled in v1. Unknown/malformed effect
+    // types intentionally use the same deterministic fallback.
+    effectType = effectType || (effect && effect.type) || 'fade';
+    const type = effectType === 'fade' ? 'fade' : 'fade';
+    const timestamp = Number.isFinite(Number(now)) ? Number(now) : Date.now();
+    const startedAt = Number.isFinite(Number(animation.startedAt))
+      ? Number(animation.startedAt) : timestamp;
+    const progress = clamp((timestamp - startedAt) / duration, 0, 1);
+    if (progress >= 1) return;
+    const { x: boardX, y: boardY, cell, cols } = this.boardLayout;
+    const tileGap = Number(gap) >= 0 ? Number(gap) : clamp(cell * 0.085, 2, 5);
+    const color = palette && palette.length
+      ? palette[animation.lineIndex % palette.length]
+      : skin.colors.text;
+    const alphaFrom = Number.isFinite(Number(params.alphaFrom))
+      ? clamp(Number(params.alphaFrom), 0, 1) : 1;
+    const alphaTo = Number.isFinite(Number(params.alphaTo))
+      ? clamp(Number(params.alphaTo), 0, 1) : 0;
+    const scaleFrom = Number.isFinite(Number(params.scaleFrom)) && Number(params.scaleFrom) > 0
+      ? Number(params.scaleFrom) : 1;
+    const scaleTo = Number.isFinite(Number(params.scaleTo)) && Number(params.scaleTo) > 0
+      ? Number(params.scaleTo) : 1.14;
+    const staggerRatio = Number.isFinite(Number(params.staggerRatio))
+      ? clamp(Number(params.staggerRatio), 0, 0.1) : 0.018;
+    const cells = Array.isArray(animation.cells) ? animation.cells : [];
+    cells.forEach((index, order) => {
+      if (!Number.isInteger(index) || index < 0 || index >= cols * this.boardLayout.rows) return;
+      const col = index % cols;
+      const row = Math.floor(index / cols);
+      const local = clamp(progress * (1 + staggerRatio * 10) - order * staggerRatio, 0, 1);
+      const alpha = alphaFrom + (alphaTo - alphaFrom) * local;
+      const scale = scaleFrom + (scaleTo - scaleFrom) * local;
+      const baseSize = cell - tileGap * 2;
+      const centerX = boardX + (col + 0.5) * cell;
+      const centerY = boardY + (row + 0.5) * cell;
+      if (type === 'fade') {
+        // Exactly one drawTile call per path cell per frame keeps the effect
+        // bounded by path length and compatible with image-backed skins.
+        this.drawTile(animation.lineIndex,
+          centerX - baseSize / 2,
+          centerY - baseSize / 2,
+          baseSize,
+          { color, alpha, scale, skin });
+      }
+    });
+  }
+
+  drawResult(model, now) {
+    const skin = this.skinService.current();
+    const { width, height } = this.platform.metrics;
+    if (now < model.resultVisibleAt) return;
+
+    const ctx = this.ctx;
+    const panelHeight = Math.min(246, height * 0.34);
+    const panelY = (height - panelHeight) / 2;
+    ctx.fillStyle = skin.colors.strongPanel;
+    ctx.fillRect(0, panelY, width, panelHeight);
+    this.drawIcon('check', width / 2, panelY + 47, 40);
+    this.text(model.result.newBest ? '新纪录' : '完成', width / 2, panelY + 92, 27, { weight: 300 });
+    this.text(`本次 ${GameRunner.formatTime(model.result.elapsedMs)} · 最佳 ${GameRunner.formatTime(model.result.bestMs)}`, width / 2, panelY + 124, 13, { alpha: 0.72 });
+
+    const gap = 10;
+    const buttonWidth = Math.min(104, (width - 48 - gap * 2) / 3);
+    const totalWidth = buttonWidth * 3 + gap * 2;
+    const x = (width - totalWidth) / 2;
+    const y = panelY + panelHeight - 72;
+    this.button('result:levels', { x, y, w: buttonWidth, h: 46 }, '选关', { fontSize: 15 }, model.pressedId);
+    this.button('result:replay', { x: x + buttonWidth + gap, y, w: buttonWidth, h: 46 }, '重玩', { fontSize: 15 }, model.pressedId);
+    this.button('result:next', { x: x + (buttonWidth + gap) * 2, y, w: buttonWidth, h: 46 }, model.hasNext ? '下一关' : '关卡列表', { fontSize: 15 }, model.pressedId);
+  }
+}
+
+module.exports = CanvasRenderer;

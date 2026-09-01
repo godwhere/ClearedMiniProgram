@@ -1,0 +1,18 @@
+<view class="page levels-page">
+  <block wx:for="{{sets}}" wx:key="index">
+    <view class="set-card">
+      <view class="set-header">
+        <view class="set-dot" style="background: {{item.color}}"></view>
+        <view>
+          <text class="set-name">{{item.name}}</text>
+          <text class="set-count">{{item.count}} 关</text>
+        </view>
+      </view>
+      <view class="level-grid">
+        <block wx:for="{{item.levels}}" wx:for-item="level" wx:key="index">
+          <button class="level-button" data-set="{{item.index}}" data-level="{{level.index}}" bindtap="openLevel">{{level.label}}</button>
+        </block>
+      </view>
+    </view>
+  </block>
+</view>

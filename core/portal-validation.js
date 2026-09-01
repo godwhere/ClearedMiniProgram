@@ -1,0 +1,656 @@
+'use strict';
+
+/**
+ * Pure validation and normalization helpers for the v1 portal mechanic.
+ *
+ * This module deliberately has no dependency on GameRunner, Canvas, wx, or
+ * persistence.  It can be used by catalog/build checks as well as by the
+ * daily-content validator.  The canonical authoring shape uses PascalCase
+ * fields (`Mechanic`, `Portals`, `Id`, `A`, `B`, `Lines`, `Blocked`), while
+ * lower-case aliases are accepted at the boundary for data imported from
+ * JSON or older tooling.
+ */
+
+const CODES = Object.freeze({
+  MECHANIC_INVALID: 'portal-mechanic-invalid',
+  REQUIRED_ARRAY: 'portals-required-array',
+  NOT_OBJECT: 'portal-not-object',
+  ID_REQUIRED: 'portal-id-required',
+  ID_DUPLICATE: 'portal-id-duplicate',
+  CELL_INTEGER: 'portal-cell-integer',
+  CELL_ARRAY_INVALID: 'portal-cells-array-invalid',
+  CELL_OUT_OF_RANGE: 'portal-cell-out-of-range',
+  CELL_DUPLICATE: 'portal-cell-duplicate',
+  ENDPOINT_CONFLICT: 'portal-endpoint-conflict',
+  BLOCKED_CONFLICT: 'portal-blocked-conflict',
+  PAIR_COUNT_EXCEEDED: 'portal-pair-count-exceeded',
+  PAIR_REQUIRED: 'portal-pair-required',
+  RULES_VERSION_INVALID: 'portal-rules-version-invalid',
+  BOARD_DIMENSIONS_INVALID: 'portal-board-dimensions-invalid',
+  SOLUTION_REQUIRED: 'portal-solution-required',
+  SOLUTION_LINE_COUNT: 'solution-line-count',
+  SOLUTION_SEGMENT_REQUIRED: 'solution-segment-required',
+  SOLUTION_START_MISMATCH: 'solution-start-mismatch',
+  SOLUTION_END_MISMATCH: 'solution-end-mismatch',
+  SOLUTION_CELL_INTEGER: 'solution-cell-non-integer',
+  SOLUTION_CELL_OUT_OF_RANGE: 'solution-cell-out-of-range',
+  SOLUTION_THROUGH_BLOCKED: 'solution-through-blocked',
+  SOLUTION_PATH_DUPLICATE: 'solution-path-duplicate',
+  SOLUTION_OVERLAP: 'solution-overlap',
+  SOLUTION_INCOMPLETE: 'solution-incomplete',
+  SOLUTION_SEGMENT_NON_ADJACENT: 'solution-segment-non-adjacent',
+  SOLUTION_TRANSITION_REQUIRED: 'solution-portal-transition-required',
+  SOLUTION_PAIR_INVALID: 'solution-portal-pair-invalid',
+  SOLUTION_REUSE: 'solution-portal-reuse',
+  SOLUTION_ORDER: 'solution-portal-order',
+  SOLUTION_NOT_OBJECT: 'solution-segment-not-object'
+});
+
+function isRecord(value) {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+function own(value, key) {
+  return isRecord(value) && Object.prototype.hasOwnProperty.call(value, key);
+}
+
+function field(value, upper, lower) {
+  if (!isRecord(value)) return undefined;
+  if (value[upper] !== undefined) return value[upper];
+  return lower ? value[lower] : undefined;
+}
+
+function first(value, keys) {
+  if (!isRecord(value)) return undefined;
+  for (let i = 0; i < keys.length; i += 1) {
+    const key = keys[i];
+    if (value[key] !== undefined) return value[key];
+  }
+  return undefined;
+}
+
+function add(errors, code) {
+  if (errors.indexOf(code) < 0) errors.push(code);
+}
+
+function dimensions(level) {
+  const width = field(level, 'Width', 'width');
+  const height = field(level, 'Height', 'height');
+  const valid = Number.isInteger(width) && width > 0 &&
+    Number.isInteger(height) && height > 0;
+  return {
+    width,
+    height,
+    total: valid ? width * height : 0,
+    valid
+  };
+}
+
+function rawPortals(level) {
+  if (!isRecord(level)) return { present: false, value: undefined };
+  if (own(level, 'Portals')) return { present: true, value: level.Portals };
+  if (own(level, 'portals')) return { present: true, value: level.portals };
+  return { present: false, value: undefined };
+}
+
+function rawMechanic(level) {
+  return field(level, 'Mechanic', 'mechanic');
+}
+
+function rawRulesVersion(level) {
+  return field(level, 'PortalRulesVersion', 'portalRulesVersion');
+}
+
+function rawBlocked(level) {
+  const value = field(level, 'Blocked', 'blocked');
+  return Array.isArray(value) ? value : [];
+}
+
+function rawLines(level) {
+  const value = field(level, 'Lines', 'lines');
+  return Array.isArray(value) ? value : [];
+}
+
+function lineEndpoint(line, name) {
+  if (name === 'start') return field(line, 'Start', 'start');
+  return field(line, 'End', 'end');
+}
+
+function endpointSet(level) {
+  const result = new Set();
+  rawLines(level).forEach(line => {
+    if (!isRecord(line)) return;
+    const start = lineEndpoint(line, 'start');
+    const end = lineEndpoint(line, 'end');
+    if (Number.isInteger(start)) result.add(start);
+    if (Number.isInteger(end)) result.add(end);
+  });
+  return result;
+}
+
+function blockedSet(level) {
+  const result = new Set();
+  rawBlocked(level).forEach(cell => {
+    if (Number.isInteger(cell)) result.add(cell);
+  });
+  return result;
+}
+
+/**
+ * Read a portal descriptor without mutating its source.  Besides canonical
+ * A/B fields, `Cells: [a, b]` is accepted as a compact import form.  The
+ * returned object always uses canonical `id`, `A`, and `B` fields.
+ */
+function readPortal(raw, sourceIndex) {
+  if (!isRecord(raw)) return null;
+  const cells = first(raw, ['Cells', 'cells']);
+  const a = first(raw, ['A', 'a']) !== undefined
+    ? first(raw, ['A', 'a'])
+    : (Array.isArray(cells) ? cells[0] : undefined);
+  const b = first(raw, ['B', 'b']) !== undefined
+    ? first(raw, ['B', 'b'])
+    : (Array.isArray(cells) ? cells[1] : undefined);
+  const id = first(raw, ['Id', 'id']);
+  return { id, A: a, B: b, sourceIndex };
+}
+
+/**
+ * Return structurally readable portal descriptors.  Invalid descriptors are
+ * omitted from the returned array; callers should use validatePortals() when
+ * they need diagnostics.  This function is intentionally forgiving for the
+ * runtime runner's defensive lookup path.
+ */
+function normalizePortals(level) {
+  const source = rawPortals(level).value;
+  if (!Array.isArray(source)) return [];
+  return source.map((raw, index) => readPortal(raw, index)).filter(portal => (
+    portal && typeof portal.id === 'string' && portal.id.trim().length > 0 &&
+    Number.isInteger(portal.A) && Number.isInteger(portal.B)
+  )).map(portal => ({
+    id: portal.id,
+    Id: portal.id,
+    A: portal.A,
+    B: portal.B,
+    a: portal.A,
+    b: portal.B,
+    sourceIndex: portal.sourceIndex
+  }));
+}
+
+/**
+ * Build read-only-style lookup maps from normalized descriptors.  The maps
+ * use null prototypes so an author-controlled id such as "constructor" does
+ * not alter lookup semantics.
+ */
+function buildPortalIndex(levelOrPortals) {
+  const portals = Array.isArray(levelOrPortals)
+    ? levelOrPortals
+    : normalizePortals(levelOrPortals);
+  const portalByCell = Object.create(null);
+  const portalById = Object.create(null);
+  portals.forEach(portal => {
+    const descriptor = {
+      id: portal.id || portal.Id,
+      pairId: portal.id || portal.Id,
+      A: portal.A,
+      B: portal.B,
+      a: portal.A,
+      b: portal.B
+    };
+    portalById[descriptor.id] = descriptor;
+    portalByCell[descriptor.A] = {
+      id: descriptor.id,
+      pairId: descriptor.id,
+      entry: descriptor.A,
+      exit: descriptor.B,
+      A: descriptor.A,
+      B: descriptor.B
+    };
+    portalByCell[descriptor.B] = {
+      id: descriptor.id,
+      pairId: descriptor.id,
+      entry: descriptor.B,
+      exit: descriptor.A,
+      A: descriptor.A,
+      B: descriptor.B
+    };
+  });
+  return { portals, portalByCell, portalById };
+}
+
+function structuralResult(errors, level, portals, rulesVersion) {
+  const index = buildPortalIndex(portals);
+  return {
+    ok: errors.length === 0,
+    errors,
+    mechanic: rawMechanic(level),
+    rulesVersion,
+    portals: index.portals,
+    portalByCell: index.portalByCell,
+    portalById: index.portalById
+  };
+}
+
+/**
+ * Validate portal declarations on a level.  A level without a Portals field
+ * and without `Mechanic: 'portal'` is a valid legacy level and returns `ok`.
+ */
+function validatePortals(level, options) {
+  const opts = isRecord(options) ? options : {};
+  const errors = [];
+  if (!isRecord(level)) {
+    add(errors, CODES.MECHANIC_INVALID);
+    return structuralResult(errors, {}, [], 1);
+  }
+
+  const source = rawPortals(level);
+  const mechanic = rawMechanic(level);
+  const isPortal = mechanic === 'portal';
+  const explicitVersion = rawRulesVersion(level);
+  const rulesVersion = explicitVersion === undefined ? 1 : explicitVersion;
+
+  // An explicit Portals field is not silently treated as ordinary content.
+  // This catches authoring mistakes where the mechanic selector was omitted.
+  if (!isPortal) {
+    if (source.present) add(errors, CODES.MECHANIC_INVALID);
+    return structuralResult(errors, level, [], rulesVersion);
+  }
+
+  if (!Array.isArray(source.value)) {
+    add(errors, CODES.REQUIRED_ARRAY);
+    return structuralResult(errors, level, [], rulesVersion);
+  }
+
+  if (explicitVersion !== undefined &&
+      (!Number.isInteger(explicitVersion) || explicitVersion !== 1)) {
+    add(errors, CODES.RULES_VERSION_INVALID);
+  }
+  if (source.value.length === 0) add(errors, CODES.PAIR_REQUIRED);
+  if (source.value.length > 1) add(errors, CODES.PAIR_COUNT_EXCEEDED);
+
+  const board = dimensions(level);
+  if (!board.valid) add(errors, CODES.BOARD_DIMENSIONS_INVALID);
+  const blocked = blockedSet(level);
+  const endpoints = endpointSet(level);
+  const seenIds = new Set();
+  const seenCells = new Set();
+  const validPortals = [];
+
+  source.value.forEach((raw, sourceIndex) => {
+    if (!isRecord(raw)) {
+      add(errors, CODES.NOT_OBJECT);
+      return;
+    }
+    const portal = readPortal(raw, sourceIndex);
+    const compactCells = first(raw, ['Cells', 'cells']);
+    // If the compact form is present alongside A/B, A/B remain authoritative;
+    // otherwise it must contain exactly the two endpoints of one pair.
+    const hasExplicitAB = first(raw, ['A', 'a']) !== undefined ||
+      first(raw, ['B', 'b']) !== undefined;
+    if (compactCells !== undefined && !hasExplicitAB &&
+        (!Array.isArray(compactCells) || compactCells.length !== 2)) {
+      add(errors, CODES.CELL_ARRAY_INVALID);
+    }
+    const validId = typeof portal.id === 'string' && portal.id.trim().length > 0;
+    if (!validId) {
+      add(errors, CODES.ID_REQUIRED);
+    } else if (seenIds.has(portal.id)) {
+      add(errors, CODES.ID_DUPLICATE);
+    } else {
+      seenIds.add(portal.id);
+    }
+
+    const cells = [portal.A, portal.B];
+    const validCells = [];
+    cells.forEach(cell => {
+      if (!Number.isInteger(cell)) {
+        add(errors, CODES.CELL_INTEGER);
+        return;
+      }
+      if (!board.valid || cell < 0 || cell >= board.total) {
+        add(errors, CODES.CELL_OUT_OF_RANGE);
+        return;
+      }
+      validCells.push(cell);
+      if (seenCells.has(cell)) add(errors, CODES.CELL_DUPLICATE);
+      else seenCells.add(cell);
+      if (blocked.has(cell)) add(errors, CODES.BLOCKED_CONFLICT);
+      if (endpoints.has(cell)) add(errors, CODES.ENDPOINT_CONFLICT);
+    });
+    if (validCells.length === 2 && validCells[0] === validCells[1]) {
+      add(errors, CODES.CELL_DUPLICATE);
+    }
+
+    // Keep only descriptors that can be safely used by a defensive runtime
+    // lookup.  Structural errors above still make the overall result invalid.
+    if (validId && Number.isInteger(portal.A) && Number.isInteger(portal.B)) {
+      validPortals.push({
+        id: portal.id,
+        Id: portal.id,
+        A: portal.A,
+        B: portal.B,
+        a: portal.A,
+        b: portal.B,
+        sourceIndex
+      });
+    }
+  });
+
+  // `requireSolution` is opt-in so structural checks can run before a
+  // solution catalog is assembled.  validatePortalLevel() exposes the same
+  // option and is the preferred authoring/build entry point.
+  if (opts.requireSolution && opts.solution === undefined) {
+    add(errors, CODES.SOLUTION_REQUIRED);
+  }
+  return structuralResult(errors, level, validPortals, rulesVersion);
+}
+
+function solutionField(value, upper, lower) {
+  return field(value, upper, lower);
+}
+
+function extractSolutionPaths(level, input) {
+  if (Array.isArray(input)) return input;
+  if (!isRecord(input)) return null;
+  const id = field(level, 'Id', 'id');
+  const maps = [
+    first(input, ['ByLevelId', 'byLevelId']),
+    first(input, ['ByChallengeId', 'byChallengeId'])
+  ];
+  for (let i = 0; i < maps.length; i += 1) {
+    const map = maps[i];
+    if (isRecord(map) && id && Array.isArray(map[id])) return map[id];
+  }
+  // A one-line authoring convenience is useful for fixture files, while the
+  // canonical multi-line shape remains an outer array in line order.
+  if (Array.isArray(solutionField(input, 'Segments', 'segments')) &&
+      rawLines(level).length === 1) return [input];
+  return null;
+}
+
+function segmentCells(segment) {
+  return solutionField(segment, 'Cells', 'cells');
+}
+
+function segmentExit(segment) {
+  return solutionField(segment, 'Exit', 'exit');
+}
+
+function exitField(exit, upper, lower) {
+  return solutionField(exit, upper, lower);
+}
+
+function canonicalSegments(lineSolution) {
+  if (!isRecord(lineSolution)) return null;
+  const segments = solutionField(lineSolution, 'Segments', 'segments');
+  return Array.isArray(segments) ? segments : null;
+}
+
+function adjacent(one, two, width) {
+  return Number.isInteger(width) && width > 0 &&
+    Math.abs((one % width) - (two % width)) +
+    Math.abs(Math.floor(one / width) - Math.floor(two / width)) === 1;
+}
+
+/**
+ * Validate a portal-aware, segmented solution.  Every segment is contiguous;
+ * a non-adjacent move is legal only through an explicit Exit edge on the
+ * segment that ends at a portal cell and a following segment that starts at
+ * its paired cell.
+ */
+function validatePortalSolution(level, solution) {
+  const structural = validatePortals(level);
+  const errors = structural.errors.slice();
+  const paths = extractSolutionPaths(level, solution);
+  if (!Array.isArray(paths)) {
+    add(errors, CODES.SOLUTION_REQUIRED);
+    return {
+      ok: false,
+      errors,
+      portals: structural.portals,
+      portalByCell: structural.portalByCell,
+      portalById: structural.portalById
+    };
+  }
+
+  const board = dimensions(level);
+  const blocked = blockedSet(level);
+  const lines = rawLines(level);
+  if (paths.length !== lines.length) add(errors, CODES.SOLUTION_LINE_COUNT);
+  const covered = new Set();
+  const usedPortalCells = new Set();
+  const byId = structural.portalById;
+
+  lines.forEach((line, lineIndex) => {
+    const lineSolution = paths[lineIndex];
+    const segments = canonicalSegments(lineSolution);
+    if (!segments || segments.length === 0) {
+      add(errors, CODES.SOLUTION_SEGMENT_REQUIRED);
+      return;
+    }
+    const start = lineEndpoint(line, 'start');
+    const end = lineEndpoint(line, 'end');
+    const lineCells = [];
+    const local = new Set();
+    const transitions = [];
+    let previousExit = null;
+
+    segments.forEach((segment, segmentIndex) => {
+      if (!isRecord(segment)) {
+        add(errors, CODES.SOLUTION_NOT_OBJECT);
+        return;
+      }
+      const cells = segmentCells(segment);
+      if (!Array.isArray(cells) || cells.length === 0) {
+        add(errors, CODES.SOLUTION_SEGMENT_REQUIRED);
+        return;
+      }
+      const exit = segmentExit(segment);
+      cells.forEach((cell, order) => {
+        if (!Number.isInteger(cell)) {
+          add(errors, CODES.SOLUTION_CELL_INTEGER);
+          return;
+        }
+        if (!board.valid || cell < 0 || cell >= board.total) {
+          add(errors, CODES.SOLUTION_CELL_OUT_OF_RANGE);
+          return;
+        }
+        if (blocked.has(cell)) add(errors, CODES.SOLUTION_THROUGH_BLOCKED);
+        if (local.has(cell)) add(errors, CODES.SOLUTION_PATH_DUPLICATE);
+        local.add(cell);
+        if (covered.has(cell)) add(errors, CODES.SOLUTION_OVERLAP);
+        covered.add(cell);
+        lineCells.push(cell);
+        if (order > 0 && Number.isInteger(cells[order - 1]) &&
+            board.valid && !adjacent(cells[order - 1], cell, board.width)) {
+          add(errors, CODES.SOLUTION_SEGMENT_NON_ADJACENT);
+        }
+        if (structural.portalByCell[cell]) usedPortalCells.add(cell);
+      });
+
+      const last = cells[cells.length - 1];
+      const nextSegment = segments[segmentIndex + 1];
+      const nextCells = nextSegment && segmentCells(nextSegment);
+      const portalAtLast = Number.isInteger(last) && structural.portalByCell[last];
+      if (segmentIndex > 0 && !previousExit) {
+        // Multiple segments are meaningful only when the preceding segment
+        // ended with an explicit portal edge.  Splitting an ordinary path
+        // without that edge would make the release/reconnect boundary
+        // impossible to execute.
+        add(errors, CODES.SOLUTION_ORDER);
+      }
+      if (portalAtLast && !exit) {
+        // A portal cell cannot be an ordinary dead-end.  It must explicitly
+        // describe the release/continue edge to the next segment.
+        add(errors, CODES.SOLUTION_TRANSITION_REQUIRED);
+      }
+      if (exit !== undefined && exit !== null) {
+        if (!isRecord(exit)) {
+          add(errors, CODES.SOLUTION_PAIR_INVALID);
+          return;
+        }
+        if (!nextSegment || !Array.isArray(nextCells) || nextCells.length === 0) {
+          add(errors, CODES.SOLUTION_ORDER);
+        }
+        const pairId = exitField(exit, 'PairId', 'pairId') ||
+          exitField(exit, 'Id', 'id');
+        const from = exitField(exit, 'From', 'from');
+        const to = exitField(exit, 'To', 'to');
+        const pair = typeof pairId === 'string' ? byId[pairId] : null;
+        if (!pair) {
+          add(errors, CODES.SOLUTION_PAIR_INVALID);
+        } else {
+          const expectedOther = from === pair.A ? pair.B :
+            (from === pair.B ? pair.A : null);
+          if (expectedOther === null || to !== expectedOther || from !== last ||
+              !portalAtLast) {
+            add(errors, CODES.SOLUTION_PAIR_INVALID);
+          }
+          if (transitions.indexOf(pairId) >= 0) add(errors, CODES.SOLUTION_REUSE);
+          transitions.push(pairId);
+        }
+        if (!Array.isArray(nextCells) || nextCells[0] !== to) {
+          add(errors, CODES.SOLUTION_ORDER);
+        }
+        previousExit = exit;
+      } else {
+        previousExit = null;
+        if (nextSegment) {
+          add(errors, CODES.SOLUTION_ORDER);
+          const nextFirst = Array.isArray(nextCells) ? nextCells[0] : undefined;
+          if (Number.isInteger(last) && Number.isInteger(nextFirst) &&
+              board.valid && !adjacent(last, nextFirst, board.width)) {
+            add(errors, CODES.SOLUTION_SEGMENT_NON_ADJACENT);
+          }
+        }
+      }
+      // A portal in the middle of a contiguous segment would mean the path
+      // ignored the required lock/release boundary.
+      cells.forEach((cell, order) => {
+        // The first cell of a segment after an explicit Exit is the paired
+        // destination and is therefore intentionally a portal cell.  Any
+        // other portal appearing before the segment's last cell would imply
+        // that the required release boundary was omitted.
+        const isContinuationEntry = segmentIndex > 0 && order === 0;
+        if (structural.portalByCell[cell] && order < cells.length - 1 &&
+            !isContinuationEntry) {
+          add(errors, CODES.SOLUTION_ORDER);
+        }
+      });
+      if (segmentIndex > 0 && structural.portalByCell[cells[0]]) {
+        const previous = transitions[segmentIndex - 1];
+        // The explicit Exit check above is authoritative; this guard catches
+        // a segment that starts at a portal without any preceding edge.
+        if (!previous && segmentIndex > 0) add(errors, CODES.SOLUTION_ORDER);
+      }
+    });
+
+    if (lineCells.length === 0 || lineCells[0] !== start) {
+      add(errors, CODES.SOLUTION_START_MISMATCH);
+    }
+    if (lineCells.length === 0 || lineCells[lineCells.length - 1] !== end) {
+      add(errors, CODES.SOLUTION_END_MISMATCH);
+    }
+  });
+
+  const expected = board.total - blocked.size;
+  if (expected > 0 && covered.size !== expected) add(errors, CODES.SOLUTION_INCOMPLETE);
+  // A portal pair's cells are ordinary coverable cells.  If either is absent,
+  // the coverage check above catches it; this explicit check gives malformed
+  // solutions a more actionable portal-order diagnostic as well.
+  structural.portals.forEach(portal => {
+    [portal.A, portal.B].forEach(cell => {
+      if (!usedPortalCells.has(cell)) add(errors, CODES.SOLUTION_ORDER);
+    });
+  });
+
+  return {
+    ok: errors.length === 0,
+    errors,
+    portals: structural.portals,
+    portalByCell: structural.portalByCell,
+    portalById: structural.portalById
+  };
+}
+
+/**
+ * Combined level validator.  The optional second argument may be a solution
+ * array or `{ solution, requireSolution }`.  Structural validation remains
+ * useful when no solution catalog is present; passing `requireSolution: true`
+ * enforces the trial-level publishing gate from the design document.
+ */
+function validatePortalLevel(level, solutionOrOptions) {
+  let solution;
+  let requireSolution = false;
+  if (isRecord(solutionOrOptions) &&
+      (own(solutionOrOptions, 'solution') || own(solutionOrOptions, 'requireSolution'))) {
+    solution = solutionOrOptions.solution;
+    requireSolution = solutionOrOptions.requireSolution === true;
+  } else {
+    solution = solutionOrOptions;
+  }
+  const structural = validatePortals(level);
+  // Keep the legacy catalog path untouched when this helper is applied to a
+  // mixed ordinary/portal set.  Ordinary flat cell arrays belong to the
+  // existing solutions validator; they must not be forced through the portal
+  // segmented schema merely because a caller uses this combined entry point.
+  if (rawMechanic(level) !== 'portal' && !rawPortals(level).present) {
+    return structural;
+  }
+  if (solution !== undefined && solution !== null) {
+    return validatePortalSolution(level, solution);
+  }
+  if (requireSolution && rawMechanic(level) === 'portal') {
+    const errors = structural.errors.slice();
+    add(errors, CODES.SOLUTION_REQUIRED);
+    return Object.assign({}, structural, { ok: false, errors });
+  }
+  return structural;
+}
+
+// A data-only canonicalizer for callers that need normalized segments before
+// rendering or persistence.  It never claims validity; use the validator for
+// diagnostics and publishing gates.
+function normalizePortalSolution(level, solution) {
+  const paths = extractSolutionPaths(level, solution);
+  if (!Array.isArray(paths)) return null;
+  return paths.map(lineSolution => {
+    const segments = canonicalSegments(lineSolution);
+    if (!segments) return { Segments: [] };
+    return {
+      Segments: segments.map(segment => {
+        if (!isRecord(segment)) return { Cells: [] };
+        const cells = segmentCells(segment);
+        const result = { Cells: Array.isArray(cells) ? cells.slice() : [] };
+        const exit = segmentExit(segment);
+        if (isRecord(exit)) {
+          result.Exit = {
+            PairId: exitField(exit, 'PairId', 'pairId') || exitField(exit, 'Id', 'id'),
+            From: exitField(exit, 'From', 'from'),
+            To: exitField(exit, 'To', 'to')
+          };
+        }
+        return result;
+      })
+    };
+  });
+}
+
+// Keep the default export callable while exposing named helpers for adapters
+// and tests.  This is friendly to both `require(...)(level)` and destructured
+// imports used by build tooling.
+module.exports = validatePortalLevel;
+module.exports.validate = validatePortalLevel;
+// Descriptive aliases used by catalog/build adapters.
+module.exports.validatePortalData = validatePortalLevel;
+module.exports.validatePortal = validatePortalLevel;
+module.exports.validateLevel = validatePortalLevel;
+module.exports.validatePortalLevel = validatePortalLevel;
+module.exports.validatePortals = validatePortals;
+module.exports.validatePortalSolution = validatePortalSolution;
+module.exports.validateSolution = validatePortalSolution;
+module.exports.normalizePortals = normalizePortals;
+module.exports.normalizePortalSolution = normalizePortalSolution;
+module.exports.buildPortalIndex = buildPortalIndex;
+module.exports.codes = CODES;
+module.exports.ERROR_CODES = CODES;

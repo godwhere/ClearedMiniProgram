@@ -1,0 +1,21 @@
+<view class="page play-page">
+  <view class="play-header">
+    <view>
+      <text class="level-title">{{title}}</text>
+      <text class="set-title">{{setName}}</text>
+    </view>
+    <text class="timer">{{time}}</text>
+  </view>
+
+  <view class="board-wrap">
+    <canvas id="board" type="2d" class="board" style="width: {{boardWidth}}px; height: {{boardHeight}}px;" bindtouchstart="onTouchStart" bindtouchmove="onTouchMove" bindtouchend="onTouchEnd"></canvas>
+  </view>
+
+  <view wx:if="{{isGameOver}}" class="complete-banner">完成！用时 {{time}}</view>
+
+  <view class="actions">
+    <button class="action-button" bindtap="undo" disabled="{{!canUndo}}">撤销</button>
+    <button class="action-button" bindtap="reset">重置</button>
+    <button class="action-button" bindtap="next" disabled="{{!canNext}}">下一关</button>
+  </view>
+</view>

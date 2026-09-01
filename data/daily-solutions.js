@@ -1,0 +1,78 @@
+'use strict';
+
+// Hint paths are indexed by immutable level id, never by an ordinary
+// setIndex/levelIndex pair. Every path is contiguous and the paths for one
+// level jointly cover all playable cells exactly once.
+
+const introPaths = [
+  [0, 1, 2],
+  [3, 4, 5, 8, 7, 6]
+];
+
+const extremePaths = [
+  [0, 1, 2],
+  [
+    5, 6, 7, 15, 14, 13, 12, 11
+  ],
+  [
+    10, 9, 8, 16, 17, 18, 19, 20
+  ],
+  [
+    21, 22, 23, 31, 30, 29, 28
+  ],
+  [
+    26, 25, 24, 32, 33, 34, 35, 36, 37
+  ],
+  [
+    38, 39, 47, 46, 45, 44, 43, 42, 41
+  ],
+  [
+    40, 48, 49, 50, 51, 52, 53, 54, 55
+  ],
+  [
+    63, 62, 61, 60, 59, 58, 57, 56
+  ],
+  [
+    64, 65, 66, 67, 68, 69, 70, 71
+  ],
+  [
+    79, 78, 77, 76, 75, 74, 73, 72
+  ]
+];
+
+// Compatibility solutions for the deprecated flat Challenges entries, which
+// still contain the original three-line 8×10 shape. Canonical Days use the
+// more granular ten-line extreme puzzle above.
+const legacyExtremePaths = [
+  [0, 1, 2],
+  [
+    5, 6, 7,
+    15, 14, 13, 12, 11, 10, 9, 8,
+    16, 17, 18, 19, 20, 21, 22, 23,
+    31, 30, 29, 28
+  ],
+  [
+    26, 25, 24,
+    32, 33, 34, 35, 36, 37, 38, 39,
+    47, 46, 45, 44, 43, 42, 41, 40,
+    48, 49, 50, 51, 52, 53, 54, 55,
+    63, 62, 61, 60, 59, 58, 57, 56,
+    64, 65, 66, 67, 68, 69, 70, 71,
+    79, 78, 77, 76, 75, 74, 73, 72
+  ]
+];
+
+module.exports = {
+  SchemaVersion: 2,
+  ByChallengeId: {
+    'daily-2026-08-31-v1-intro-v1': introPaths,
+    'daily-2026-08-31-v1-extreme-v1': extremePaths,
+    'daily-2026-09-01-v1-intro-v1': introPaths,
+    'daily-2026-09-01-v1-extreme-v1': extremePaths,
+
+    // Legacy aliases for hosts that still resolve the old one-level
+    // Challenges entries. They intentionally point at the 8x10 solution.
+    'daily-2026-08-31-v1': legacyExtremePaths,
+    'daily-2026-09-01-v1': legacyExtremePaths
+  }
+};
