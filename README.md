@@ -32,6 +32,9 @@
 传送门以 [`src/mechanics/portal.js`](src/mechanics/portal.js) 作为独立“玩法拓展”定义，不属于主题或特效回廊；试玩通关不写入普通关卡进度、最佳时间或广告计数。门格只显示传送门，不叠加当前主题棋子；默认图标为
 [`assets/icons/portal.png`](assets/icons/portal.png)。
 
+传送门作为首个玩法拓展所暴露的运行上下文、规则查询、输入、提示、渲染与结算边界，以及后续分阶段迁移步骤，记录在
+[`docs/gameplay-extension-architecture.md`](docs/gameplay-extension-architecture.md)。架构重构按该文档分 PR 渐进实施，保持传送门 v1 和普通关卡行为不变。
+
 “高难关卡”主页入口及“每日挑战”模式的棋盘、日期、镂空、存档和实现边界记录在
 [`docs/daily-challenge-mode.md`](docs/daily-challenge-mode.md)；广告/分享增次、复活和货币系统暂未接入。
 
@@ -103,6 +106,7 @@ src/config/progression.js       跨关卡组解锁配置
 src/config/audio.js              音频资源与音量配置
 assets/audio/                   压缩后的本地音频素材
 docs/portal-mechanic.md          传送门玩法、状态机、数据/提示契约与代码边界
+docs/gameplay-extension-architecture.md 玩法拓展架构、迁移阶段和文件职责边界
 assets/skins/gem/               宝石主题精灵图
 assets/skins/animals/           动物主题精灵图（主题页取前四个元素 2×2 展示）
 assets/skins/fruits/            水果主题精灵图（主题页取前四个元素 2×2 展示）
