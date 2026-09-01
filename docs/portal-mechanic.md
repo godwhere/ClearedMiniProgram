@@ -502,7 +502,7 @@ touchStart/touchMove/touchEnd/handlePointerCancel -> boolean // 兼容 API
 
 **兼容约束：**
 
-- `Portals` 缺省或空数组时，现有 122 关的 `touchStart/touchMove/touchEnd`、`owner`、撤销、计时和完成判定保持旧语义；
+- `Portals` 缺省或空数组时，现有 92 个普通关卡的 `touchStart/touchMove/touchEnd`、`owner`、撤销、计时和完成判定保持旧语义；
 - `selectedCells` 的连续段 API 尽量保持可用。非相邻跳跃应通过平行的 `selectedSegments` / `portalJumps` 元数据表达，不把旧数组改成对象；
 - `touchEnd()` 的布尔返回值继续只表示“整条线路已成功提交”，到达 A 或进入等待态不能返回完成；
 - pending 状态不得写进已完成线路快照，取消时通过入口前快照恢复。
@@ -603,7 +603,7 @@ touchStart/touchMove/touchEnd/handlePointerCancel -> boolean // 兼容 API
 | 模块 | v1 边界 |
 | --- | --- |
 | `src/mechanics/portal.js` | 声明玩法 ID、v1 版本、图标、首页试玩 action、试玩 set 与分段解答；不注册进主题/特效回廊 |
-| `data/catalog-v2.js` | 只保留 122 个普通关；传送门试玩不占用普通 set/level 索引 |
+| `data/catalog-v2.js` | 只保留 92 个普通关；传送门试玩不占用普通 set/level 索引 |
 | `data/portal-solutions.js` | 保存 portal 分段解答；不污染 `data/solutions.js` 的旧数组格式 |
 | `src/services/progress-store.js` | 传送门试玩不写普通完成、最佳时间、`lastPlayed` 或 `totalClears`；结果只在当次会话展示 |
 | `src/services/audio-service.js` | 只提供/播放已有或新增的 portal 音效；不判断规则 |
@@ -673,7 +673,7 @@ touchStart/touchMove/touchEnd/handlePointerCancel -> boolean // 兼容 API
 - `tests/hint-service-portal.test.js`：正反向分段解答、强制 portal edge BFS、入口段避让、pending 剩余段、无解和提示前后 Runner 状态不变；
 - `tests/renderer-portal.test.js`：纯 ViewModel、共享 BoardRenderer、固定绘制顺序、图标加载/回退、WAIT/LOCKED 高亮、门格不叠加主题/提示/清除棋子；
 - `tests/portal-publishing.test.js`：5 个真实试玩题面/解答校验、逐段 `GameRunner` 重放和全板覆盖；
-- `node tests/run.js` 在接入代码后必须全量通过，现有 122 关数据测试不得新增回归。
+- `node tests/run.js` 在接入代码后必须全量通过，现有 92 关普通数据测试不得新增回归。
 
 ### 10.4 真机验收指标
 

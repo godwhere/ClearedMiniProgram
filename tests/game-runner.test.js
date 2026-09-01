@@ -178,8 +178,8 @@ function run() {
       });
     });
   });
-  assert.deepStrictEqual(catalog.sets.map(set => (set.Games || []).length), [2, 10, 20, 30, 30, 30]);
-  assert.strictEqual(levels, 122);
+  assert.deepStrictEqual(catalog.sets.map(set => (set.Games || []).length), [2, 10, 20, 30, 30]);
+  assert.strictEqual(levels, 92);
 }
 
 module.exports = run;

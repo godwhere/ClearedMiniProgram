@@ -1516,22 +1516,39 @@ class CanvasRenderer {
 
   drawLevels(model) {
     const skin = this.skinService.current();
-    const { width, height, safeTop, safeBottom } = this.platform.metrics;
-    const set = model.set;
-    const setStyle = this.skinService.setStyle(set);
-    const games = set.Games || [];
-    this.begin(setStyle.background);
+    const { width, safeTop, safeBottom } = this.platform.metrics;
+    const legacyGames = model && model.set && Array.isArray(model.set.Games)
+      ? model.set.Games : [];
+    const items = Array.isArray(model && model.levelItems)
+      ? model.levelItems
+      : legacyGames.map((game, levelIndex) => ({
+        action: `level:${levelIndex}`,
+        displayNumber: levelIndex + 1,
+        completed: model.isCompleted ? model.isCompleted(levelIndex) : false,
+        unlocked: model.isUnlocked ? model.isUnlocked(levelIndex) : true
+      }));
+    const pageCount = Math.max(1,
+      Number(model && model.levelPageCount) || Number(model && model.setCount) || 1);
+    const rawPageIndex = Number(model && (
+      model.levelPageIndex === undefined ? model.setIndex : model.levelPageIndex
+    ));
+    const pageIndex = clamp(Number.isFinite(rawPageIndex) ? rawPageIndex : 0, 0, pageCount - 1);
+    const totalLevels = Math.max(items.length, Number(model && model.totalLevels) || items.length);
+    const rangeStart = Number(model && model.levelRangeStart) ||
+      (items.length ? Number(items[0].displayNumber) || 1 : 0);
+    const rangeEnd = Number(model && model.levelRangeEnd) ||
+      (items.length ? Number(items[items.length - 1].displayNumber) || rangeStart : 0);
+    this.begin(skin.colors.homeBackground);
 
     const headerTop = safeTop + 4;
     const headerHeight = 72;
     this.iconButton('levels:home', { x: 10, y: headerTop + 8, w: 44, h: 44 }, 'home', true, model.pressedId);
-    this.text(set.Name, width / 2, headerTop + 26, 26, { weight: 300 });
-    this.text(model.setUnlocked
-      ? `${model.setIndex + 1} / ${model.setCount}`
-      : `${model.setIndex + 1} / ${model.setCount} · 未解锁`, width / 2, headerTop + 53, 12, { alpha: 0.58 });
+    this.text('选择关卡', width / 2, headerTop + 26, 26, { weight: 300 });
+    this.text(items.length ? `${rangeStart}–${rangeEnd} / ${totalLevels}` : `0 / ${totalLevels}`,
+      width / 2, headerTop + 53, 12, { alpha: 0.58 });
 
-    const columns = games.length <= 5 ? Math.max(1, games.length) : 5;
-    const rows = Math.ceil(games.length / columns);
+    const columns = items.length <= 5 ? Math.max(1, items.length) : 5;
+    const rows = Math.ceil(items.length / columns);
     const sidePadding = 22;
     const gridTop = headerTop + headerHeight + 16;
     const controlsHeight = 66;
@@ -1548,18 +1565,20 @@ class CanvasRenderer {
     const gridY = gridTop + Math.max(0, (availableHeight - gridHeight) / 2);
     const ctx = this.ctx;
 
-    games.forEach((game, levelIndex) => {
-      const col = levelIndex % columns;
-      const row = Math.floor(levelIndex / columns);
+    items.forEach((item, slotIndex) => {
+      const col = slotIndex % columns;
+      const row = Math.floor(slotIndex / columns);
       const rect = {
         x: gridX + col * (cell + gap),
         y: gridY + row * (cell + gap),
         w: cell,
         h: cell
       };
-      const completed = model.isCompleted(levelIndex);
-      const unlocked = model.isUnlocked ? model.isUnlocked(levelIndex) : true;
-      const pressed = model.pressedId === `level:${levelIndex}`;
+      const action = typeof item.action === 'string' && item.action
+        ? item.action : `level:${slotIndex}`;
+      const completed = item.completed === true;
+      const unlocked = item.unlocked !== false;
+      const pressed = model.pressedId === action;
       ctx.save();
       this.roundedRect(rect.x, rect.y, rect.w, rect.h, 4);
       if (!unlocked) {
@@ -1576,7 +1595,7 @@ class CanvasRenderer {
         ctx.fill();
       }
       ctx.restore();
-      this.text(game.Name || levelIndex + 1, rect.x + rect.w / 2, rect.y + rect.h / 2 - (!unlocked ? 7 : (completed ? 3 : 0)), clamp(cell * 0.31, 15, 23), {
+      this.text(item.displayNumber, rect.x + rect.w / 2, rect.y + rect.h / 2 - (!unlocked ? 7 : (completed ? 3 : 0)), clamp(cell * 0.31, 15, 23), {
         weight: 300,
         alpha: unlocked ? 1 : 0.36
       });
@@ -1588,13 +1607,13 @@ class CanvasRenderer {
       } else if (completed) {
         this.text('✓', rect.x + rect.w - 9, rect.y + 10, 11, { alpha: 0.75, weight: 500 });
       }
-      this.addHit(`level:${levelIndex}`, rect, unlocked);
+      this.addHit(action, rect, unlocked);
     });
 
     const controlY = safeBottom - controlsHeight + 8;
-    this.iconButton('levels:prev', { x: width / 2 - 92, y: controlY, w: 52, h: 44 }, 'back', model.setIndex > 0, model.pressedId);
-    this.iconButton('levels:next', { x: width / 2 + 40, y: controlY, w: 52, h: 44 }, 'next', model.setIndex < model.setCount - 1, model.pressedId);
-    this.text('左右滑动切换关卡组', width / 2, controlY + 50, 11, { alpha: 0.42 });
+    this.iconButton('levels:prev', { x: width / 2 - 92, y: controlY, w: 52, h: 44 }, 'back', pageIndex > 0, model.pressedId);
+    this.iconButton('levels:next', { x: width / 2 + 40, y: controlY, w: 52, h: 44 }, 'next', pageIndex < pageCount - 1, model.pressedId);
+    this.text('左右滑动切换关卡', width / 2, controlY + 50, 11, { alpha: 0.42 });
   }
 
   fallbackBoardViewModel(model, level) {
@@ -1712,10 +1731,20 @@ class CanvasRenderer {
       model.soundEnabled ? 'sound' : 'mute', true, model.pressedId);
     this.iconButton('play:reset', { x: resetX, y: topUi + 12, w: controlSize, h: 44 }, 'reset', model.scene !== 'result', model.pressedId);
 
+    const ordinaryNumber = Number(model.ordinaryLevelNumber);
+    const ordinaryCount = Number(model.ordinaryLevelCount);
+    const hasOrdinaryNumber = Number.isInteger(ordinaryNumber) && ordinaryNumber > 0 &&
+      Number.isInteger(ordinaryCount) && ordinaryCount >= ordinaryNumber;
+    const numberedTitle = hasOrdinaryNumber
+      ? `${ordinaryNumber} / ${ordinaryCount}`
+      : `${model.levelIndex + 1} / ${(model.set.Games || []).length}`;
+    const instructionTitle = game.Instructions && hasOrdinaryNumber
+      ? `${ordinaryNumber} · ${game.Instructions}`
+      : game.Instructions;
     const isWaiting = !!(portal && portal.phase === 'PORTAL_WAIT');
     const title = isWaiting
       ? '从另一端继续'
-      : (game.Instructions || `${model.levelIndex + 1} / ${(model.set.Games || []).length}`);
+      : (instructionTitle || numberedTitle);
     this.text(title, width / 2, topUi + 27, (game.Instructions || isWaiting) ? 18 : 24, {
       weight: 300,
       maxWidth: width - 220,

@@ -11,6 +11,8 @@ function adjacent(one, two, width) {
 function run() {
   assert(Array.isArray(solutions.sets), 'solutions must expose sets');
   assert.strictEqual(solutions.sets.length, catalog.sets.length);
+  assert.deepStrictEqual(solutions.sets.map(set => set.length), [2, 10, 20, 30, 30]);
+  assert.strictEqual(solutions.sets.reduce((total, set) => total + set.length, 0), 92);
 
   catalog.sets.forEach((set, setIndex) => {
     const setSolutions = solutions.sets[setIndex];

@@ -1,5 +1,6 @@
 module.exports = {
-  // true: Training 1-2 -> 5x5 1-10 -> 6x6 1-20 -> 7x7/8x8/8x10 1-30
-  // false: every set starts with its first level unlocked independently.
+  // true: ordinary levels unlock continuously as display numbers 1-92 across
+  // the five legacy data sets (maximum board size 8x8).
+  // false: every legacy data set starts with its first level unlocked independently.
   unlockAcrossSets: true
 };

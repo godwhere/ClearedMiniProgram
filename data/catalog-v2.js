@@ -5,8 +5,7 @@ const sets = [
   require('./clearedset5.js'),
   require('./clearedset6.js'),
   require('./clearedset7.js'),
-  require('./clearedset8.js'),
-  require('./clearedset9.js')
+  require('./clearedset8.js')
 ];
 
 const levels = [];

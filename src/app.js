@@ -66,9 +66,11 @@ function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
 }
 
-// Theme paging is deliberately kept in the app orchestration layer.  The
-// renderer owns the 2 x 3 card layout, while the app only exposes a stable
-// page size and clamps navigation state.
+// Gallery paging is deliberately kept in the app orchestration layer. The
+// renderer owns each grid layout, while the app exposes stable page sizes and
+// clamps navigation state. Ordinary levels use the flattened catalog order;
+// their stored set/level coordinates remain unchanged.
+const LEVEL_PAGE_SIZE = 25;
 const THEME_PAGE_SIZE = 6;
 const CORRIDOR_PAGE_SIZE = 6;
 const EFFECT_PAGE_SIZE = 6;
@@ -291,9 +293,12 @@ class ClearedApp {
     this.setIndex = 0;
     this.levelIndex = 0;
     this.runContext = null;
-    // Keep theme pagination independent from the level-group cursor.  A theme
-    // selection never changes this value, so returning to the gallery keeps
-    // the user on the page they were browsing.
+    // Selection pagination is display-only. setIndex/levelIndex remain the
+    // canonical catalog coordinates used by progress, hints and settlement.
+    this.levelPageIndex = 0;
+    // Keep theme pagination independent from ordinary level selection. A
+    // theme selection never changes this value, so returning to the gallery
+    // keeps the user on the page they were browsing.
     this.themePageIndex = 0;
     // Each gallery owns an independent cursor. Do not reuse setIndex or the
     // theme page index when adding future corridor/effect entries.
@@ -947,8 +952,25 @@ class ClearedApp {
     };
   }
 
+  catalogLevelPosition(setIndex, levelIndex) {
+    return catalog.levels.findIndex(entry =>
+      entry.setIndex === Number(setIndex) && entry.levelIndex === Number(levelIndex)
+    );
+  }
+
+  levelPageForTarget(target) {
+    if (!target || typeof target !== 'object') return 0;
+    const position = this.catalogLevelPosition(target.setIndex, target.levelIndex);
+    return position < 0 ? 0 : Math.floor(position / LEVEL_PAGE_SIZE);
+  }
+
+  ordinaryCompletedCount() {
+    return catalog.levels.reduce((count, entry) => (
+      count + (this.progress.isCompleted(entry.setIndex, entry.levelIndex) ? 1 : 0)
+    ), 0);
+  }
+
   buildModel() {
-    const sets = catalog.sets;
     const homeDaily = this.scene === 'home' ? this.resolveDaily() : null;
     const homeDailyEntry = homeDaily && homeDaily.status === 'available'
       ? this.dailyEntryState(homeDaily)
@@ -972,7 +994,9 @@ class ClearedApp {
     const base = {
       scene: this.scene,
       pressedId: this.pressedId,
-      completedCount: this.progress.completedCount(),
+      // Count only published ordinary levels. Retired catalog coordinates may
+      // remain in an upgraded player's save and must not produce e.g. 122/92.
+      completedCount: this.ordinaryCompletedCount(),
       totalLevels: catalog.levels.length,
       soundEnabled: this.audio.isEnabled(),
       hint: this.hint,
@@ -1042,13 +1066,32 @@ class ClearedApp {
     }
 
     if (this.scene === 'levels') {
+      const levelPageCount = Math.max(1, Math.ceil(catalog.levels.length / LEVEL_PAGE_SIZE));
+      const rawPageIndex = Number(this.levelPageIndex);
+      this.levelPageIndex = clamp(
+        Number.isFinite(rawPageIndex) ? rawPageIndex : 0,
+        0,
+        levelPageCount - 1
+      );
+      const pageStart = this.levelPageIndex * LEVEL_PAGE_SIZE;
+      const levelItems = catalog.levels
+        .slice(pageStart, pageStart + LEVEL_PAGE_SIZE)
+        .map((entry, offset) => ({
+          action: `level:${entry.setIndex}:${entry.levelIndex}`,
+          displayNumber: pageStart + offset + 1,
+          setIndex: entry.setIndex,
+          levelIndex: entry.levelIndex,
+          completed: this.progress.isCompleted(entry.setIndex, entry.levelIndex),
+          unlocked: this.progression.isUnlocked(entry.setIndex, entry.levelIndex)
+        }));
       return Object.assign(base, {
-        set: sets[this.setIndex],
-        setIndex: this.setIndex,
-        setCount: sets.length,
-        isCompleted: levelIndex => this.progress.isCompleted(this.setIndex, levelIndex),
-        isUnlocked: levelIndex => this.progression.isUnlocked(this.setIndex, levelIndex),
-        setUnlocked: this.progression.isSetUnlocked(this.setIndex)
+        levelItems,
+        levelPageIndex: this.levelPageIndex,
+        levelPageCount,
+        levelPageSize: LEVEL_PAGE_SIZE,
+        levelRangeStart: levelItems.length ? levelItems[0].displayNumber : 0,
+        levelRangeEnd: levelItems.length
+          ? levelItems[levelItems.length - 1].displayNumber : 0
       });
     }
 
@@ -1117,12 +1160,17 @@ class ClearedApp {
       const level = context && context.level;
       const activeLevelIndex = context ? context.levelIndex : this.levelIndex;
       const trial = !!context && context.source.kind === 'mechanic-trial';
+      const ordinaryPosition = !trial && context
+        ? this.catalogLevelPosition(context.setIndex, activeLevelIndex)
+        : -1;
       const boardView = this.buildBoardViewModel(this.runner, this.clearAnimation);
       const portalStatus = boardView && boardView.mechanic.portal;
       return Object.assign(base, {
         set,
         level,
         levelIndex: activeLevelIndex,
+        ordinaryLevelNumber: ordinaryPosition >= 0 ? ordinaryPosition + 1 : null,
+        ordinaryLevelCount: catalog.levels.length,
         board: boardView && boardView.board,
         mechanic: boardView ? boardView.mechanic : { portal: null },
         elapsedText: boardView ? boardView.elapsedText : '0:00',
@@ -1228,7 +1276,7 @@ class ClearedApp {
     const dx = end.x - active.start.x;
     const dy = end.y - active.start.y;
     if (this.scene === 'levels' && Math.abs(dx) > 52 && Math.abs(dx) > Math.abs(dy) * 1.2) {
-      this.changeSet(dx < 0 ? 1 : -1);
+      this.changeLevelPage(dx < 0 ? 1 : -1);
       return;
     }
 
@@ -1632,7 +1680,7 @@ class ClearedApp {
       this.openLevel(target.setIndex, target.levelIndex);
     } else if (action === 'home:levels') {
       const last = this.progress.state.lastPlayed;
-      this.setIndex = last && catalog.sets[last.setIndex] ? last.setIndex : 0;
+      this.levelPageIndex = this.levelPageForTarget(last);
       this.scene = 'levels';
     } else if (action === 'home:themes') {
       this.themePageIndex = 0;
@@ -1647,9 +1695,9 @@ class ClearedApp {
     } else if (action === 'levels:home') {
       this.scene = 'home';
     } else if (action === 'levels:prev') {
-      this.changeSet(-1);
+      this.changeLevelPage(-1);
     } else if (action === 'levels:next') {
-      this.changeSet(1);
+      this.changeLevelPage(1);
     } else if (action === 'themes:home') {
       this.scene = 'home';
       this.galleryOrigin = 'home';
@@ -1710,7 +1758,22 @@ class ClearedApp {
       // board/daily state untouched.
       this.setClearEffect(action.slice('effect:'.length));
     } else if (action.indexOf('level:') === 0) {
-      this.openLevel(this.setIndex, Number(action.split(':')[1]));
+      const parts = action.split(':');
+      if (parts.length === 3) {
+        const actionSetIndex = Number(parts[1]);
+        const actionLevelIndex = Number(parts[2]);
+        if (parts[1] && parts[2] && Number.isInteger(actionSetIndex) &&
+            Number.isInteger(actionLevelIndex)) {
+          this.openLevel(actionSetIndex, actionLevelIndex);
+        }
+      } else if (parts.length === 2) {
+        // Compatibility for callers that still emit the old current-set
+        // action shape. New flattened cards always carry both coordinates.
+        const actionLevelIndex = Number(parts[1]);
+        if (parts[1] && Number.isInteger(actionLevelIndex)) {
+          this.openLevel(this.setIndex, actionLevelIndex);
+        }
+      }
     } else if (action === 'daily:home' || action === 'daily:back') {
       this.scene = 'home';
       this.boardInput.setRunner(null);
@@ -1810,8 +1873,16 @@ class ClearedApp {
     this.invalidate();
   }
 
-  changeSet(delta) {
-    this.setIndex = clamp(this.setIndex + delta, 0, catalog.sets.length - 1);
+  changeLevelPage(delta) {
+    const pageCount = Math.max(1, Math.ceil(catalog.levels.length / LEVEL_PAGE_SIZE));
+    const currentPage = Number(this.levelPageIndex);
+    const normalizedPage = Number.isFinite(currentPage) ? currentPage : 0;
+    const step = Number(delta);
+    this.levelPageIndex = clamp(
+      normalizedPage + (Number.isFinite(step) ? step : 0),
+      0,
+      pageCount - 1
+    );
     this.invalidate();
   }
 
@@ -2164,6 +2235,7 @@ class ClearedApp {
     this.runContext = context;
     this.setIndex = context.setIndex;
     this.levelIndex = context.levelIndex;
+    this.levelPageIndex = this.levelPageForTarget(context);
     this.progress.markOpened(context.setIndex, context.levelIndex);
     this.progress.save();
     this.runner = new GameRunner(

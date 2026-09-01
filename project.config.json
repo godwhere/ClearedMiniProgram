@@ -59,10 +59,6 @@
         "type": "file"
       },
       {
-        "value": "data/clearedset9.json",
-        "type": "file"
-      },
-      {
         "value": "assets/audio/victory.m4a",
         "type": "file"
       },

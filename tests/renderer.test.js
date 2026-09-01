@@ -3,6 +3,7 @@ const CanvasRenderer = require('../src/ui/canvas-renderer.js');
 const GameRunner = require('../core/game-runner.js');
 const classic = require('../src/skins/classic.js');
 const catalog = require('../data/catalog.js');
+const dailyChallenges = require('../data/daily-challenges.js');
 
 function fakeContext() {
   const calls = [];
@@ -116,7 +117,7 @@ function run() {
     roundedRects.push({ x, y, w, h, radius });
     return drawRoundedRect(x, y, w, h, radius);
   };
-  renderer.render({ scene: 'home', completedCount: 0, totalLevels: 122, pressedId: null }, Date.now());
+  renderer.render({ scene: 'home', completedCount: 0, totalLevels: 92, pressedId: null }, Date.now());
   assert(renderer.hitTest(110, 640), 'daily challenge is hit on the left side of the first row');
   assert(renderer.hitTest(280, 640), 'themes is hit on the right side of the first row');
   const soundHit = renderer.hits.find(hit => hit.id === 'home:sound');
@@ -128,18 +129,44 @@ function run() {
     Palette: ['#f00'],
     Games: [{ Width: 5, Height: 1, Name: '1', Lines: [{ Start: 0, End: 4 }] }]
   };
+  const firstPageItems = catalog.levels.slice(0, 25).map((entry, index) => ({
+    action: `level:${entry.setIndex}:${entry.levelIndex}`,
+    displayNumber: index + 1,
+    completed: index === 0,
+    unlocked: index === 0
+  }));
+  platform.context.calls.length = 0;
   renderer.render({
-    scene: 'levels', set, setIndex: 0, setCount: 1, pressedId: null,
-    isCompleted() { return false; }
+    scene: 'levels', levelItems: firstPageItems,
+    levelPageIndex: 0, levelPageCount: 4,
+    levelRangeStart: 1, levelRangeEnd: 25,
+    totalLevels: 92, pressedId: null
   }, Date.now());
-  assert(renderer.hits.some(hit => hit.id === 'level:0'));
+  assert.strictEqual(textCalls(platform.context, '选择关卡').length, 1);
+  assert.strictEqual(textCalls(platform.context, '1–25 / 92').length, 1);
+  assert(renderer.hits.some(hit => hit.id === 'level:0:0'));
+  assert.strictEqual(renderer.hits.some(hit => hit.id === 'level:0:1'), false,
+    'locked continuous levels do not register a hit');
+  assert(renderer.hits.some(hit => hit.id === 'levels:next'));
+  assert.strictEqual(renderer.hits.some(hit => hit.id === 'levels:prev'), false);
 
+  const lastPageItems = catalog.levels.slice(75).map((entry, index) => ({
+    action: `level:${entry.setIndex}:${entry.levelIndex}`,
+    displayNumber: 76 + index,
+    completed: false,
+    unlocked: true
+  }));
   renderer.render({
-    scene: 'levels', set, setIndex: 0, setCount: 1, setUnlocked: false, pressedId: null,
-    isCompleted() { return false; },
-    isUnlocked() { return false; }
+    scene: 'levels', levelItems: lastPageItems,
+    levelPageIndex: 3, levelPageCount: 4,
+    levelRangeStart: 76, levelRangeEnd: 92,
+    totalLevels: 92, pressedId: null
   }, Date.now());
-  assert.strictEqual(renderer.hits.some(hit => hit.id === 'level:0'), false);
+  assert.strictEqual(renderer.hits.filter(hit => hit.id.indexOf('level:') === 0).length, 17);
+  assert(renderer.hits.some(hit => hit.id === 'level:4:13'));
+  assert(renderer.hits.some(hit => hit.id === 'level:4:29'));
+  assert(renderer.hits.some(hit => hit.id === 'levels:prev'));
+  assert.strictEqual(renderer.hits.some(hit => hit.id === 'levels:next'), false);
 
   const runner = new GameRunner(set.Games[0], set.Palette);
   runner.undoStack.push({});
@@ -147,6 +174,7 @@ function run() {
   const hintUntil = Date.now() + 1000;
   const playModel = Object.assign({
     scene: 'play', set, level: set.Games[0], levelIndex: 0,
+    ordinaryLevelNumber: 33, ordinaryLevelCount: 92,
     levelEnteredAt: Date.now() - 1000, pressedId: null,
     hintAvailable: true
   }, renderState(runner, { hint, hintUntil }));
@@ -155,7 +183,10 @@ function run() {
   const frozenViewBefore = JSON.stringify({ board: playModel.board, mechanic: playModel.mechanic });
   assert.strictEqual(Object.prototype.hasOwnProperty.call(playModel, 'runner'), false,
     'play render model is pure data and does not expose Runner');
+  platform.context.calls.length = 0;
   renderer.render(playModel, Date.now());
+  assert.strictEqual(textCalls(platform.context, '33 / 92').length, 1,
+    'ordinary play uses the continuous catalog number');
   assert.strictEqual(JSON.stringify({ board: playModel.board, mechanic: playModel.mechanic }), frozenViewBefore,
     'renderer does not mutate a frozen board ViewModel');
   assert(renderer.boardLayout);
@@ -335,8 +366,13 @@ function run() {
 
   platform.metrics = { width: 390, height: 844, safeTop: 44, safeBottom: 810 };
 
-  const tallSet = catalog.sets[5];
-  const tallLevel = tallSet.Games[0];
+  const tallLevel = dailyChallenges.Days[0].Levels[1];
+  const tallSet = {
+    Name: 'High Difficulty',
+    Color: '#a4c400',
+    Palette: tallLevel.Palette,
+    Games: [tallLevel]
+  };
   [
     { width: 320, height: 568, safeTop: 54, safeBottom: 548 },
     { width: 768, height: 1024, safeTop: 30, safeBottom: 1000 }
