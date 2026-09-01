@@ -1031,7 +1031,7 @@ class ClearedApp {
       scene: this.scene,
       pressedId: this.pressedId,
       // Count only published ordinary levels. Retired catalog coordinates may
-      // remain in an upgraded player's save and must not produce e.g. 122/92.
+      // remain in an upgraded player's save and must not inflate this total.
       completedCount: this.ordinaryCompletedCount(),
       totalLevels: catalog.levels.length,
       soundEnabled: this.audio.isEnabled(),

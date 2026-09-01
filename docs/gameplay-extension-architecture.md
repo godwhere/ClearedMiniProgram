@@ -106,7 +106,7 @@ Portal 初次接入后：
 4. `src/mechanics/*.js` 保持 data-only manifest，不允许注入任意回调、平台对象或存档对象。
 5. 主题和清除特效仍是纯视觉能力，不能改变棋盘拓扑。
 6. `home:portalTrial`、`corridor:portalTrial` 兼容别名、`portal` manifest ID、关卡 ID、存档 key 和已发布 action ID 不重命名。
-7. 普通 catalog 只包含连续编号 1—92、最大 8×8 的关卡，内部 `setIndex/levelIndex` 仍作为稳定身份；普通关、每日挑战和传送门试玩的进度域继续隔离，8×10 只由独立的高难／每日内容来源提供。
+7. 普通 catalog 只包含连续编号 1—62、最大 8×8 的关卡，内部 `setIndex/levelIndex` 仍作为稳定身份；普通关、每日挑战和传送门试玩的进度域继续隔离，8×10 只由独立的高难／每日内容来源提供。
 8. `pages/` 与根目录旧小程序页面不进入新架构。
 9. 每个重构提交都必须先通过 `node tests/run.js`，再进入下一阶段。
 10. 不在同一提交中同时进行大规模搬文件、改玩法规则和改视觉表现。
@@ -523,7 +523,7 @@ docs/gameplay-extension-architecture.md    本文
 **验收**：
 
 - 全量 Node 测试通过；
-- 92 个普通关卡和 5 个 Portal 试玩解答均能重放；
+- 62 个普通关卡和 5 个 Portal 试玩解答均能重放；
 - 微信开发者工具与真机验收仍单独记录，Node 测试不宣称覆盖设备行为。
 
 **建议提交**：`test: freeze gameplay extension architecture contracts`

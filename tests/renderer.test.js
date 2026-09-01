@@ -117,7 +117,7 @@ function run() {
     roundedRects.push({ x, y, w, h, radius });
     return drawRoundedRect(x, y, w, h, radius);
   };
-  renderer.render({ scene: 'home', completedCount: 0, totalLevels: 92, pressedId: null }, Date.now());
+  renderer.render({ scene: 'home', completedCount: 0, totalLevels: 62, pressedId: null }, Date.now());
   assert(renderer.hitTest(110, 640), 'daily challenge is hit on the left side of the first row');
   assert(renderer.hitTest(280, 640), 'themes is hit on the right side of the first row');
   const soundHit = renderer.hits.find(hit => hit.id === 'home:sound');
@@ -138,32 +138,32 @@ function run() {
   platform.context.calls.length = 0;
   renderer.render({
     scene: 'levels', levelItems: firstPageItems,
-    levelPageIndex: 0, levelPageCount: 4,
+    levelPageIndex: 0, levelPageCount: 3,
     levelRangeStart: 1, levelRangeEnd: 25,
-    totalLevels: 92, pressedId: null
+    totalLevels: 62, pressedId: null
   }, Date.now());
   assert.strictEqual(textCalls(platform.context, '选择关卡').length, 1);
-  assert.strictEqual(textCalls(platform.context, '1–25 / 92').length, 1);
+  assert.strictEqual(textCalls(platform.context, '1–25 / 62').length, 1);
   assert(renderer.hits.some(hit => hit.id === 'level:0:0'));
   assert.strictEqual(renderer.hits.some(hit => hit.id === 'level:0:1'), false,
     'locked continuous levels do not register a hit');
   assert(renderer.hits.some(hit => hit.id === 'levels:next'));
   assert.strictEqual(renderer.hits.some(hit => hit.id === 'levels:prev'), false);
 
-  const lastPageItems = catalog.levels.slice(75).map((entry, index) => ({
+  const lastPageItems = catalog.levels.slice(50).map((entry, index) => ({
     action: `level:${entry.setIndex}:${entry.levelIndex}`,
-    displayNumber: 76 + index,
+    displayNumber: 51 + index,
     completed: false,
     unlocked: true
   }));
   renderer.render({
     scene: 'levels', levelItems: lastPageItems,
-    levelPageIndex: 3, levelPageCount: 4,
-    levelRangeStart: 76, levelRangeEnd: 92,
-    totalLevels: 92, pressedId: null
+    levelPageIndex: 2, levelPageCount: 3,
+    levelRangeStart: 51, levelRangeEnd: 62,
+    totalLevels: 62, pressedId: null
   }, Date.now());
-  assert.strictEqual(renderer.hits.filter(hit => hit.id.indexOf('level:') === 0).length, 17);
-  assert(renderer.hits.some(hit => hit.id === 'level:4:13'));
+  assert.strictEqual(renderer.hits.filter(hit => hit.id.indexOf('level:') === 0).length, 12);
+  assert(renderer.hits.some(hit => hit.id === 'level:4:18'));
   assert(renderer.hits.some(hit => hit.id === 'level:4:29'));
   assert(renderer.hits.some(hit => hit.id === 'levels:prev'));
   assert.strictEqual(renderer.hits.some(hit => hit.id === 'levels:next'), false);
@@ -174,7 +174,7 @@ function run() {
   const hintUntil = Date.now() + 1000;
   const playModel = Object.assign({
     scene: 'play', set, level: set.Games[0], levelIndex: 0,
-    ordinaryLevelNumber: 33, ordinaryLevelCount: 92,
+    ordinaryLevelNumber: 33, ordinaryLevelCount: 62,
     levelEnteredAt: Date.now() - 1000, pressedId: null,
     hintAvailable: true
   }, renderState(runner, { hint, hintUntil }));
@@ -185,7 +185,7 @@ function run() {
     'play render model is pure data and does not expose Runner');
   platform.context.calls.length = 0;
   renderer.render(playModel, Date.now());
-  assert.strictEqual(textCalls(platform.context, '33 / 92').length, 1,
+  assert.strictEqual(textCalls(platform.context, '33 / 62').length, 1,
     'ordinary play uses the continuous catalog number');
   assert.strictEqual(JSON.stringify({ board: playModel.board, mechanic: playModel.mechanic }), frozenViewBefore,
     'renderer does not mutate a frozen board ViewModel');
