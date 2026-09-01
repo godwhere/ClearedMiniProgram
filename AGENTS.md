@@ -1,0 +1,68 @@
+# Cleared Mini Game：代理协作指南
+
+## 核心原则
+
+先理解，再做减法。目标不是最少行数，而是交付最小、完整、可读且可验证的正确改动。
+
+动手前按顺序判断，找到第一个足以解决问题的方案就停止扩张：
+
+1. 需求是否已经由现有行为满足，或根本不需要新增实现。
+2. 仓库里是否已有可复用的模块、配置、数据协议、测试或相邻模式。
+3. 原生 JavaScript、Canvas 2D 或微信小游戏 API 是否已经覆盖。
+4. 是否能在现有边界内做一个局部修改。
+5. 只有上述方案都不成立时，才新增实现；不要为假设中的未来需求搭脚手架。
+
+最小化不能省掉：信任边界校验、防止进度或数据丢失的错误处理、兼容回退、触控与安全区适配、用户明确要求，以及能证明行为正确的验证。
+
+## 开始修改前
+
+- 先读需求涉及的 `README.md`、对应 `docs/*.md`、实现和测试，沿实际入口把流程追完整。
+- 用搜索找到准备修改的函数、所有调用者、同类 action/scene、存档字段和测试；修 bug 时优先修共同根因，并检查兄弟调用路径。
+- 先查看 `git status` 和相关 diff。工作区中的未提交改动属于用户；不得清理、回退、覆盖或顺手格式化无关文件。
+- 对复杂但意图清楚的任务，默认交付风险可控的最小版本，并说明有意未做的扩展；只有会实质改变结果的选择才需要停下来询问。
+
+## 项目事实与边界
+
+- 这是原生微信小游戏：CommonJS JavaScript + 单 Canvas 2D，无 npm 运行依赖、无 DOM、无常规构建步骤。入口为 `game.js -> src/bootstrap.js -> src/app.js`。
+- 微信开发者工具可直接导入项目。不要引入 Web 专用 API、包管理器、框架或构建系统，除非需求确实无法由当前运行时完成并已说明维护成本。
+- `core/game-runner.js` 是纯玩法规则与状态权威；`core/portal-validation.js` 负责传送门题面/解答校验。两者不得依赖 `wx`、Canvas、场景 UI 或主题外观。
+- `src/app.js` 负责场景、输入和结算编排；`src/ui/canvas-renderer.js` 负责绘制与命中区域；`src/platform/wechat.js` 是微信 API 适配边界。不要跨层复制职责。
+- `src/services/` 承担存档、解锁、提示、音频、广告、每日挑战、主题和特效等领域能力；优先通过现有服务扩展，不要在 app 或 renderer 中另建平行状态。
+- `src/skins/*.js` 和 `src/effects/*.js` 应保持声明式 manifest；注册顺序集中在各自 `index.js`。主题和特效不能改变连线规则，也不能注入平台调用或任意业务回调。
+- `pages/` 及根目录 `app.js`、`app.json`、`app.wxss` 是已从小游戏包排除的迁移参考。除非任务明确针对旧小程序，否则新功能只改当前 Canvas 运行时。
+- scene/action/hit ID、存档 key、关卡 ID 和已发布 manifest ID 都是兼容契约；非必要不要重命名或复用。
+
+## 实现约束
+
+- 复用现有 CommonJS、代码风格和数据结构。避免单实现抽象、重复 helper、投机性配置、无调用者的扩展点和无请求的全仓重构。
+- 优先改最接近根因且由所有相关路径共用的位置；文件越少越好，但不能为了小 diff 把逻辑放错层。
+- 平台失败必须有安全回退：存储失败不能破坏内存状态，资源失败不能阻断游戏，广告缺失应保持 no-op，非法主题应回退经典主题。
+- Canvas/触控改动必须继续使用动态宽高、`safeTop`/`safeBottom` 和受控 DPR；不要把截图尺寸或运行时统计硬编码成产品逻辑。
+- 有意采用带上限的简化方案时，在相邻注释或对应设计文档中写清上限与升级触发条件，不留含糊的“以后优化”。
+- 不手改带 `Generated from the adjacent JSON source` 标记的关卡 JS。修改 `data/clearedset*.json` 后运行 `node scripts/generate-level-modules.js`，并保持 JSON、生成的 JS、catalog、solutions 与相关测试一致。
+- 修改主题素材前阅读 `docs/theme-system.md`；正式 sprite sheet 必须满足当前 manifest 与校验脚本的尺寸、槽位、透明安全边及回退契约。脚本通过只是必要条件，仍需视觉验收。
+
+## 验证
+
+- 任何非平凡行为变化都要在现有 `tests/` 体系中留下最小有效回归测试；测试应在错误实现下失败，而不只是执行代码。
+- 代码、配置或数据变更完成后运行：
+
+  ```sh
+  node tests/run.js
+  ```
+
+- 修改主题 sprite sheet 时还要运行：
+
+  ```sh
+  node scripts/validate-theme-assets.js <PNG_OR_DIRECTORY>
+  ```
+
+- 测试文件导出 `run` 并由 `tests/run.js` 聚合；直接执行单个 `*.test.js` 不会自动运行测试。
+- 涉及触控、安全区、Canvas 视觉、图片加载、音频、广告或生命周期时，Node 测试不能替代微信开发者工具编译/预览和必要的真机验收。明确报告尚未执行的设备验证。
+- 完成前运行 `git diff --check`，并再次确认 diff 只包含任务所需文件。
+
+## 文档与交付
+
+- 改变玩法、视觉协议、场景/action 契约、数据/存档结构、发布配置或验收标准时，同步相应 `docs/*.md`；用户可见能力、入口、架构或命令变化时同步 `README.md`。
+- 当前专题文档：`docs/theme-system.md`、`docs/corridor-and-clear-effects.md`、`docs/daily-challenge-mode.md`、`docs/portal-mechanic.md`。
+- 最终说明只需交代：改了什么、改在哪里、如何验证、哪些设备或发布检查尚未执行。不要用长篇说明掩盖不必要的实现。

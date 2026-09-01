@@ -20,8 +20,8 @@ module.exports = {
     // Preserve the translucent square board tile beneath transparent art.
     backgroundColor: 'emptyCell',
     backgroundAlpha: 1,
-    // Avatar art is intentionally kept just inside the logical cell so ears,
-    // manes, and other silhouettes do not spill into neighboring cells.
-    scale: 0.88
+    // The normalized 400px source cell already includes a 24px transparent
+    // safety edge for ears, manes, and other silhouettes.
+    scale: 1
   }
 };

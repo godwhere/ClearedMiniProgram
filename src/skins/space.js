@@ -21,9 +21,8 @@ module.exports = {
     // Keep the translucent board tile visible beneath transparent space art.
     backgroundColor: 'emptyCell',
     backgroundAlpha: 1,
-    // Ringed planets, satellites, and saucers have silhouettes near the
-    // frame edge; the inset keeps them inside the logical board cell.
-    scale: 0.88,
+    // Source cells carry a 24px transparent safety edge around every silhouette.
+    scale: 1,
     // The black-hole artwork is intentionally dark. Its bright cyan fallback
     // keeps the first slot visible when the sheet is unavailable; the same
     // bright accent can be used as an outline by hosts that render strokes.

@@ -17,10 +17,10 @@ module.exports = {
     columns: 5,
     rows: 2,
     count: 10,
-    // Keep the translucent board tile visible underneath the transparent gem
-    // artwork, and give the artwork a little more visual weight than v1.
+    // The normalized 400px source cell already includes a 24px transparent
+    // safety edge, so runtime drawing uses a neutral scale.
     backgroundColor: 'emptyCell',
     backgroundAlpha: 1,
-    scale: 1.05
+    scale: 1
   }
 };

@@ -20,9 +20,8 @@ module.exports = {
     // Keep the translucent board tile visible beneath transparent vehicle art.
     backgroundColor: 'emptyCell',
     backgroundAlpha: 1,
-    // Vehicle silhouettes (wings, rotors, wheels, and balloon) stay inside
-    // their logical board cells while remaining easy to recognize at a glance.
-    scale: 0.88,
+    // Source cells carry a 24px transparent safety edge around vehicle silhouettes.
+    scale: 1,
     // These colors preserve the transportation identity if the sprite sheet
     // is unavailable or fails to load on a device.
     fallbackColors: [

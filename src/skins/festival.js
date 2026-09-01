@@ -21,9 +21,8 @@ module.exports = {
     // Keep the translucent board tile visible beneath transparent festival art.
     backgroundColor: 'emptyCell',
     backgroundAlpha: 1,
-    // Lantern tassels, fireworks, and paper-cut silhouettes can approach the
-    // frame edge; the inset keeps every shape inside its logical board cell.
-    scale: 0.88,
+    // Source cells carry a 24px transparent safety edge around tassels and sparks.
+    scale: 1,
     // The first drum artwork is deep blue with a gold edge. A brighter
     // fallback preserves contrast when the sheet is unavailable and can also
     // serve as an accent outline in hosts that render strokes.

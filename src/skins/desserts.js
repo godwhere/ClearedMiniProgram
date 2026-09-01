@@ -21,9 +21,8 @@ module.exports = {
     // Keep the translucent board tile visible beneath transparent dessert art.
     backgroundColor: 'emptyCell',
     backgroundAlpha: 1,
-    // Leave a small inset so frosting, toppings, and soft silhouettes stay
-    // within cells.
-    scale: 0.92,
+    // Source cells carry a 24px transparent safety edge around every dessert.
+    scale: 1,
     // If the sheet cannot be loaded, retain a recognizable dessert palette
     // instead of falling back to an unrelated classic color.
     fallbackColors: [

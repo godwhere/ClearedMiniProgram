@@ -1,0 +1,692 @@
+{
+  "candidates" : [
+    {
+      "box" : {
+        "height" : 351,
+        "width" : 379,
+        "x" : 15,
+        "y" : 8
+      },
+      "centroid" : [
+        0.10502985050347308,
+        0.2528567441951724
+      ],
+      "id" : "A1",
+      "pixelCount" : 80724,
+      "source" : "alpha",
+      "sourceID" : 1
+    },
+    {
+      "box" : {
+        "height" : 333,
+        "width" : 292,
+        "x" : 440,
+        "y" : 29
+      },
+      "centroid" : [
+        0.2954130243371807,
+        0.24780672577144702
+      ],
+      "id" : "A2",
+      "pixelCount" : 74393,
+      "source" : "alpha",
+      "sourceID" : 2
+    },
+    {
+      "box" : {
+        "height" : 342,
+        "width" : 364,
+        "x" : 807,
+        "y" : 20
+      },
+      "centroid" : [
+        0.49731957171309926,
+        0.24386814368874643
+      ],
+      "id" : "A3",
+      "pixelCount" : 78761,
+      "source" : "alpha",
+      "sourceID" : 3
+    },
+    {
+      "box" : {
+        "height" : 8,
+        "width" : 1,
+        "x" : 1155,
+        "y" : 161
+      },
+      "centroid" : [
+        0.5824508320726173,
+        0.20744010088272383
+      ],
+      "id" : "A4",
+      "pixelCount" : 8,
+      "source" : "alpha",
+      "sourceID" : 4
+    },
+    {
+      "box" : {
+        "height" : 285,
+        "width" : 389,
+        "x" : 1210,
+        "y" : 67
+      },
+      "centroid" : [
+        0.7136765507393972,
+        0.26558510591046997
+      ],
+      "id" : "A5",
+      "pixelCount" : 70553,
+      "source" : "alpha",
+      "sourceID" : 5
+    },
+    {
+      "box" : {
+        "height" : 365,
+        "width" : 248,
+        "x" : 1672,
+        "y" : 12
+      },
+      "centroid" : [
+        0.9116488872970381,
+        0.23838551965168564
+      ],
+      "id" : "A6",
+      "pixelCount" : 51464,
+      "source" : "alpha",
+      "sourceID" : 6
+    },
+    {
+      "box" : {
+        "height" : 13,
+        "width" : 1,
+        "x" : 1515,
+        "y" : 509
+      },
+      "centroid" : [
+        0.7639939485627837,
+        0.6494325346784363
+      ],
+      "id" : "A7",
+      "pixelCount" : 13,
+      "source" : "alpha",
+      "sourceID" : 7
+    },
+    {
+      "box" : {
+        "height" : 341,
+        "width" : 363,
+        "x" : 11,
+        "y" : 395
+      },
+      "centroid" : [
+        0.10107169142514048,
+        0.7059707736173597
+      ],
+      "id" : "A8",
+      "pixelCount" : 74042,
+      "source" : "alpha",
+      "sourceID" : 8
+    },
+    {
+      "box" : {
+        "height" : 393,
+        "width" : 288,
+        "x" : 434,
+        "y" : 379
+      },
+      "centroid" : [
+        0.29389945492826614,
+        0.7118754402908272
+      ],
+      "id" : "A9",
+      "pixelCount" : 76056,
+      "source" : "alpha",
+      "sourceID" : 9
+    },
+    {
+      "box" : {
+        "height" : 366,
+        "width" : 426,
+        "x" : 782,
+        "y" : 390
+      },
+      "centroid" : [
+        0.4891342028688351,
+        0.7410528162242449
+      ],
+      "id" : "A10",
+      "pixelCount" : 87892,
+      "source" : "alpha",
+      "sourceID" : 10
+    },
+    {
+      "box" : {
+        "height" : 366,
+        "width" : 366,
+        "x" : 1229,
+        "y" : 392
+      },
+      "centroid" : [
+        0.7127418354230577,
+        0.7330255526130176
+      ],
+      "id" : "A11",
+      "pixelCount" : 91778,
+      "source" : "alpha",
+      "sourceID" : 11
+    },
+    {
+      "box" : {
+        "height" : 327,
+        "width" : 328,
+        "x" : 1631,
+        "y" : 402
+      },
+      "centroid" : [
+        0.9042520521836351,
+        0.729927140655223
+      ],
+      "id" : "A12",
+      "pixelCount" : 63018,
+      "source" : "alpha",
+      "sourceID" : 12
+    },
+    {
+      "box" : {
+        "height" : 339,
+        "width" : 367,
+        "x" : 18,
+        "y" : 13
+      },
+      "centroid" : [
+        0.10438940709051218,
+        0.25806291042761026
+      ],
+      "id" : "V1",
+      "pixelCount" : 72480,
+      "source" : "vision",
+      "sourceID" : 1
+    },
+    {
+      "box" : {
+        "height" : 351,
+        "width" : 240,
+        "x" : 1675,
+        "y" : 20
+      },
+      "centroid" : [
+        0.9118110161119556,
+        0.2410444083953839
+      ],
+      "id" : "V2",
+      "pixelCount" : 44307,
+      "source" : "vision",
+      "sourceID" : 2
+    },
+    {
+      "box" : {
+        "height" : 340,
+        "width" : 356,
+        "x" : 812,
+        "y" : 21
+      },
+      "centroid" : [
+        0.4960902088708083,
+        0.2462503974253837
+      ],
+      "id" : "V3",
+      "pixelCount" : 75823,
+      "source" : "vision",
+      "sourceID" : 3
+    },
+    {
+      "box" : {
+        "height" : 334,
+        "width" : 282,
+        "x" : 444,
+        "y" : 29
+      },
+      "centroid" : [
+        0.29498820462912156,
+        0.24923784993564924
+      ],
+      "id" : "V4",
+      "pixelCount" : 72805,
+      "source" : "vision",
+      "sourceID" : 4
+    },
+    {
+      "box" : {
+        "height" : 282,
+        "width" : 380,
+        "x" : 1214,
+        "y" : 67
+      },
+      "centroid" : [
+        0.7145153958274306,
+        0.2655667879113432
+      ],
+      "id" : "V5",
+      "pixelCount" : 65629,
+      "source" : "vision",
+      "sourceID" : 5
+    },
+    {
+      "box" : {
+        "height" : 393,
+        "width" : 282,
+        "x" : 436,
+        "y" : 379
+      },
+      "centroid" : [
+        0.29358572486259815,
+        0.7172389616716994
+      ],
+      "id" : "V6",
+      "pixelCount" : 78513,
+      "source" : "vision",
+      "sourceID" : 6
+    },
+    {
+      "box" : {
+        "height" : 364,
+        "width" : 422,
+        "x" : 784,
+        "y" : 391
+      },
+      "centroid" : [
+        0.4875092893893475,
+        0.7423593394244358
+      ],
+      "id" : "V7",
+      "pixelCount" : 84975,
+      "source" : "vision",
+      "sourceID" : 7
+    },
+    {
+      "box" : {
+        "height" : 364,
+        "width" : 356,
+        "x" : 1234,
+        "y" : 393
+      },
+      "centroid" : [
+        0.7119707909909155,
+        0.7313554863712735
+      ],
+      "id" : "V8",
+      "pixelCount" : 87808,
+      "source" : "vision",
+      "sourceID" : 8
+    },
+    {
+      "box" : {
+        "height" : 326,
+        "width" : 352,
+        "x" : 18,
+        "y" : 402
+      },
+      "centroid" : [
+        0.10145740585177405,
+        0.703082419867372
+      ],
+      "id" : "V9",
+      "pixelCount" : 65635,
+      "source" : "vision",
+      "sourceID" : 9
+    },
+    {
+      "box" : {
+        "height" : 320,
+        "width" : 322,
+        "x" : 1636,
+        "y" : 409
+      },
+      "centroid" : [
+        0.9049627937090778,
+        0.7315795689755908
+      ],
+      "id" : "V10",
+      "pixelCount" : 58479,
+      "source" : "vision",
+      "sourceID" : 10
+    }
+  ],
+  "generatedAt" : "2026-09-01T11:35:33Z",
+  "outputs" : {
+    "candidateMap" : "/Users/ethan/Projects/ClearedMiniProgram/scripts/theme-extraction/runs/20260901-all-v1/ocean/candidate-map.png",
+    "contactSheet" : "/Users/ethan/Projects/ClearedMiniProgram/scripts/theme-extraction/runs/20260901-all-v1/ocean/contact-sheet-numbered.png",
+    "slotsDirectory" : "/Users/ethan/Projects/ClearedMiniProgram/scripts/theme-extraction/runs/20260901-all-v1/ocean/slots",
+    "spriteSheet" : "/Users/ethan/Projects/ClearedMiniProgram/scripts/theme-extraction/runs/20260901-all-v1/ocean/ocean-sprite-sheet.png"
+  },
+  "passed" : true,
+  "schemaVersion" : 1,
+  "slots" : [
+    {
+      "candidateIDs" : [
+        "A1",
+        "V1"
+      ],
+      "expectedCenter" : [
+        0.1,
+        0.25
+      ],
+      "filename" : "00-anglerfish.png",
+      "index" : 0,
+      "mappingSource" : "hybrid",
+      "name" : "鮟鱇鱼",
+      "normalizedBox" : {
+        "height" : 326,
+        "width" : 352,
+        "x" : 24,
+        "y" : 37
+      },
+      "passed" : true,
+      "safetyMargin" : 24,
+      "sourceBox" : {
+        "height" : 351,
+        "width" : 379,
+        "x" : 15,
+        "y" : 8
+      },
+      "warnings" : [
+
+      ]
+    },
+    {
+      "candidateIDs" : [
+        "A2",
+        "V4"
+      ],
+      "expectedCenter" : [
+        0.3,
+        0.25
+      ],
+      "filename" : "01-pearl-shell.png",
+      "index" : 1,
+      "mappingSource" : "hybrid",
+      "name" : "珍珠贝",
+      "normalizedBox" : {
+        "height" : 352,
+        "width" : 309,
+        "x" : 45,
+        "y" : 24
+      },
+      "passed" : true,
+      "safetyMargin" : 24,
+      "sourceBox" : {
+        "height" : 333,
+        "width" : 292,
+        "x" : 440,
+        "y" : 29
+      },
+      "warnings" : [
+
+      ]
+    },
+    {
+      "candidateIDs" : [
+        "A3",
+        "A4",
+        "V3"
+      ],
+      "expectedCenter" : [
+        0.5,
+        0.25
+      ],
+      "filename" : "02-crab.png",
+      "index" : 2,
+      "mappingSource" : "hybrid",
+      "name" : "螃蟹",
+      "normalizedBox" : {
+        "height" : 330,
+        "width" : 352,
+        "x" : 24,
+        "y" : 35
+      },
+      "passed" : true,
+      "safetyMargin" : 24,
+      "sourceBox" : {
+        "height" : 342,
+        "width" : 364,
+        "x" : 807,
+        "y" : 20
+      },
+      "warnings" : [
+
+      ]
+    },
+    {
+      "candidateIDs" : [
+        "A5",
+        "V5"
+      ],
+      "expectedCenter" : [
+        0.7,
+        0.25
+      ],
+      "filename" : "03-clownfish.png",
+      "index" : 3,
+      "mappingSource" : "hybrid",
+      "name" : "小丑鱼",
+      "normalizedBox" : {
+        "height" : 258,
+        "width" : 352,
+        "x" : 24,
+        "y" : 71
+      },
+      "passed" : true,
+      "safetyMargin" : 24,
+      "sourceBox" : {
+        "height" : 285,
+        "width" : 389,
+        "x" : 1210,
+        "y" : 67
+      },
+      "warnings" : [
+
+      ]
+    },
+    {
+      "candidateIDs" : [
+        "A6",
+        "V2"
+      ],
+      "expectedCenter" : [
+        0.9,
+        0.25
+      ],
+      "filename" : "04-seahorse.png",
+      "index" : 4,
+      "mappingSource" : "hybrid",
+      "name" : "海马",
+      "normalizedBox" : {
+        "height" : 352,
+        "width" : 239,
+        "x" : 80,
+        "y" : 24
+      },
+      "passed" : true,
+      "safetyMargin" : 24,
+      "sourceBox" : {
+        "height" : 365,
+        "width" : 248,
+        "x" : 1672,
+        "y" : 12
+      },
+      "warnings" : [
+
+      ]
+    },
+    {
+      "candidateIDs" : [
+        "A8",
+        "V9"
+      ],
+      "expectedCenter" : [
+        0.1,
+        0.75
+      ],
+      "filename" : "05-sea-turtle.png",
+      "index" : 5,
+      "mappingSource" : "hybrid",
+      "name" : "海龟",
+      "normalizedBox" : {
+        "height" : 331,
+        "width" : 352,
+        "x" : 24,
+        "y" : 34
+      },
+      "passed" : true,
+      "safetyMargin" : 24,
+      "sourceBox" : {
+        "height" : 341,
+        "width" : 363,
+        "x" : 11,
+        "y" : 395
+      },
+      "warnings" : [
+
+      ]
+    },
+    {
+      "candidateIDs" : [
+        "A9",
+        "V6"
+      ],
+      "expectedCenter" : [
+        0.3,
+        0.75
+      ],
+      "filename" : "06-jellyfish.png",
+      "index" : 6,
+      "mappingSource" : "hybrid",
+      "name" : "水母",
+      "normalizedBox" : {
+        "height" : 352,
+        "width" : 258,
+        "x" : 71,
+        "y" : 24
+      },
+      "passed" : true,
+      "safetyMargin" : 24,
+      "sourceBox" : {
+        "height" : 393,
+        "width" : 288,
+        "x" : 434,
+        "y" : 379
+      },
+      "warnings" : [
+
+      ]
+    },
+    {
+      "candidateIDs" : [
+        "A10",
+        "V7"
+      ],
+      "expectedCenter" : [
+        0.5,
+        0.75
+      ],
+      "filename" : "07-whale.png",
+      "index" : 7,
+      "mappingSource" : "hybrid",
+      "name" : "鲸鱼",
+      "normalizedBox" : {
+        "height" : 302,
+        "width" : 352,
+        "x" : 24,
+        "y" : 49
+      },
+      "passed" : true,
+      "safetyMargin" : 24,
+      "sourceBox" : {
+        "height" : 366,
+        "width" : 426,
+        "x" : 782,
+        "y" : 390
+      },
+      "warnings" : [
+
+      ]
+    },
+    {
+      "candidateIDs" : [
+        "A11",
+        "A7",
+        "V8"
+      ],
+      "expectedCenter" : [
+        0.7,
+        0.75
+      ],
+      "filename" : "08-octopus.png",
+      "index" : 8,
+      "mappingSource" : "hybrid",
+      "name" : "章鱼",
+      "normalizedBox" : {
+        "height" : 352,
+        "width" : 352,
+        "x" : 24,
+        "y" : 24
+      },
+      "passed" : true,
+      "safetyMargin" : 24,
+      "sourceBox" : {
+        "height" : 366,
+        "width" : 366,
+        "x" : 1229,
+        "y" : 392
+      },
+      "warnings" : [
+
+      ]
+    },
+    {
+      "candidateIDs" : [
+        "A12",
+        "V10"
+      ],
+      "expectedCenter" : [
+        0.9,
+        0.75
+      ],
+      "filename" : "09-starfish.png",
+      "index" : 9,
+      "mappingSource" : "hybrid",
+      "name" : "海星",
+      "normalizedBox" : {
+        "height" : 351,
+        "width" : 352,
+        "x" : 24,
+        "y" : 24
+      },
+      "passed" : true,
+      "safetyMargin" : 24,
+      "sourceBox" : {
+        "height" : 327,
+        "width" : 328,
+        "x" : 1631,
+        "y" : 402
+      },
+      "warnings" : [
+
+      ]
+    }
+  ],
+  "source" : {
+    "alphaCoverage" : 0.4762142778561022,
+    "height" : 793,
+    "path" : "/Users/ethan/Projects/ClearedMiniProgram/assets/skins/ocean/ocean-sprite-sheet.png",
+    "width" : 1983
+  },
+  "strategyRequested" : "auto",
+  "strategyUsed" : "hybrid",
+  "themeID" : "ocean",
+  "themeName" : "海洋",
+  "warnings" : [
+
+  ]
+}

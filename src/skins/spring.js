@@ -21,9 +21,8 @@ module.exports = {
     // Keep the translucent board tile visible beneath transparent spring art.
     backgroundColor: 'emptyCell',
     backgroundAlpha: 1,
-    // Leaves, petals, and the kite tail can approach frame edges; the inset
-    // keeps every silhouette inside its logical board cell.
-    scale: 0.88,
+    // Source cells carry a 24px transparent safety edge around seasonal details.
+    scale: 1,
     // A distinct seasonal palette remains available when the sheet is absent.
     fallbackColors: [
       '#3e8f45',

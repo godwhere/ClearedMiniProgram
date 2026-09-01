@@ -21,9 +21,8 @@ module.exports = {
     // Keep the translucent board tile visible beneath transparent music art.
     backgroundColor: 'emptyCell',
     backgroundAlpha: 1,
-    // Record grooves, headphone bands, and instrument silhouettes can reach
-    // the frame edge; the inset keeps each shape inside its board cell.
-    scale: 0.88,
+    // Source cells carry a 24px transparent safety edge around every instrument.
+    scale: 1,
     // The vinyl/turntable slot is intentionally dark. A bright fallback keeps
     // it visible when the sheet is unavailable and can serve as an accent
     // outline in hosts that render strokes.

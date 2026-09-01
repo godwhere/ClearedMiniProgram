@@ -1,0 +1,658 @@
+{
+  "candidates" : [
+    {
+      "box" : {
+        "height" : 339,
+        "width" : 294,
+        "x" : 48,
+        "y" : 27
+      },
+      "centroid" : [
+        0.09984657231540428,
+        0.25768974419164403
+      ],
+      "id" : "A1",
+      "pixelCount" : 67811,
+      "source" : "alpha",
+      "sourceID" : 1
+    },
+    {
+      "box" : {
+        "height" : 293,
+        "width" : 359,
+        "x" : 413,
+        "y" : 50
+      },
+      "centroid" : [
+        0.29846613052064647,
+        0.21291407873906504
+      ],
+      "id" : "A2",
+      "pixelCount" : 62098,
+      "source" : "alpha",
+      "sourceID" : 2
+    },
+    {
+      "box" : {
+        "height" : 321,
+        "width" : 311,
+        "x" : 837,
+        "y" : 34
+      },
+      "centroid" : [
+        0.500135772714537,
+        0.24034068738084005
+      ],
+      "id" : "A3",
+      "pixelCount" : 70748,
+      "source" : "alpha",
+      "sourceID" : 3
+    },
+    {
+      "box" : {
+        "height" : 327,
+        "width" : 303,
+        "x" : 1244,
+        "y" : 32
+      },
+      "centroid" : [
+        0.7047705505115488,
+        0.2580549166352915
+      ],
+      "id" : "A4",
+      "pixelCount" : 72098,
+      "source" : "alpha",
+      "sourceID" : 4
+    },
+    {
+      "box" : {
+        "height" : 340,
+        "width" : 296,
+        "x" : 1634,
+        "y" : 27
+      },
+      "centroid" : [
+        0.8995012111584395,
+        0.24773991532111878
+      ],
+      "id" : "A5",
+      "pixelCount" : 71851,
+      "source" : "alpha",
+      "sourceID" : 5
+    },
+    {
+      "box" : {
+        "height" : 354,
+        "width" : 296,
+        "x" : 47,
+        "y" : 402
+      },
+      "centroid" : [
+        0.09839289266425578,
+        0.7290245016500326
+      ],
+      "id" : "A6",
+      "pixelCount" : 78528,
+      "source" : "alpha",
+      "sourceID" : 6
+    },
+    {
+      "box" : {
+        "height" : 339,
+        "width" : 300,
+        "x" : 434,
+        "y" : 412
+      },
+      "centroid" : [
+        0.2954038336625024,
+        0.736246229340145
+      ],
+      "id" : "A7",
+      "pixelCount" : 78040,
+      "source" : "alpha",
+      "sourceID" : 7
+    },
+    {
+      "box" : {
+        "height" : 341,
+        "width" : 281,
+        "x" : 845,
+        "y" : 407
+      },
+      "centroid" : [
+        0.49650479971173733,
+        0.7272292172826267
+      ],
+      "id" : "A8",
+      "pixelCount" : 74488,
+      "source" : "alpha",
+      "sourceID" : 8
+    },
+    {
+      "box" : {
+        "height" : 378,
+        "width" : 267,
+        "x" : 1255,
+        "y" : 382
+      },
+      "centroid" : [
+        0.7004124801949453,
+        0.7226509074767041
+      ],
+      "id" : "A9",
+      "pixelCount" : 62619,
+      "source" : "alpha",
+      "sourceID" : 9
+    },
+    {
+      "box" : {
+        "height" : 313,
+        "width" : 326,
+        "x" : 1618,
+        "y" : 433
+      },
+      "centroid" : [
+        0.897750050246435,
+        0.7184341470188434
+      ],
+      "id" : "A10",
+      "pixelCount" : 74311,
+      "source" : "alpha",
+      "sourceID" : 10
+    },
+    {
+      "box" : {
+        "height" : 338,
+        "width" : 285,
+        "x" : 1638,
+        "y" : 28
+      },
+      "centroid" : [
+        0.8989991718033368,
+        0.24755009515561952
+      ],
+      "id" : "V1",
+      "pixelCount" : 69698,
+      "source" : "vision",
+      "sourceID" : 1
+    },
+    {
+      "box" : {
+        "height" : 327,
+        "width" : 290,
+        "x" : 1249,
+        "y" : 32
+      },
+      "centroid" : [
+        0.7041281418752336,
+        0.25869075658880125
+      ],
+      "id" : "V2",
+      "pixelCount" : 69775,
+      "source" : "vision",
+      "sourceID" : 2
+    },
+    {
+      "box" : {
+        "height" : 319,
+        "width" : 305,
+        "x" : 839,
+        "y" : 35
+      },
+      "centroid" : [
+        0.49955510998367836,
+        0.2401531458216272
+      ],
+      "id" : "V3",
+      "pixelCount" : 67671,
+      "source" : "vision",
+      "sourceID" : 3
+    },
+    {
+      "box" : {
+        "height" : 318,
+        "width" : 279,
+        "x" : 56,
+        "y" : 37
+      },
+      "centroid" : [
+        0.0997141061119648,
+        0.2561579631630668
+      ],
+      "id" : "V4",
+      "pixelCount" : 60301,
+      "source" : "vision",
+      "sourceID" : 4
+    },
+    {
+      "box" : {
+        "height" : 282,
+        "width" : 344,
+        "x" : 420,
+        "y" : 50
+      },
+      "centroid" : [
+        0.2980598715919699,
+        0.20943151686269534
+      ],
+      "id" : "V5",
+      "pixelCount" : 57240,
+      "source" : "vision",
+      "sourceID" : 5
+    },
+    {
+      "box" : {
+        "height" : 364,
+        "width" : 255,
+        "x" : 1261,
+        "y" : 388
+      },
+      "centroid" : [
+        0.7002122300865321,
+        0.7210527671972724
+      ],
+      "id" : "V6",
+      "pixelCount" : 56133,
+      "source" : "vision",
+      "sourceID" : 6
+    },
+    {
+      "box" : {
+        "height" : 352,
+        "width" : 287,
+        "x" : 52,
+        "y" : 403
+      },
+      "centroid" : [
+        0.09802608555470255,
+        0.7280472292630109
+      ],
+      "id" : "V7",
+      "pixelCount" : 75867,
+      "source" : "vision",
+      "sourceID" : 7
+    },
+    {
+      "box" : {
+        "height" : 328,
+        "width" : 286,
+        "x" : 440,
+        "y" : 413
+      },
+      "centroid" : [
+        0.29537105536653147,
+        0.7318034851169934
+      ],
+      "id" : "V8",
+      "pixelCount" : 71351,
+      "source" : "vision",
+      "sourceID" : 8
+    },
+    {
+      "box" : {
+        "height" : 319,
+        "width" : 266,
+        "x" : 851,
+        "y" : 417
+      },
+      "centroid" : [
+        0.4963964527064939,
+        0.7265863537571566
+      ],
+      "id" : "V9",
+      "pixelCount" : 65811,
+      "source" : "vision",
+      "sourceID" : 9
+    },
+    {
+      "box" : {
+        "height" : 297,
+        "width" : 309,
+        "x" : 1625,
+        "y" : 439
+      },
+      "centroid" : [
+        0.8970800103402921,
+        0.7173944472362822
+      ],
+      "id" : "V10",
+      "pixelCount" : 67512,
+      "source" : "vision",
+      "sourceID" : 10
+    }
+  ],
+  "generatedAt" : "2026-09-01T11:35:31Z",
+  "outputs" : {
+    "candidateMap" : "/Users/ethan/Projects/ClearedMiniProgram/scripts/theme-extraction/runs/20260901-all-v1/gem/candidate-map.png",
+    "contactSheet" : "/Users/ethan/Projects/ClearedMiniProgram/scripts/theme-extraction/runs/20260901-all-v1/gem/contact-sheet-numbered.png",
+    "slotsDirectory" : "/Users/ethan/Projects/ClearedMiniProgram/scripts/theme-extraction/runs/20260901-all-v1/gem/slots",
+    "spriteSheet" : "/Users/ethan/Projects/ClearedMiniProgram/scripts/theme-extraction/runs/20260901-all-v1/gem/gem-sprite-sheet.png"
+  },
+  "passed" : true,
+  "schemaVersion" : 1,
+  "slots" : [
+    {
+      "candidateIDs" : [
+        "A1",
+        "V4"
+      ],
+      "expectedCenter" : [
+        0.1,
+        0.25
+      ],
+      "filename" : "00-obsidian.png",
+      "index" : 0,
+      "mappingSource" : "hybrid",
+      "name" : "黑曜石",
+      "normalizedBox" : {
+        "height" : 352,
+        "width" : 305,
+        "x" : 47,
+        "y" : 24
+      },
+      "passed" : true,
+      "safetyMargin" : 24,
+      "sourceBox" : {
+        "height" : 339,
+        "width" : 294,
+        "x" : 48,
+        "y" : 27
+      },
+      "warnings" : [
+
+      ]
+    },
+    {
+      "candidateIDs" : [
+        "A2",
+        "V5"
+      ],
+      "expectedCenter" : [
+        0.3,
+        0.25
+      ],
+      "filename" : "01-diamond.png",
+      "index" : 1,
+      "mappingSource" : "hybrid",
+      "name" : "钻石",
+      "normalizedBox" : {
+        "height" : 287,
+        "width" : 352,
+        "x" : 24,
+        "y" : 56
+      },
+      "passed" : true,
+      "safetyMargin" : 24,
+      "sourceBox" : {
+        "height" : 293,
+        "width" : 359,
+        "x" : 413,
+        "y" : 50
+      },
+      "warnings" : [
+
+      ]
+    },
+    {
+      "candidateIDs" : [
+        "A3",
+        "V3"
+      ],
+      "expectedCenter" : [
+        0.5,
+        0.25
+      ],
+      "filename" : "02-ruby.png",
+      "index" : 2,
+      "mappingSource" : "hybrid",
+      "name" : "红宝石",
+      "normalizedBox" : {
+        "height" : 352,
+        "width" : 341,
+        "x" : 29,
+        "y" : 24
+      },
+      "passed" : true,
+      "safetyMargin" : 24,
+      "sourceBox" : {
+        "height" : 321,
+        "width" : 311,
+        "x" : 837,
+        "y" : 34
+      },
+      "warnings" : [
+
+      ]
+    },
+    {
+      "candidateIDs" : [
+        "A4",
+        "V2"
+      ],
+      "expectedCenter" : [
+        0.7,
+        0.25
+      ],
+      "filename" : "03-carnelian.png",
+      "index" : 3,
+      "mappingSource" : "hybrid",
+      "name" : "红玉髓",
+      "normalizedBox" : {
+        "height" : 352,
+        "width" : 326,
+        "x" : 37,
+        "y" : 24
+      },
+      "passed" : true,
+      "safetyMargin" : 24,
+      "sourceBox" : {
+        "height" : 327,
+        "width" : 303,
+        "x" : 1244,
+        "y" : 32
+      },
+      "warnings" : [
+
+      ]
+    },
+    {
+      "candidateIDs" : [
+        "A5",
+        "V1"
+      ],
+      "expectedCenter" : [
+        0.9,
+        0.25
+      ],
+      "filename" : "04-citrine.png",
+      "index" : 4,
+      "mappingSource" : "hybrid",
+      "name" : "黄水晶",
+      "normalizedBox" : {
+        "height" : 352,
+        "width" : 305,
+        "x" : 47,
+        "y" : 24
+      },
+      "passed" : true,
+      "safetyMargin" : 24,
+      "sourceBox" : {
+        "height" : 340,
+        "width" : 296,
+        "x" : 1634,
+        "y" : 27
+      },
+      "warnings" : [
+
+      ]
+    },
+    {
+      "candidateIDs" : [
+        "A6",
+        "V7"
+      ],
+      "expectedCenter" : [
+        0.1,
+        0.75
+      ],
+      "filename" : "05-emerald.png",
+      "index" : 5,
+      "mappingSource" : "hybrid",
+      "name" : "祖母绿",
+      "normalizedBox" : {
+        "height" : 352,
+        "width" : 294,
+        "x" : 53,
+        "y" : 24
+      },
+      "passed" : true,
+      "safetyMargin" : 24,
+      "sourceBox" : {
+        "height" : 354,
+        "width" : 296,
+        "x" : 47,
+        "y" : 402
+      },
+      "warnings" : [
+
+      ]
+    },
+    {
+      "candidateIDs" : [
+        "A7",
+        "V8"
+      ],
+      "expectedCenter" : [
+        0.3,
+        0.75
+      ],
+      "filename" : "06-turquoise.png",
+      "index" : 6,
+      "mappingSource" : "hybrid",
+      "name" : "绿松石",
+      "normalizedBox" : {
+        "height" : 352,
+        "width" : 312,
+        "x" : 44,
+        "y" : 24
+      },
+      "passed" : true,
+      "safetyMargin" : 24,
+      "sourceBox" : {
+        "height" : 339,
+        "width" : 300,
+        "x" : 434,
+        "y" : 412
+      },
+      "warnings" : [
+
+      ]
+    },
+    {
+      "candidateIDs" : [
+        "A8",
+        "V9"
+      ],
+      "expectedCenter" : [
+        0.5,
+        0.75
+      ],
+      "filename" : "07-sapphire.png",
+      "index" : 7,
+      "mappingSource" : "hybrid",
+      "name" : "蓝宝石",
+      "normalizedBox" : {
+        "height" : 352,
+        "width" : 290,
+        "x" : 55,
+        "y" : 24
+      },
+      "passed" : true,
+      "safetyMargin" : 24,
+      "sourceBox" : {
+        "height" : 341,
+        "width" : 281,
+        "x" : 845,
+        "y" : 407
+      },
+      "warnings" : [
+
+      ]
+    },
+    {
+      "candidateIDs" : [
+        "A9",
+        "V6"
+      ],
+      "expectedCenter" : [
+        0.7,
+        0.75
+      ],
+      "filename" : "08-amethyst.png",
+      "index" : 8,
+      "mappingSource" : "hybrid",
+      "name" : "紫水晶",
+      "normalizedBox" : {
+        "height" : 352,
+        "width" : 249,
+        "x" : 75,
+        "y" : 24
+      },
+      "passed" : true,
+      "safetyMargin" : 24,
+      "sourceBox" : {
+        "height" : 378,
+        "width" : 267,
+        "x" : 1255,
+        "y" : 382
+      },
+      "warnings" : [
+
+      ]
+    },
+    {
+      "candidateIDs" : [
+        "A10",
+        "V10"
+      ],
+      "expectedCenter" : [
+        0.9,
+        0.75
+      ],
+      "filename" : "09-rose-quartz.png",
+      "index" : 9,
+      "mappingSource" : "hybrid",
+      "name" : "粉晶",
+      "normalizedBox" : {
+        "height" : 338,
+        "width" : 352,
+        "x" : 24,
+        "y" : 31
+      },
+      "passed" : true,
+      "safetyMargin" : 24,
+      "sourceBox" : {
+        "height" : 313,
+        "width" : 326,
+        "x" : 1618,
+        "y" : 433
+      },
+      "warnings" : [
+
+      ]
+    }
+  ],
+  "source" : {
+    "alphaCoverage" : 0.45320088342334813,
+    "height" : 793,
+    "path" : "/Users/ethan/Projects/ClearedMiniProgram/assets/skins/gem/gem-sprite-sheet.png",
+    "width" : 1983
+  },
+  "strategyRequested" : "auto",
+  "strategyUsed" : "hybrid",
+  "themeID" : "gem",
+  "themeName" : "宝石",
+  "warnings" : [
+
+  ]
+}

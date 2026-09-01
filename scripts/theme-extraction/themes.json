@@ -1,0 +1,201 @@
+{
+  "schemaVersion": 1,
+  "layout": {
+    "cellSize": 400,
+    "padding": 24,
+    "columns": 5,
+    "rows": 2
+  },
+  "themes": [
+    {
+      "id": "gem",
+      "nameZh": "宝石",
+      "sourceSheet": "assets/skins/gem/gem-sprite-sheet.png",
+      "scale": 1,
+      "outputFilename": "gem-sprite-sheet.png",
+      "slots": [
+        { "index": 0, "nameZh": "黑曜石", "safeFilename": "00-obsidian.png" },
+        { "index": 1, "nameZh": "钻石", "safeFilename": "01-diamond.png" },
+        { "index": 2, "nameZh": "红宝石", "safeFilename": "02-ruby.png" },
+        { "index": 3, "nameZh": "红玉髓", "safeFilename": "03-carnelian.png" },
+        { "index": 4, "nameZh": "黄水晶", "safeFilename": "04-citrine.png" },
+        { "index": 5, "nameZh": "祖母绿", "safeFilename": "05-emerald.png" },
+        { "index": 6, "nameZh": "绿松石", "safeFilename": "06-turquoise.png" },
+        { "index": 7, "nameZh": "蓝宝石", "safeFilename": "07-sapphire.png" },
+        { "index": 8, "nameZh": "紫水晶", "safeFilename": "08-amethyst.png" },
+        { "index": 9, "nameZh": "粉晶", "safeFilename": "09-rose-quartz.png" }
+      ]
+    },
+    {
+      "id": "animals",
+      "nameZh": "动物",
+      "sourceSheet": "assets/skins/animals/animal-sprite-sheet.png",
+      "scale": 1,
+      "outputFilename": "animal-sprite-sheet.png",
+      "slots": [
+        { "index": 0, "nameZh": "熊猫", "safeFilename": "00-panda.png" },
+        { "index": 1, "nameZh": "兔子", "safeFilename": "01-rabbit.png" },
+        { "index": 2, "nameZh": "狐狸", "safeFilename": "02-fox.png" },
+        { "index": 3, "nameZh": "狮子", "safeFilename": "03-lion.png" },
+        { "index": 4, "nameZh": "老虎", "safeFilename": "04-tiger.png" },
+        { "index": 5, "nameZh": "大象", "safeFilename": "05-elephant.png" },
+        { "index": 6, "nameZh": "长颈鹿", "safeFilename": "06-giraffe.png" },
+        { "index": 7, "nameZh": "猴子", "safeFilename": "07-monkey.png" },
+        { "index": 8, "nameZh": "河马", "safeFilename": "08-hippopotamus.png" },
+        { "index": 9, "nameZh": "猪", "safeFilename": "09-pig.png" }
+      ]
+    },
+    {
+      "id": "fruits",
+      "nameZh": "水果",
+      "sourceSheet": "assets/skins/fruits/fruit-sprite-sheet.png",
+      "scale": 1,
+      "outputFilename": "fruit-sprite-sheet.png",
+      "slots": [
+        { "index": 0, "nameZh": "苹果", "safeFilename": "00-apple.png" },
+        { "index": 1, "nameZh": "橙子", "safeFilename": "01-orange.png" },
+        { "index": 2, "nameZh": "草莓", "safeFilename": "02-strawberry.png" },
+        { "index": 3, "nameZh": "西瓜", "safeFilename": "03-watermelon.png" },
+        { "index": 4, "nameZh": "柠檬", "safeFilename": "04-lemon.png" },
+        { "index": 5, "nameZh": "葡萄", "safeFilename": "05-grape.png" },
+        { "index": 6, "nameZh": "蓝莓", "safeFilename": "06-blueberry.png" },
+        { "index": 7, "nameZh": "猕猴桃", "safeFilename": "07-kiwi.png" },
+        { "index": 8, "nameZh": "桃子", "safeFilename": "08-peach.png" },
+        { "index": 9, "nameZh": "香蕉", "safeFilename": "09-banana.png" }
+      ]
+    },
+    {
+      "id": "desserts",
+      "nameZh": "甜点",
+      "sourceSheet": "assets/skins/desserts/dessert-sprite-sheet.png",
+      "scale": 1,
+      "outputFilename": "dessert-sprite-sheet.png",
+      "slots": [
+        { "index": 0, "nameZh": "巧克力曲奇", "safeFilename": "00-chocolate-cookie.png" },
+        { "index": 1, "nameZh": "香草马卡龙", "safeFilename": "01-vanilla-macaron.png" },
+        { "index": 2, "nameZh": "红丝绒纸杯蛋糕", "safeFilename": "02-red-velvet-cupcake.png" },
+        { "index": 3, "nameZh": "橙色甜甜圈", "safeFilename": "03-orange-doughnut.png" },
+        { "index": 4, "nameZh": "柠檬布丁", "safeFilename": "04-lemon-pudding.png" },
+        { "index": 5, "nameZh": "薄荷冰淇淋", "safeFilename": "05-mint-ice-cream.png" },
+        { "index": 6, "nameZh": "蓝色果冻杯", "safeFilename": "06-blue-jelly-cup.png" },
+        { "index": 7, "nameZh": "蓝莓芝士蛋糕", "safeFilename": "07-blueberry-cheesecake.png" },
+        { "index": 8, "nameZh": "紫色马卡龙", "safeFilename": "08-purple-macaron.png" },
+        { "index": 9, "nameZh": "粉色棉花糖", "safeFilename": "09-pink-marshmallow.png" }
+      ]
+    },
+    {
+      "id": "space",
+      "nameZh": "太空",
+      "sourceSheet": "assets/skins/space/space-sprite-sheet.png",
+      "scale": 1,
+      "outputFilename": "space-sprite-sheet.png",
+      "slots": [
+        { "index": 0, "nameZh": "黑洞", "safeFilename": "00-black-hole.png" },
+        { "index": 1, "nameZh": "银色新月", "safeFilename": "01-silver-crescent-moon.png" },
+        { "index": 2, "nameZh": "红色火箭", "safeFilename": "02-red-rocket.png" },
+        { "index": 3, "nameZh": "橙色彗星", "safeFilename": "03-orange-comet.png" },
+        { "index": 4, "nameZh": "金色星星", "safeFilename": "04-gold-star.png" },
+        { "index": 5, "nameZh": "绿色外星人", "safeFilename": "05-green-alien.png" },
+        { "index": 6, "nameZh": "青色卫星", "safeFilename": "06-cyan-satellite.png" },
+        { "index": 7, "nameZh": "蓝色环行星", "safeFilename": "07-blue-ringed-planet.png" },
+        { "index": 8, "nameZh": "紫色飞碟", "safeFilename": "08-purple-flying-saucer.png" },
+        { "index": 9, "nameZh": "粉色宇航员头盔", "safeFilename": "09-pink-astronaut-helmet.png" }
+      ]
+    },
+    {
+      "id": "ocean",
+      "nameZh": "海洋",
+      "sourceSheet": "assets/skins/ocean/ocean-sprite-sheet.png",
+      "scale": 1,
+      "outputFilename": "ocean-sprite-sheet.png",
+      "slots": [
+        { "index": 0, "nameZh": "鮟鱇鱼", "safeFilename": "00-anglerfish.png" },
+        { "index": 1, "nameZh": "珍珠贝", "safeFilename": "01-pearl-shell.png" },
+        { "index": 2, "nameZh": "螃蟹", "safeFilename": "02-crab.png" },
+        { "index": 3, "nameZh": "小丑鱼", "safeFilename": "03-clownfish.png" },
+        { "index": 4, "nameZh": "海马", "safeFilename": "04-seahorse.png" },
+        { "index": 5, "nameZh": "海龟", "safeFilename": "05-sea-turtle.png" },
+        { "index": 6, "nameZh": "水母", "safeFilename": "06-jellyfish.png" },
+        { "index": 7, "nameZh": "鲸鱼", "safeFilename": "07-whale.png" },
+        { "index": 8, "nameZh": "章鱼", "safeFilename": "08-octopus.png" },
+        { "index": 9, "nameZh": "海星", "safeFilename": "09-starfish.png" }
+      ]
+    },
+    {
+      "id": "spring",
+      "nameZh": "春天",
+      "sourceSheet": "assets/skins/spring/spring-sprite-sheet.png",
+      "scale": 1,
+      "outputFilename": "spring-sprite-sheet.png",
+      "slots": [
+        { "index": 0, "nameZh": "嫩芽", "safeFilename": "00-sprout.png" },
+        { "index": 1, "nameZh": "雏菊", "safeFilename": "01-daisy.png" },
+        { "index": 2, "nameZh": "郁金香", "safeFilename": "02-tulip.png" },
+        { "index": 3, "nameZh": "蝴蝶", "safeFilename": "03-butterfly.png" },
+        { "index": 4, "nameZh": "向日葵", "safeFilename": "04-sunflower.png" },
+        { "index": 5, "nameZh": "四叶草", "safeFilename": "05-four-leaf-clover.png" },
+        { "index": 6, "nameZh": "春雨", "safeFilename": "06-spring-rain.png" },
+        { "index": 7, "nameZh": "风筝", "safeFilename": "07-kite.png" },
+        { "index": 8, "nameZh": "鸢尾", "safeFilename": "08-iris.png" },
+        { "index": 9, "nameZh": "樱花", "safeFilename": "09-cherry-blossom.png" }
+      ]
+    },
+    {
+      "id": "festival",
+      "nameZh": "节日限定",
+      "sourceSheet": "assets/skins/festival/festival-sprite-sheet.png",
+      "scale": 1,
+      "outputFilename": "festival-sprite-sheet.png",
+      "slots": [
+        { "index": 0, "nameZh": "节庆鼓", "safeFilename": "00-festival-drum.png" },
+        { "index": 1, "nameZh": "汤圆", "safeFilename": "01-tangyuan.png" },
+        { "index": 2, "nameZh": "灯笼", "safeFilename": "02-lantern.png" },
+        { "index": 3, "nameZh": "烟花", "safeFilename": "03-fireworks.png" },
+        { "index": 4, "nameZh": "月饼", "safeFilename": "04-mooncake.png" },
+        { "index": 5, "nameZh": "粽子", "safeFilename": "05-zongzi.png" },
+        { "index": 6, "nameZh": "龙舟", "safeFilename": "06-dragon-boat.png" },
+        { "index": 7, "nameZh": "折扇", "safeFilename": "07-folding-fan.png" },
+        { "index": 8, "nameZh": "剪纸挂饰", "safeFilename": "08-paper-cut-ornament.png" },
+        { "index": 9, "nameZh": "桃花", "safeFilename": "09-peach-blossom.png" }
+      ]
+    },
+    {
+      "id": "music",
+      "nameZh": "音乐",
+      "sourceSheet": "assets/skins/music/music-sprite-sheet.png",
+      "scale": 1,
+      "outputFilename": "music-sprite-sheet.png",
+      "slots": [
+        { "index": 0, "nameZh": "黑胶唱机", "safeFilename": "00-vinyl-turntable.png" },
+        { "index": 1, "nameZh": "钢琴键", "safeFilename": "01-piano-keys.png" },
+        { "index": 2, "nameZh": "麦克风", "safeFilename": "02-microphone.png" },
+        { "index": 3, "nameZh": "鼓", "safeFilename": "03-drum.png" },
+        { "index": 4, "nameZh": "铃铛", "safeFilename": "04-bell.png" },
+        { "index": 5, "nameZh": "吉他", "safeFilename": "05-guitar.png" },
+        { "index": 6, "nameZh": "耳机", "safeFilename": "06-headphones.png" },
+        { "index": 7, "nameZh": "音符", "safeFilename": "07-musical-note.png" },
+        { "index": 8, "nameZh": "小号", "safeFilename": "08-trumpet.png" },
+        { "index": 9, "nameZh": "手风琴", "safeFilename": "09-accordion.png" }
+      ]
+    },
+    {
+      "id": "vehicles",
+      "nameZh": "交通工具",
+      "sourceSheet": "assets/skins/vehicles/vehicle-sprite-sheet.png",
+      "scale": 1,
+      "outputFilename": "vehicle-sprite-sheet.png",
+      "slots": [
+        { "index": 0, "nameZh": "公交车", "safeFilename": "00-city-bus.png" },
+        { "index": 1, "nameZh": "高铁", "safeFilename": "01-high-speed-train.png" },
+        { "index": 2, "nameZh": "消防车", "safeFilename": "02-fire-truck.png" },
+        { "index": 3, "nameZh": "出租车", "safeFilename": "03-taxi.png" },
+        { "index": 4, "nameZh": "校车", "safeFilename": "04-school-bus.png" },
+        { "index": 5, "nameZh": "自行车", "safeFilename": "05-bicycle.png" },
+        { "index": 6, "nameZh": "渡轮", "safeFilename": "06-ferry.png" },
+        { "index": 7, "nameZh": "飞机", "safeFilename": "07-airplane.png" },
+        { "index": 8, "nameZh": "直升机", "safeFilename": "08-helicopter.png" },
+        { "index": 9, "nameZh": "热气球", "safeFilename": "09-hot-air-balloon.png" }
+      ]
+    }
+  ]
+}

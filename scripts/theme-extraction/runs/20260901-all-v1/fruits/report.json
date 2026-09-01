@@ -1,0 +1,658 @@
+{
+  "candidates" : [
+    {
+      "box" : {
+        "height" : 342,
+        "width" : 316,
+        "x" : 49,
+        "y" : 27
+      },
+      "centroid" : [
+        0.10784317830473812,
+        0.2576327307984681
+      ],
+      "id" : "A1",
+      "pixelCount" : 82380,
+      "source" : "alpha",
+      "sourceID" : 1
+    },
+    {
+      "box" : {
+        "height" : 341,
+        "width" : 305,
+        "x" : 446,
+        "y" : 34
+      },
+      "centroid" : [
+        0.3044870237658351,
+        0.26555184057228687
+      ],
+      "id" : "A2",
+      "pixelCount" : 79216,
+      "source" : "alpha",
+      "sourceID" : 2
+    },
+    {
+      "box" : {
+        "height" : 354,
+        "width" : 301,
+        "x" : 855,
+        "y" : 22
+      },
+      "centroid" : [
+        0.5014982726182673,
+        0.2542904389137145
+      ],
+      "id" : "A3",
+      "pixelCount" : 74502,
+      "source" : "alpha",
+      "sourceID" : 3
+    },
+    {
+      "box" : {
+        "height" : 320,
+        "width" : 335,
+        "x" : 1219,
+        "y" : 51
+      },
+      "centroid" : [
+        0.7096967467270114,
+        0.2911253981973024
+      ],
+      "id" : "A4",
+      "pixelCount" : 68167,
+      "source" : "alpha",
+      "sourceID" : 4
+    },
+    {
+      "box" : {
+        "height" : 334,
+        "width" : 323,
+        "x" : 1630,
+        "y" : 30
+      },
+      "centroid" : [
+        0.8999530970158033,
+        0.26012512365658924
+      ],
+      "id" : "A5",
+      "pixelCount" : 74034,
+      "source" : "alpha",
+      "sourceID" : 5
+    },
+    {
+      "box" : {
+        "height" : 362,
+        "width" : 308,
+        "x" : 53,
+        "y" : 403
+      },
+      "centroid" : [
+        0.09382707260424421,
+        0.7287616931042311
+      ],
+      "id" : "A6",
+      "pixelCount" : 75823,
+      "source" : "alpha",
+      "sourceID" : 6
+    },
+    {
+      "box" : {
+        "height" : 330,
+        "width" : 330,
+        "x" : 448,
+        "y" : 418
+      },
+      "centroid" : [
+        0.30550079871759056,
+        0.7455900054876763
+      ],
+      "id" : "A7",
+      "pixelCount" : 72886,
+      "source" : "alpha",
+      "sourceID" : 7
+    },
+    {
+      "box" : {
+        "height" : 325,
+        "width" : 323,
+        "x" : 830,
+        "y" : 427
+      },
+      "centroid" : [
+        0.5018382234953299,
+        0.7467824650437445
+      ],
+      "id" : "A8",
+      "pixelCount" : 81317,
+      "source" : "alpha",
+      "sourceID" : 8
+    },
+    {
+      "box" : {
+        "height" : 336,
+        "width" : 333,
+        "x" : 1221,
+        "y" : 421
+      },
+      "centroid" : [
+        0.7000521256703729,
+        0.7387364824195211
+      ],
+      "id" : "A9",
+      "pixelCount" : 85344,
+      "source" : "alpha",
+      "sourceID" : 9
+    },
+    {
+      "box" : {
+        "height" : 343,
+        "width" : 331,
+        "x" : 1609,
+        "y" : 409
+      },
+      "centroid" : [
+        0.9088834052181541,
+        0.7840991428179611
+      ],
+      "id" : "A10",
+      "pixelCount" : 51366,
+      "source" : "alpha",
+      "sourceID" : 10
+    },
+    {
+      "box" : {
+        "height" : 353,
+        "width" : 298,
+        "x" : 858,
+        "y" : 23
+      },
+      "centroid" : [
+        0.5017003923646055,
+        0.25595545416182675
+      ],
+      "id" : "V1",
+      "pixelCount" : 71510,
+      "source" : "vision",
+      "sourceID" : 1
+    },
+    {
+      "box" : {
+        "height" : 342,
+        "width" : 306,
+        "x" : 56,
+        "y" : 27
+      },
+      "centroid" : [
+        0.10707876272745677,
+        0.2580983116143866
+      ],
+      "id" : "V2",
+      "pixelCount" : 80021,
+      "source" : "vision",
+      "sourceID" : 2
+    },
+    {
+      "box" : {
+        "height" : 332,
+        "width" : 317,
+        "x" : 1633,
+        "y" : 32
+      },
+      "centroid" : [
+        0.8998987811796666,
+        0.2609841226623539
+      ],
+      "id" : "V3",
+      "pixelCount" : 71835,
+      "source" : "vision",
+      "sourceID" : 3
+    },
+    {
+      "box" : {
+        "height" : 343,
+        "width" : 291,
+        "x" : 451,
+        "y" : 33
+      },
+      "centroid" : [
+        0.3035276875272635,
+        0.2659499901076009
+      ],
+      "id" : "V4",
+      "pixelCount" : 77269,
+      "source" : "vision",
+      "sourceID" : 4
+    },
+    {
+      "box" : {
+        "height" : 321,
+        "width" : 333,
+        "x" : 1218,
+        "y" : 51
+      },
+      "centroid" : [
+        0.7089823923000915,
+        0.29124711459588665
+      ],
+      "id" : "V5",
+      "pixelCount" : 69009,
+      "source" : "vision",
+      "sourceID" : 5
+    },
+    {
+      "box" : {
+        "height" : 362,
+        "width" : 305,
+        "x" : 53,
+        "y" : 404
+      },
+      "centroid" : [
+        0.09336260834983096,
+        0.7301966299918169
+      ],
+      "id" : "V6",
+      "pixelCount" : 74182,
+      "source" : "vision",
+      "sourceID" : 6
+    },
+    {
+      "box" : {
+        "height" : 343,
+        "width" : 327,
+        "x" : 1609,
+        "y" : 410
+      },
+      "centroid" : [
+        0.9061909143685691,
+        0.7898440554628261
+      ],
+      "id" : "V7",
+      "pixelCount" : 49836,
+      "source" : "vision",
+      "sourceID" : 7
+    },
+    {
+      "box" : {
+        "height" : 328,
+        "width" : 324,
+        "x" : 452,
+        "y" : 421
+      },
+      "centroid" : [
+        0.3050161599880876,
+        0.7471377031232947
+      ],
+      "id" : "V8",
+      "pixelCount" : 71106,
+      "source" : "vision",
+      "sourceID" : 8
+    },
+    {
+      "box" : {
+        "height" : 337,
+        "width" : 329,
+        "x" : 1226,
+        "y" : 421
+      },
+      "centroid" : [
+        0.6991561090343662,
+        0.7382637011526181
+      ],
+      "id" : "V9",
+      "pixelCount" : 81990,
+      "source" : "vision",
+      "sourceID" : 9
+    },
+    {
+      "box" : {
+        "height" : 325,
+        "width" : 317,
+        "x" : 831,
+        "y" : 428
+      },
+      "centroid" : [
+        0.5012365338644955,
+        0.7478764255956656
+      ],
+      "id" : "V10",
+      "pixelCount" : 80766,
+      "source" : "vision",
+      "sourceID" : 10
+    }
+  ],
+  "generatedAt" : "2026-09-01T11:35:32Z",
+  "outputs" : {
+    "candidateMap" : "/Users/ethan/Projects/ClearedMiniProgram/scripts/theme-extraction/runs/20260901-all-v1/fruits/candidate-map.png",
+    "contactSheet" : "/Users/ethan/Projects/ClearedMiniProgram/scripts/theme-extraction/runs/20260901-all-v1/fruits/contact-sheet-numbered.png",
+    "slotsDirectory" : "/Users/ethan/Projects/ClearedMiniProgram/scripts/theme-extraction/runs/20260901-all-v1/fruits/slots",
+    "spriteSheet" : "/Users/ethan/Projects/ClearedMiniProgram/scripts/theme-extraction/runs/20260901-all-v1/fruits/fruit-sprite-sheet.png"
+  },
+  "passed" : true,
+  "schemaVersion" : 1,
+  "slots" : [
+    {
+      "candidateIDs" : [
+        "A1",
+        "V2"
+      ],
+      "expectedCenter" : [
+        0.1,
+        0.25
+      ],
+      "filename" : "00-apple.png",
+      "index" : 0,
+      "mappingSource" : "hybrid",
+      "name" : "苹果",
+      "normalizedBox" : {
+        "height" : 352,
+        "width" : 325,
+        "x" : 37,
+        "y" : 24
+      },
+      "passed" : true,
+      "safetyMargin" : 24,
+      "sourceBox" : {
+        "height" : 342,
+        "width" : 316,
+        "x" : 49,
+        "y" : 27
+      },
+      "warnings" : [
+
+      ]
+    },
+    {
+      "candidateIDs" : [
+        "A2",
+        "V4"
+      ],
+      "expectedCenter" : [
+        0.3,
+        0.25
+      ],
+      "filename" : "01-orange.png",
+      "index" : 1,
+      "mappingSource" : "hybrid",
+      "name" : "橙子",
+      "normalizedBox" : {
+        "height" : 352,
+        "width" : 315,
+        "x" : 42,
+        "y" : 24
+      },
+      "passed" : true,
+      "safetyMargin" : 24,
+      "sourceBox" : {
+        "height" : 341,
+        "width" : 305,
+        "x" : 446,
+        "y" : 34
+      },
+      "warnings" : [
+
+      ]
+    },
+    {
+      "candidateIDs" : [
+        "A3",
+        "V1"
+      ],
+      "expectedCenter" : [
+        0.5,
+        0.25
+      ],
+      "filename" : "02-strawberry.png",
+      "index" : 2,
+      "mappingSource" : "hybrid",
+      "name" : "草莓",
+      "normalizedBox" : {
+        "height" : 352,
+        "width" : 299,
+        "x" : 50,
+        "y" : 24
+      },
+      "passed" : true,
+      "safetyMargin" : 24,
+      "sourceBox" : {
+        "height" : 354,
+        "width" : 301,
+        "x" : 855,
+        "y" : 22
+      },
+      "warnings" : [
+
+      ]
+    },
+    {
+      "candidateIDs" : [
+        "A4",
+        "V5"
+      ],
+      "expectedCenter" : [
+        0.7,
+        0.25
+      ],
+      "filename" : "03-watermelon.png",
+      "index" : 3,
+      "mappingSource" : "hybrid",
+      "name" : "西瓜",
+      "normalizedBox" : {
+        "height" : 336,
+        "width" : 352,
+        "x" : 24,
+        "y" : 32
+      },
+      "passed" : true,
+      "safetyMargin" : 24,
+      "sourceBox" : {
+        "height" : 320,
+        "width" : 335,
+        "x" : 1219,
+        "y" : 51
+      },
+      "warnings" : [
+
+      ]
+    },
+    {
+      "candidateIDs" : [
+        "A5",
+        "V3"
+      ],
+      "expectedCenter" : [
+        0.9,
+        0.25
+      ],
+      "filename" : "04-lemon.png",
+      "index" : 4,
+      "mappingSource" : "hybrid",
+      "name" : "柠檬",
+      "normalizedBox" : {
+        "height" : 352,
+        "width" : 340,
+        "x" : 30,
+        "y" : 24
+      },
+      "passed" : true,
+      "safetyMargin" : 24,
+      "sourceBox" : {
+        "height" : 334,
+        "width" : 323,
+        "x" : 1630,
+        "y" : 30
+      },
+      "warnings" : [
+
+      ]
+    },
+    {
+      "candidateIDs" : [
+        "A6",
+        "V6"
+      ],
+      "expectedCenter" : [
+        0.1,
+        0.75
+      ],
+      "filename" : "05-grape.png",
+      "index" : 5,
+      "mappingSource" : "hybrid",
+      "name" : "葡萄",
+      "normalizedBox" : {
+        "height" : 352,
+        "width" : 299,
+        "x" : 50,
+        "y" : 24
+      },
+      "passed" : true,
+      "safetyMargin" : 24,
+      "sourceBox" : {
+        "height" : 362,
+        "width" : 308,
+        "x" : 53,
+        "y" : 403
+      },
+      "warnings" : [
+
+      ]
+    },
+    {
+      "candidateIDs" : [
+        "A7",
+        "V8"
+      ],
+      "expectedCenter" : [
+        0.3,
+        0.75
+      ],
+      "filename" : "06-blueberry.png",
+      "index" : 6,
+      "mappingSource" : "hybrid",
+      "name" : "蓝莓",
+      "normalizedBox" : {
+        "height" : 352,
+        "width" : 352,
+        "x" : 24,
+        "y" : 24
+      },
+      "passed" : true,
+      "safetyMargin" : 24,
+      "sourceBox" : {
+        "height" : 330,
+        "width" : 330,
+        "x" : 448,
+        "y" : 418
+      },
+      "warnings" : [
+
+      ]
+    },
+    {
+      "candidateIDs" : [
+        "A8",
+        "V10"
+      ],
+      "expectedCenter" : [
+        0.5,
+        0.75
+      ],
+      "filename" : "07-kiwi.png",
+      "index" : 7,
+      "mappingSource" : "hybrid",
+      "name" : "猕猴桃",
+      "normalizedBox" : {
+        "height" : 352,
+        "width" : 350,
+        "x" : 25,
+        "y" : 24
+      },
+      "passed" : true,
+      "safetyMargin" : 24,
+      "sourceBox" : {
+        "height" : 325,
+        "width" : 323,
+        "x" : 830,
+        "y" : 427
+      },
+      "warnings" : [
+
+      ]
+    },
+    {
+      "candidateIDs" : [
+        "A9",
+        "V9"
+      ],
+      "expectedCenter" : [
+        0.7,
+        0.75
+      ],
+      "filename" : "08-peach.png",
+      "index" : 8,
+      "mappingSource" : "hybrid",
+      "name" : "桃子",
+      "normalizedBox" : {
+        "height" : 352,
+        "width" : 349,
+        "x" : 25,
+        "y" : 24
+      },
+      "passed" : true,
+      "safetyMargin" : 24,
+      "sourceBox" : {
+        "height" : 336,
+        "width" : 333,
+        "x" : 1221,
+        "y" : 421
+      },
+      "warnings" : [
+
+      ]
+    },
+    {
+      "candidateIDs" : [
+        "A10",
+        "V7"
+      ],
+      "expectedCenter" : [
+        0.9,
+        0.75
+      ],
+      "filename" : "09-banana.png",
+      "index" : 9,
+      "mappingSource" : "hybrid",
+      "name" : "香蕉",
+      "normalizedBox" : {
+        "height" : 352,
+        "width" : 340,
+        "x" : 30,
+        "y" : 24
+      },
+      "passed" : true,
+      "safetyMargin" : 24,
+      "sourceBox" : {
+        "height" : 343,
+        "width" : 331,
+        "x" : 1609,
+        "y" : 409
+      },
+      "warnings" : [
+
+      ]
+    }
+  ],
+  "source" : {
+    "alphaCoverage" : 0.4738282971461712,
+    "height" : 793,
+    "path" : "/Users/ethan/Projects/ClearedMiniProgram/assets/skins/fruits/fruit-sprite-sheet.png",
+    "width" : 1983
+  },
+  "strategyRequested" : "auto",
+  "strategyUsed" : "hybrid",
+  "themeID" : "fruits",
+  "themeName" : "水果",
+  "warnings" : [
+
+  ]
+}

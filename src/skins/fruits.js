@@ -20,8 +20,8 @@ module.exports = {
     // Preserve the translucent square board tile beneath transparent fruit.
     backgroundColor: 'emptyCell',
     backgroundAlpha: 1,
-    // Keep stems, leaves, and the banana silhouette inside the logical cell.
-    scale: 0.92,
+    // Source cells carry a 24px transparent safety edge for stems and leaves.
+    scale: 1,
     // If the image cannot be loaded, retain a recognizable fruit palette
     // instead of falling all the way back to an unrelated classic color.
     fallbackColors: [

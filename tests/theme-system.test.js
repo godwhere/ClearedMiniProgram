@@ -36,7 +36,7 @@ function fakeContext() {
 
 function imageFor(source) {
   if (source.indexOf('preview') >= 0) return { source, width: 1448, height: 1086 };
-  if (source.indexOf('sprite-sheet') >= 0) return { source, width: 1983, height: 793 };
+  if (source.indexOf('sprite-sheet') >= 0) return { source, width: 2000, height: 800 };
   return { source, width: 96, height: 96 };
 }
 
@@ -142,7 +142,7 @@ function runServiceChecks() {
   assert.strictEqual(service.current().tileVisuals.count, 10);
   assert.strictEqual(service.current().tileVisuals.columns, 5);
   assert.strictEqual(service.current().tileVisuals.rows, 2);
-  assert.strictEqual(service.current().tileVisuals.scale, 0.88);
+  assert.strictEqual(service.current().tileVisuals.scale, 1);
   assert.strictEqual(service.current().tileVisuals.fallbackColors.length, 10);
   const springItem = list.find(item => item.id === 'spring');
   assert.strictEqual(springItem.name, '春天');
@@ -155,7 +155,7 @@ function runServiceChecks() {
   assert.strictEqual(service.current().tileVisuals.count, 10);
   assert.strictEqual(service.current().tileVisuals.columns, 5);
   assert.strictEqual(service.current().tileVisuals.rows, 2);
-  assert.strictEqual(service.current().tileVisuals.scale, 0.88);
+  assert.strictEqual(service.current().tileVisuals.scale, 1);
   assert.strictEqual(service.current().tileVisuals.fallbackColors.length, 10);
   const festivalItem = list.find(item => item.id === 'festival');
   assert.strictEqual(festivalItem.name, '节日限定');
@@ -168,7 +168,7 @@ function runServiceChecks() {
   assert.strictEqual(service.current().tileVisuals.count, 10);
   assert.strictEqual(service.current().tileVisuals.columns, 5);
   assert.strictEqual(service.current().tileVisuals.rows, 2);
-  assert.strictEqual(service.current().tileVisuals.scale, 0.88);
+  assert.strictEqual(service.current().tileVisuals.scale, 1);
   assert.strictEqual(service.current().tileVisuals.fallbackColors.length, 10);
   const musicItem = list.find(item => item.id === 'music');
   assert.strictEqual(musicItem.name, '音乐');
@@ -181,7 +181,7 @@ function runServiceChecks() {
   assert.strictEqual(service.current().tileVisuals.count, 10);
   assert.strictEqual(service.current().tileVisuals.columns, 5);
   assert.strictEqual(service.current().tileVisuals.rows, 2);
-  assert.strictEqual(service.current().tileVisuals.scale, 0.88);
+  assert.strictEqual(service.current().tileVisuals.scale, 1);
   assert.strictEqual(service.current().tileVisuals.fallbackColors.length, 10);
   const vehiclesItem = list.find(item => item.id === 'vehicles');
   assert.strictEqual(vehiclesItem.name, '交通工具');
@@ -194,7 +194,7 @@ function runServiceChecks() {
   assert.strictEqual(service.current().tileVisuals.count, 10);
   assert.strictEqual(service.current().tileVisuals.columns, 5);
   assert.strictEqual(service.current().tileVisuals.rows, 2);
-  assert.strictEqual(service.current().tileVisuals.scale, 0.88);
+  assert.strictEqual(service.current().tileVisuals.scale, 1);
   assert.strictEqual(service.current().tileVisuals.fallbackColors.length, 10);
   assert.strictEqual(service.select('missing'), false);
 }
@@ -579,8 +579,8 @@ function runRendererChecks() {
   renderer.loadSkinAssets();
 
   // Image-backed animal tiles retain the translucent square tile underneath
-  // the transparent avatar, and the manifest scale keeps the artwork larger
-  // than the old 0.82 visual scale.
+  // the transparent avatar. The normalized source owns its safety edge, so
+  // the runtime manifest uses a neutral visual scale.
   platform.context.calls.length = 0;
   renderer.drawTile(0, 10, 20, 100, { skin: service.current(), color: '#f00', alpha: 0.8 });
   const backgroundIndex = platform.context.calls.findIndex(call =>
@@ -592,7 +592,8 @@ function runRendererChecks() {
   assert(backgroundIndex >= 0 && imageIndex > backgroundIndex);
   assert.strictEqual(platform.context.calls[backgroundIndex].fillStyle, 'rgba(255,255,255,0.31)');
   assert.strictEqual(platform.context.calls[backgroundIndex].globalAlpha, 0.8);
-  assert(platform.context.calls[imageIndex].args[7] > 82, 'animal visual should be larger than v1');
+  assert.strictEqual(platform.context.calls[imageIndex].args[7], 100,
+    'normalized animal art uses the full logical tile draw area');
 
   service.select('classic');
   renderer.loadSkinAssets();

@@ -21,9 +21,8 @@ module.exports = {
     // Keep the translucent board tile visible beneath transparent ocean art.
     backgroundColor: 'emptyCell',
     backgroundAlpha: 1,
-    // Fins, tentacles, and the whale silhouette sit close to frame edges;
-    // leave an inset so every shape stays within its logical board cell.
-    scale: 0.88,
+    // Source cells carry a 24px transparent safety edge around fins and tentacles.
+    scale: 1,
     // The anglerfish slot can be very dark in the source art. A luminous
     // fallback keeps it visible when the sheet is unavailable.
     fallbackColors: [
