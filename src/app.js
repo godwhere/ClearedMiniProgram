@@ -66,6 +66,12 @@ const CORRIDOR_PAGE_SIZE = 6;
 const EFFECT_PAGE_SIZE = 6;
 const EFFECT_MIN_DURATION_MS = 80;
 const EFFECT_MAX_DURATION_MS = 500;
+const FAILURE_DIALOG_ENTER_MS = 180;
+const OUTCOME = GameRunner.OUTCOME || {
+  PLAYING: 'playing',
+  WON: 'won',
+  FAILED: 'failed'
+};
 
 const DEFAULT_FADE_EFFECT = {
   id: 'fade',
@@ -701,6 +707,19 @@ class ClearedApp {
     return this.runner;
   }
 
+  runnerOutcome(runner) {
+    if (!runner) return OUTCOME.PLAYING;
+    if (runner.outcome === OUTCOME.WON || runner.outcome === OUTCOME.FAILED) {
+      return runner.outcome;
+    }
+    return runner.isGameOver ? OUTCOME.WON : OUTCOME.PLAYING;
+  }
+
+  runnerTerminal(runner) {
+    if (runner && typeof runner.isTerminal === 'function') return runner.isTerminal();
+    return this.runnerOutcome(runner) !== OUTCOME.PLAYING;
+  }
+
   activeEnteredAt() {
     if (this.scene === 'daily' || this.scene === 'dailyResult') return this.daily.enteredAt;
     return this.levelEnteredAt;
@@ -755,8 +774,16 @@ class ClearedApp {
     if (this.hint && timestamp < this.hintUntil) return true;
     if (this.scene === 'play' && this.runner && this.runner.selectedLine >= 0) return true;
     if (this.scene === 'daily' && this.daily.runner && this.daily.runner.selectedLine >= 0) return true;
-    if (this.scene === 'result' && timestamp < this.resultVisibleAt + 80) return true;
-    if (this.scene === 'dailyResult' && timestamp < this.daily.resultVisibleAt + 80) return true;
+    if (this.scene === 'result') {
+      const enterMs = this.result && this.result.outcome === OUTCOME.FAILED
+        ? FAILURE_DIALOG_ENTER_MS : 80;
+      if (timestamp < this.resultVisibleAt + enterMs) return true;
+    }
+    if (this.scene === 'dailyResult') {
+      const enterMs = this.daily.result && this.daily.result.outcome === OUTCOME.FAILED
+        ? FAILURE_DIALOG_ENTER_MS : 80;
+      if (timestamp < this.daily.resultVisibleAt + enterMs) return true;
+    }
     return false;
   }
 
@@ -834,7 +861,7 @@ class ClearedApp {
         runner: activeDaily.runner,
         levelEnteredAt: activeDaily.enteredAt,
         clearAnimation: activeDaily.clearAnimation,
-        hintAvailable: !!activeDaily.runner && !activeDaily.runner.isGameOver,
+        hintAvailable: !!activeDaily.runner && !this.runnerTerminal(activeDaily.runner),
         result: activeDaily.result,
         resultVisibleAt: activeDaily.resultVisibleAt,
         runStartedAt: activeDaily.runStartedAt,
@@ -932,12 +959,13 @@ class ClearedApp {
         runner: this.runner,
         levelEnteredAt: this.levelEnteredAt,
         clearAnimation: this.clearAnimation,
-        hintAvailable: !this.runner.isGameOver,
+        hintAvailable: !this.runnerTerminal(this.runner),
         result: this.result,
         resultVisibleAt: this.resultVisibleAt,
         hasNext: (this.currentSet && this.currentSet === this.portalDemo)
           ? (this.levelIndex + 1 < ((this.portalDemo && this.portalDemo.Games) || []).length)
           : !!this.progression.nextLevel(this.setIndex, this.levelIndex),
+        isPortalTrial: !!(this.currentSet && this.currentSet === this.portalDemo),
         portals: this.runner ? this.runner.portals : [],
         portalStatus,
         expectedExit: this.runner && this.runner.portalPending ? this.runner.portalPending.exit : null,
@@ -1129,15 +1157,46 @@ class ClearedApp {
     };
     if (this.scene === 'daily') this.daily.clearAnimation = animation;
     else this.clearAnimation = animation;
+    const outcome = this.runnerOutcome(runner);
+    if (outcome === OUTCOME.FAILED) {
+      const remainingCells = typeof runner.remainingCellCount === 'function'
+        ? runner.remainingCellCount()
+        : Math.max(1, Number(runner.remainingPlayableCells) || 1);
+      const failure = {
+        outcome: OUTCOME.FAILED,
+        reason: runner.failureReason || 'unfilled-cells',
+        remainingCells,
+        elapsedMs: runner.elapsedMs()
+      };
+      const resultDelayMs = Number(skin && skin.animation && skin.animation.resultDelayMs) || 0;
+      const visibleAt = now + Math.max(animation.durationMs, resultDelayMs);
+      this.audio.playSfx('error');
+      this.platform.triggerHaptic('medium');
+      this.pointer = null;
+      this.pressedId = null;
+      if (this.renderer && Array.isArray(this.renderer.hits)) this.renderer.hits = [];
+      if (this.scene === 'daily') {
+        this.daily.result = failure;
+        this.daily.resultVisibleAt = visibleAt;
+        this.scene = 'dailyResult';
+      } else {
+        this.result = failure;
+        this.resultVisibleAt = visibleAt;
+        this.scene = 'result';
+      }
+      this.invalidate();
+      return;
+    }
+
     this.audio.playSfx('complete');
     const dailyFinalLevel = this.scene !== 'daily' ||
       this.daily.levelIndex >= this.daily.levels.length - 1;
-    if (runner.isGameOver && dailyFinalLevel) {
+    if (outcome === OUTCOME.WON && dailyFinalLevel) {
       this.audio.playSfx('victory');
     }
-    this.platform.triggerHaptic(runner.isGameOver && dailyFinalLevel ? 'medium' : 'light');
+    this.platform.triggerHaptic(outcome === OUTCOME.WON && dailyFinalLevel ? 'medium' : 'light');
 
-    if (!runner.isGameOver) return;
+    if (outcome !== OUTCOME.WON) return;
     if (this.scene === 'daily') {
       this.completeDailyLevel();
       return;
@@ -1247,7 +1306,7 @@ class ClearedApp {
     }
     if (!daily || !runner || !Array.isArray(daily.levels) ||
         !daily.levels[levelIndex] || !daily.dateKey || !daily.dayId) return false;
-    if (!runner.isGameOver || daily.completionRecorded) return false;
+    if (this.runnerOutcome(runner) !== OUTCOME.WON || daily.completionRecorded) return false;
 
     // Keep result payloads strictly positive even when a deterministic test
     // or a very fast player completes a level in the same millisecond it
@@ -1361,8 +1420,56 @@ class ClearedApp {
     return result;
   }
 
+  resetCurrentLevel() {
+    if (!this.runner) return false;
+    this.runner.reset();
+    this.scene = 'play';
+    this.levelEnteredAt = Date.now();
+    this.lastClockSecond = -1;
+    this.clearAnimation = null;
+    this.result = null;
+    this.resultVisibleAt = 0;
+    this.hint = null;
+    this.hintUntil = 0;
+    this.pointer = null;
+    this.pressedId = null;
+    if (this.renderer && Array.isArray(this.renderer.hits)) this.renderer.hits = [];
+    this.invalidate();
+    return true;
+  }
+
+  resetCurrentDailyLevel() {
+    const daily = this.daily;
+    if (!daily || !daily.runner) return false;
+    daily.runner.reset();
+    daily.enteredAt = Date.now();
+    daily.result = null;
+    daily.resultVisibleAt = 0;
+    daily.clearAnimation = null;
+    this.scene = 'daily';
+    this.lastClockSecond = -1;
+    this.hint = null;
+    this.hintUntil = 0;
+    this.pointer = null;
+    this.pressedId = null;
+    if (this.renderer && Array.isArray(this.renderer.hits)) this.renderer.hits = [];
+    this.invalidate();
+    return true;
+  }
+
   performAction(action) {
     if (typeof action !== 'string' || !action) return false;
+    const ordinaryFailure = this.scene === 'result' && this.result &&
+      this.result.outcome === OUTCOME.FAILED;
+    if (ordinaryFailure && action !== 'failure:retry' && action !== 'result:levels') {
+      return false;
+    }
+    const dailyFailure = this.scene === 'dailyResult' && this.daily.result &&
+      this.daily.result.outcome === OUTCOME.FAILED;
+    if (dailyFailure && action !== 'dailyFailure:retry' &&
+        action !== 'dailyResult:home' && action !== 'dailyResult:back') {
+      return false;
+    }
     const previousScene = this.scene;
     if (action === 'home:sound' || action === 'play:sound' || action === 'themes:sound' ||
         action === 'daily:sound' || action === 'dailyResult:sound' ||
@@ -1469,11 +1576,7 @@ class ClearedApp {
       this.pointer = null;
     } else if (action === 'daily:reset') {
       if (this.daily.runner && this.scene === 'daily') {
-        this.daily.runner.reset();
-        this.daily.enteredAt = Date.now();
-        this.daily.clearAnimation = null;
-        this.hint = null;
-        this.hintUntil = 0;
+        this.resetCurrentDailyLevel();
       }
     } else if (action === 'daily:undo') {
       if (this.daily.runner && this.scene === 'daily') {
@@ -1496,6 +1599,11 @@ class ClearedApp {
       this.hintUntil = 0;
     } else if (action === 'dailyResult:replay') {
       this.replayDaily();
+    } else if (action === 'dailyFailure:retry') {
+      if (this.scene === 'dailyResult' && this.daily.result &&
+          this.daily.result.outcome === OUTCOME.FAILED) {
+        this.resetCurrentDailyLevel();
+      }
     } else if (action === 'play:back' || action === 'result:levels') {
       if (this.currentSet && this.currentSet === this.portalDemo) {
         this.scene = 'home';
@@ -1508,11 +1616,7 @@ class ClearedApp {
       }
     } else if (action === 'play:reset') {
       if (!this.runner) return;
-      this.runner.reset();
-      this.levelEnteredAt = Date.now();
-      this.clearAnimation = null;
-      this.hint = null;
-      this.hintUntil = 0;
+      this.resetCurrentLevel();
     } else if (action === 'play:undo') {
       if (this.runner && this.runner.undo()) this.clearAnimation = null;
       this.hint = null;
@@ -1524,6 +1628,10 @@ class ClearedApp {
         this.openPortalTrial(this.levelIndex);
       } else {
         this.openLevel(this.setIndex, this.levelIndex);
+      }
+    } else if (action === 'failure:retry') {
+      if (this.scene === 'result' && this.result && this.result.outcome === OUTCOME.FAILED) {
+        this.resetCurrentLevel();
       }
     } else if (action === 'result:next') {
       if (this.currentSet && this.currentSet === this.portalDemo) {
@@ -1548,6 +1656,9 @@ class ClearedApp {
     if (previousScene === 'effects' && this.scene !== 'effects' &&
         this.renderer && typeof this.renderer.invalidateEffectPreviews === 'function') {
       this.renderer.invalidateEffectPreviews();
+    }
+    if ((ordinaryFailure || dailyFailure) && this.renderer && Array.isArray(this.renderer.hits)) {
+      this.renderer.hits = [];
     }
     this.invalidate();
   }
@@ -1943,7 +2054,7 @@ class ClearedApp {
   }
 
   showHint() {
-    if (this.scene !== 'play' || !this.runner || this.runner.isGameOver) return false;
+    if (this.scene !== 'play' || !this.runner || this.runnerTerminal(this.runner)) return false;
     const hint = this.hints.find(this.runner, this.setIndex, this.levelIndex);
     if (!hint) {
       this.hint = null;
@@ -1960,7 +2071,7 @@ class ClearedApp {
   }
 
   showDailyHint() {
-    if (this.scene !== 'daily' || !this.daily.runner || this.daily.runner.isGameOver) return false;
+    if (this.scene !== 'daily' || !this.daily.runner || this.runnerTerminal(this.daily.runner)) return false;
     const runner = this.daily.runner;
     const challengeId = this.daily.challengeId;
     let hint = null;

@@ -68,11 +68,10 @@ function createPlatform() {
   return { platform: new WechatPlatform(api), storage };
 }
 
-function solveCurrentLevel(app) {
+function playCurrentLevelPaths(app, paths) {
   app.tick(Date.now() + 1000);
   const level = app.daily.challenge;
   const board = app.renderer.boardLayout;
-  const paths = dailySolutions.ByChallengeId[app.daily.challengeId];
   assert(level && board && paths, 'daily level must have a board and solution');
   paths.forEach(path => {
     const point = index => ({
@@ -87,7 +86,99 @@ function solveCurrentLevel(app) {
   });
 }
 
+function solveCurrentLevel(app) {
+  playCurrentLevelPaths(app, dailySolutions.ByChallengeId[app.daily.challengeId]);
+}
+
+function testDailyFailureFlow() {
+  const { platform, storage } = createPlatform();
+  const callbackEvents = [];
+  const app = new ClearedApp(platform, {
+    clock: () => new Date('2026-08-31T15:00:00.000Z'),
+    onDailyCompleted(event) { callbackEvents.push(event); }
+  });
+
+  assert.strictEqual(app.enterDaily(), true);
+  const storageKey = 'cleared:minigame:daily:v1';
+  const dateKey = app.daily.dateKey;
+  const introId = app.daily.levels[0].Id;
+  const extremeId = app.daily.levels[1].Id;
+
+  // Both lines are valid, but their shortest paths leave four playable cells
+  // empty. This must fail the first level without persisting completion or
+  // advancing to the extreme level.
+  playCurrentLevelPaths(app, [
+    [0, 1, 2],
+    [3, 6]
+  ]);
+  assert.strictEqual(app.scene, 'dailyResult');
+  assert.strictEqual(app.daily.result.outcome, 'failed');
+  assert.strictEqual(app.daily.result.reason, 'unfilled-cells');
+  assert.strictEqual(app.daily.result.remainingCells, 4);
+  assert.strictEqual(app.daily.levelIndex, 0);
+  assert.deepStrictEqual(app.daily.levelResults, []);
+  assert.strictEqual(app.daily.elapsedBeforeLevel, 0);
+  assert.strictEqual(app.daily.completionRecorded, false);
+  assert.strictEqual(callbackEvents.length, 0);
+  assert.strictEqual(storage[storageKey].entries[dateKey].levels[introId].completed, false);
+  assert.strictEqual(storage[storageKey].entries[dateKey].levels[extremeId].completed, false);
+
+  const entriesUsed = app.daily.entriesUsed;
+  const entriesRemaining = app.daily.entriesRemaining;
+  const storedEntriesUsed = storage[storageKey].entries[dateKey].entriesUsed;
+  const failedRunner = app.daily.runner;
+  app.performAction('dailyFailure:retry');
+  assert.strictEqual(app.scene, 'daily');
+  assert.strictEqual(app.daily.runner, failedRunner);
+  assert.strictEqual(app.daily.runner.outcome, 'playing');
+  assert.strictEqual(app.daily.runner.completed.every(completed => !completed), true);
+  assert.strictEqual(app.daily.result, null);
+  assert.strictEqual(app.daily.levelIndex, 0);
+  assert.strictEqual(app.daily.entriesUsed, entriesUsed);
+  assert.strictEqual(app.daily.entriesRemaining, entriesRemaining);
+  assert.strictEqual(storage[storageKey].entries[dateKey].entriesUsed, storedEntriesUsed);
+
+  // A retry can complete level one normally. Failing level two must retain
+  // that first-level result while still avoiding a day completion write.
+  solveCurrentLevel(app);
+  assert.strictEqual(app.scene, 'daily');
+  assert.strictEqual(app.daily.levelIndex, 1);
+  assert.strictEqual(app.daily.levelResults.length, 1);
+  const firstLevelResult = JSON.parse(JSON.stringify(app.daily.levelResults[0]));
+  const elapsedBeforeLevel = app.daily.elapsedBeforeLevel;
+
+  const incompleteExtremePaths = dailySolutions.ByChallengeId[app.daily.challengeId]
+    .map(path => path.slice());
+  incompleteExtremePaths[1] = [5, 6, 14, 13, 12, 11];
+  playCurrentLevelPaths(app, incompleteExtremePaths);
+  assert.strictEqual(app.scene, 'dailyResult');
+  assert.strictEqual(app.daily.result.outcome, 'failed');
+  assert.strictEqual(app.daily.result.remainingCells, 2);
+  assert.strictEqual(app.daily.levelIndex, 1);
+  assert.strictEqual(app.daily.levelResults.length, 1);
+  assert.deepStrictEqual(app.daily.levelResults[0], firstLevelResult);
+  assert.strictEqual(app.daily.elapsedBeforeLevel, elapsedBeforeLevel);
+  assert.strictEqual(app.daily.completionRecorded, false);
+  assert.strictEqual(callbackEvents.length, 0);
+  assert.strictEqual(storage[storageKey].entries[dateKey].levels[introId].completed, true);
+  assert.strictEqual(storage[storageKey].entries[dateKey].levels[extremeId].completed, false);
+  assert.strictEqual(storage[storageKey].entries[dateKey].completed, false);
+
+  app.performAction('dailyFailure:retry');
+  assert.strictEqual(app.scene, 'daily');
+  assert.strictEqual(app.daily.levelIndex, 1);
+  assert.strictEqual(app.daily.result, null);
+  assert.strictEqual(app.daily.runner.outcome, 'playing');
+  assert.deepStrictEqual(app.daily.levelResults[0], firstLevelResult);
+  assert.strictEqual(app.daily.elapsedBeforeLevel, elapsedBeforeLevel);
+  assert.strictEqual(app.daily.entriesUsed, entriesUsed);
+  assert.strictEqual(app.daily.entriesRemaining, entriesRemaining);
+  assert.strictEqual(storage[storageKey].entries[dateKey].entriesUsed, storedEntriesUsed);
+}
+
 function run() {
+  testDailyFailureFlow();
+
   const { platform, storage } = createPlatform();
   const callbackEvents = [];
   const app = new ClearedApp(platform, {

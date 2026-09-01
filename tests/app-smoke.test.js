@@ -1,6 +1,7 @@
 const assert = require('assert');
 const WechatPlatform = require('../src/platform/wechat.js');
 const ClearedApp = require('../src/app.js');
+const GameRunner = require('../core/game-runner.js');
 const solutions = require('../data/solutions.js');
 
 function fakeContext() {
@@ -144,6 +145,74 @@ function run() {
   app.performAction('result:next');
   assert.strictEqual(app.setIndex, 1, 'next crosses into the newly unlocked set');
   assert.strictEqual(app.levelIndex, 0);
+
+  const failureLevel = {
+    Width: 3,
+    Height: 2,
+    Lines: [{ Start: 0, End: 1 }, { Start: 3, End: 4 }]
+  };
+  const failureSet = {
+    Name: 'Failure fixture',
+    Color: '#f472d0',
+    Palette: ['#f00', '#0f0'],
+    Games: [failureLevel]
+  };
+  app.currentSet = failureSet;
+  app.currentLevel = failureLevel;
+  app.levelIndex = 0;
+  app.runner = new GameRunner(failureLevel, failureSet.Palette, () => app.invalidate());
+  app.scene = 'play';
+  app.result = null;
+  app.clearAnimation = null;
+  const completeLine = (start, end, lineIndex) => {
+    assert.strictEqual(app.runner.touchStart(start), true);
+    assert.strictEqual(app.runner.touchMove(end), true);
+    assert.strictEqual(app.runner.touchEnd(end), true);
+    app.onPathCompleted(lineIndex, [start, end]);
+  };
+  completeLine(0, 1, 0);
+
+  let completionCalls = 0;
+  let adCalls = 0;
+  const sounds = [];
+  const haptics = [];
+  app.progress.recordCompletion = () => { completionCalls++; return {}; };
+  app.ads.onLevelCompleted = () => { adCalls++; };
+  app.audio.playSfx = id => { sounds.push(id); };
+  platform.triggerHaptic = strength => { haptics.push(strength); };
+  app.resolveClearEffect = () => ({
+    id: 'slow-fade',
+    type: 'fade',
+    durationMs: 500,
+    params: {}
+  });
+  app.renderer.hits = [{ id: 'play:reset', rect: { x: 0, y: 0, w: 390, h: 844 } }];
+  const failedAt = Date.now();
+  completeLine(3, 4, 1);
+  assert.strictEqual(app.runner.outcome, GameRunner.OUTCOME.FAILED);
+  assert.strictEqual(app.scene, 'result');
+  assert.strictEqual(app.result.outcome, 'failed');
+  assert.strictEqual(app.result.reason, 'unfilled-cells');
+  assert.strictEqual(app.result.remainingCells, 2);
+  assert(app.resultVisibleAt >= failedAt + 500,
+    'failure waits for a clear animation longer than the result delay');
+  assert.strictEqual(completionCalls, 0);
+  assert.strictEqual(adCalls, 0);
+  assert.deepStrictEqual(sounds, ['error']);
+  assert.deepStrictEqual(haptics, ['medium']);
+  assert.deepStrictEqual(app.renderer.hits, [], 'failure clears stale play hits synchronously');
+  assert.strictEqual(app.performAction('play:reset'), false,
+    'failure action gate rejects a stale reset before the modal frame');
+  assert.strictEqual(app.runner.outcome, GameRunner.OUTCOME.FAILED);
+
+  const failedRunner = app.runner;
+  assert.strictEqual(app.performAction('failure:retry'), undefined);
+  assert.strictEqual(app.scene, 'play');
+  assert.strictEqual(app.runner, failedRunner, 'retry resets the current runner in place');
+  assert.strictEqual(app.runner.outcome, GameRunner.OUTCOME.PLAYING);
+  assert.deepStrictEqual(app.runner.owner, [-1, -1, -1, -1, -1, -1]);
+  assert.strictEqual(app.result, null);
+  assert.strictEqual(app.clearAnimation, null);
 }
 
 module.exports = run;

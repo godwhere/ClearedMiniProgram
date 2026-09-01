@@ -12,6 +12,12 @@ const PORTAL_PHASE = {
   SOLVED: 'SOLVED'
 };
 
+const OUTCOME = {
+  PLAYING: 'playing',
+  WON: 'won',
+  FAILED: 'failed'
+};
+
 function clonePath(path) {
   return Array.isArray(path) ? path.slice() : path;
 }
@@ -172,6 +178,12 @@ class GameRunner {
     this.pausedAt = 0;
     this.finishedAt = 0;
     this.isGameOver = false;
+    // Keep isGameOver as the legacy "won" flag.  Terminal input/timer guards
+    // use outcome so a failed board can stop cleanly without being mistaken
+    // for a completed level by older application code.
+    this.outcome = OUTCOME.PLAYING;
+    this.failureReason = null;
+    this.remainingPlayableCells = 0;
     this.notify();
   }
 
@@ -207,12 +219,12 @@ class GameRunner {
   }
 
   elapsedMs() {
-    const now = this.isGameOver ? this.finishedAt : (this.pausedAt || Date.now());
+    const now = this.isTerminal() ? this.finishedAt : (this.pausedAt || Date.now());
     return Math.max(0, now - this.startedAt);
   }
 
   pause() {
-    if (!this.isGameOver && !this.pausedAt) this.pausedAt = Date.now();
+    if (!this.isTerminal() && !this.pausedAt) this.pausedAt = Date.now();
   }
 
   resume() {
@@ -351,6 +363,9 @@ class GameRunner {
     this.portalPending = null;
     this.portalUsedPairs = new Set();
     this.isGameOver = false;
+    this.outcome = OUTCOME.PLAYING;
+    this.failureReason = null;
+    this.remainingPlayableCells = 0;
     this.finishedAt = 0;
     this.rebuildOwners();
     this.notify();
@@ -454,7 +469,7 @@ class GameRunner {
       return true;
     }
 
-    if (this.isGameOver || !this.isPlayableCell(index) || this.fixedLine[index] < 0) return false;
+    if (this.isTerminal() || !this.isPlayableCell(index) || this.fixedLine[index] < 0) return false;
 
     if (this.selectedLine >= 0) this.abortSelection();
     const lineIndex = this.fixedLine[index];
@@ -469,7 +484,7 @@ class GameRunner {
   }
 
   touchMove(index) {
-    if (this.isGameOver || this.selectedLine < 0 || !this.isPlayableCell(index)) return false;
+    if (this.isTerminal() || this.selectedLine < 0 || !this.isPlayableCell(index)) return false;
     if (this.portalPhase === PORTAL_PHASE.PORTAL_LOCKED ||
         this.portalPhase === PORTAL_PHASE.PORTAL_WAIT) return false;
 
@@ -581,7 +596,7 @@ class GameRunner {
   }
 
   touchEnd(index) {
-    if (this.isGameOver || this.selectedLine < 0) return false;
+    if (this.isTerminal() || this.selectedLine < 0) return false;
 
     if (this.portalPhase === PORTAL_PHASE.PORTAL_LOCKED) {
       // Once A has been reached, the release coordinate is irrelevant. This
@@ -663,11 +678,7 @@ class GameRunner {
     this.rebuildOwners();
     if (previous) this.undoStack.push(previous);
 
-    if (this.isBoardComplete()) {
-      this.isGameOver = true;
-      this.portalPhase = PORTAL_PHASE.SOLVED;
-      this.finishedAt = Date.now();
-    }
+    this.evaluateOutcome();
     this.notify();
     return true;
   }
@@ -714,14 +725,47 @@ class GameRunner {
   }
 
   undo() {
-    if (this.isGameOver) return false;
+    if (this.isTerminal()) return false;
     if (this.portalPending || this.portalLock) return this.cancelPortalContinuation();
     if (!this.undoStack.length) return false;
     return this.restore(this.undoStack.pop());
   }
 
   canUndo() {
-    return !this.isGameOver && (this.undoStack.length > 0 || !!this.portalPending || !!this.portalLock);
+    return !this.isTerminal() && (this.undoStack.length > 0 || !!this.portalPending || !!this.portalLock);
+  }
+
+  isTerminal() {
+    return this.outcome !== OUTCOME.PLAYING;
+  }
+
+  allLinesCompleted() {
+    return this.completed.length > 0 && this.completed.every(Boolean);
+  }
+
+  remainingCellCount() {
+    return this.owner.reduce((count, lineIndex, index) => (
+      count + (!this.blockedMask[index] && lineIndex < 0 ? 1 : 0)
+    ), 0);
+  }
+
+  finishOutcome(outcome, reason) {
+    if (this.isTerminal()) return this.outcome;
+    this.outcome = outcome;
+    this.failureReason = reason || null;
+    this.remainingPlayableCells = this.remainingCellCount();
+    this.finishedAt = Date.now();
+    this.isGameOver = outcome === OUTCOME.WON;
+    if (outcome === OUTCOME.WON) this.portalPhase = PORTAL_PHASE.SOLVED;
+    return this.outcome;
+  }
+
+  evaluateOutcome() {
+    if (!this.allLinesCompleted()) return this.outcome;
+    if (this.isBoardComplete()) {
+      return this.finishOutcome(OUTCOME.WON);
+    }
+    return this.finishOutcome(OUTCOME.FAILED, 'unfilled-cells');
   }
 
   filledCount() {
@@ -731,6 +775,7 @@ class GameRunner {
   }
 
   isBoardComplete() {
+    if (!this.allLinesCompleted()) return false;
     if (this.portalPending || this.portalLock || this.portalPhase === PORTAL_PHASE.PORTAL_CONTINUE) return false;
     return this.owner.every((lineIndex, index) => (
       this.blockedMask[index] || lineIndex >= 0
@@ -739,5 +784,6 @@ class GameRunner {
 }
 
 GameRunner.PORTAL_PHASE = PORTAL_PHASE;
+GameRunner.OUTCOME = OUTCOME;
 
 module.exports = GameRunner;

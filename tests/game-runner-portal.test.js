@@ -147,13 +147,19 @@ function run() {
   // then commits one complete line with both portal cells covered.
   const continuation = runnerWithPortal();
   startAtPortalAndRelease(continuation, [0, 1, 7]);
+  assert.strictEqual(continuation.outcome, 'playing', 'PORTAL_WAIT must not evaluate the unfinished line');
+  assert.strictEqual(continuation.failureReason, null);
+  assert.strictEqual(continuation.isTerminal(), false);
   assert.strictEqual(continuation.touchStart(28), true);
   const continueStatus = assertPhase(continuation, 'PORTAL_CONTINUE');
   assert.strictEqual(continueStatus.lineIndex, 0);
   assert.strictEqual(continueStatus.entry, 7);
   assert.strictEqual(continueStatus.exit, 28);
+  assert.strictEqual(continuation.outcome, 'playing', 'PORTAL_CONTINUE must not evaluate the unfinished line');
+  assert.strictEqual(continuation.isTerminal(), false);
   assert.strictEqual(continuation.touchEnd(28), false);
   assertPhase(continuation, 'PORTAL_WAIT');
+  assert.strictEqual(continuation.outcome, 'playing', 'returning to PORTAL_WAIT must remain playable');
   assert.strictEqual(continuation.owner[7], -1);
   assert.strictEqual(continuation.owner[28], -1);
 
@@ -161,6 +167,7 @@ function run() {
   assertPhase(continuation, 'PORTAL_CONTINUE');
   assert.strictEqual(continuation.touchMove(29), true);
   assert.strictEqual(continuation.touchMove(35), true);
+  assert.strictEqual(continuation.outcome, 'playing', 'reaching the target must not fail before commit');
   assert.strictEqual(continuation.touchEnd(35), true);
   assert.strictEqual(continuation.portalStatus(), null);
   assert.strictEqual(continuation.selectedLine, -1);
@@ -172,6 +179,26 @@ function run() {
   assert.strictEqual(continuation.owner[7], 0);
   assert.strictEqual(continuation.owner[28], 0);
   assert(continuation.filledCount() >= 5, 'both portal cells count toward coverage');
+  assert.strictEqual(continuation.outcome, 'failed', 'a committed portal line that leaves cells empty must fail');
+  assert.strictEqual(continuation.failureReason, 'unfilled-cells');
+  assert.strictEqual(continuation.isGameOver, false, 'legacy victory flag must stay false on failure');
+  assert.strictEqual(continuation.isTerminal(), true);
+  assert.strictEqual(continuation.remainingCellCount(), 30);
+  assert.strictEqual(continuation.remainingPlayableCells, 30);
+
+  // Resetting a terminal portal failure clears both ordinary outcome state and
+  // transient portal state so the same level can be attempted again.
+  continuation.reset();
+  assert.strictEqual(continuation.outcome, 'playing');
+  assert.strictEqual(continuation.failureReason, null);
+  assert.strictEqual(continuation.isGameOver, false);
+  assert.strictEqual(continuation.isTerminal(), false);
+  assert.strictEqual(continuation.remainingPlayableCells, 0);
+  assert.strictEqual(continuation.finishedAt, 0);
+  assert.strictEqual(continuation.portalStatus(), null);
+  assert.strictEqual(continuation.portalPhase, 'READY');
+  assert.strictEqual(continuation.selectedLine, -1);
+  assert.deepStrictEqual(continuation.selectedCells, []);
 
   // Explicit cancellation has the same stable cleanup semantics as a wrong
   // choice and leaves the ordinary undo stack untouched.

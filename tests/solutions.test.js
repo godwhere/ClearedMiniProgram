@@ -1,6 +1,7 @@
 const assert = require('assert');
 const catalog = require('../data/catalog-v2.js');
 const solutions = require('../data/solutions.js');
+const GameRunner = require('../core/game-runner.js');
 
 function adjacent(one, two, width) {
   return Math.abs((one % width) - (two % width)) +
@@ -40,6 +41,20 @@ function run() {
       });
       assert.strictEqual(covered.length, total, `${set.Name}/${game.Name} does not cover board`);
       assert.strictEqual(new Set(covered).size, total, `${set.Name}/${game.Name} overlaps paths`);
+
+      const runner = new GameRunner(game, set.Palette || []);
+      paths.forEach((path, lineIndex) => {
+        assert.strictEqual(runner.touchStart(path[0]), true,
+          `${set.Name}/${game.Name}/${lineIndex} runtime start rejected`);
+        path.slice(1).forEach(cell => {
+          assert.strictEqual(runner.touchMove(cell), true,
+            `${set.Name}/${game.Name}/${lineIndex} runtime move rejected`);
+        });
+        assert.strictEqual(runner.touchEnd(path[path.length - 1]), true,
+          `${set.Name}/${game.Name}/${lineIndex} runtime completion rejected`);
+      });
+      assert.strictEqual(runner.outcome, GameRunner.OUTCOME.WON,
+        `${set.Name}/${game.Name} official solution must win`);
     });
   });
 }

@@ -203,7 +203,9 @@ const animation = {
 - `cells` 必须复制，后续撤销或新路径不能改变已开始的动画；
 - `effectId`、`durationMs`、`params` 必须在开始时快照化；`params` 至少要做深拷贝（或冻结只读副本），不能持有注册表对象的可变引用。动画播放中切换特效不会改变当前动画，新完成的路径才使用新选择；
 - 普通 `play/result` 和每日 `daily/dailyResult` 使用同一个清除适配器；
-- `GameRunner` 的 owner、selectedCells、计时、撤销栈、完成判定和结果结算不变；
+- 特效层不修改 `GameRunner` 的 owner、selectedCells、撤销栈或 outcome；规则层独立判断
+  `playing/won/failed`，未填满失败面板在 `max(animation.durationMs, resultDelayMs)` 后出现，
+  不得提前遮挡最后一条清除动画；
 - `play:reset`、`play:undo`、`daily:reset`、`daily:undo` 清除尚未完成的动画快照；
 - `app.isAnimating()` 使用动画快照中的 `durationMs`，没有快照时才回退到当前特效/经典配置，避免切换特效后提前停止旧动画。
 
@@ -417,7 +419,7 @@ effect:<id>              -- stay --> effects
 5. **导航来源**：从回廊进入主题后返回回廊；旧 `home:themes → themes:home` 仍可用；`home:corridor` 是当前唯一可见回廊入口。
 6. **特效选择**：`effect:fade` 点击后即时重绘、保持在 effects 场景并持久化；非法选择不改变当前 ID。
 7. **淡出视觉契约**：普通 `play` 和每日 `daily` 均消费同一 `fade` 适配器；alpha 单调从 1 到 0；动画结束后无残留绘制；GameRunner 状态和结果时机不变。
-8. **动画快照**：动画播放中切换特效不会改变已开始路径；reset/undo 会清除旧动画；duration 非法值会安全回退。
+8. **动画快照**：动画播放中切换特效不会改变已开始路径；reset/undo 会清除旧动画；duration 非法值会安全回退；未填满失败窗口不得早于最终动画结束出现。
 9. **预览回退与竞态**：ImageGen 预览懒加载；失败、缺图、晚到回调均不会阻塞页面或覆盖当前页面；棋盘不请求预览图。
 10. **轻量边界**：不新增粒子/物理/offscreen canvas/逐帧 sprite/网络依赖；每格每帧最多调用一次 `drawTile()`，绘制为 O(1)，新增临时对象数量不超过当前路径长度，单次动画沿用主循环。
 11. **回归**：运行 `node tests/run.js`，现有主题、每日挑战、连线、音频、Canvas 和启动测试全部通过。

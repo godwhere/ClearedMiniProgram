@@ -16,8 +16,13 @@ function run() {
   const training = new GameRunner(level(5, 1, [{ Start: 0, End: 4 }]), ['#f00']);
   assert.strictEqual(connect(training, [0, 1, 2, 3, 4]), true);
   assert.strictEqual(training.isGameOver, true);
+  assert.strictEqual(training.outcome, GameRunner.OUTCOME.WON);
+  assert.strictEqual(training.isTerminal(), true);
   assert.deepStrictEqual(training.owner, [0, 0, 0, 0, 0]);
   assert.deepStrictEqual(training.completedPaths[0], [0, 1, 2, 3, 4]);
+  assert.deepStrictEqual(training.snapshot(), {
+    completedPaths: [[0, 1, 2, 3, 4]]
+  }, 'ordinary snapshot shape does not leak terminal fields');
 
   const boundary = new GameRunner(level(5, 2, [{ Start: 4, End: 5 }]), ['#f00']);
   assert.strictEqual(boundary.adjacent(4, 5), false, 'row edges must not wrap');
@@ -43,6 +48,44 @@ function run() {
   assert.strictEqual(board.touchStart(3), true);
   assert.strictEqual(board.touchMove(0), false, 'completed cells must block other paths');
   board.cancelSelection();
+
+  const unfilled = new GameRunner(level(3, 2, [
+    { Start: 0, End: 1 },
+    { Start: 3, End: 4 }
+  ]), ['#f00', '#0f0']);
+  assert.strictEqual(connect(unfilled, [0, 1]), true);
+  assert.strictEqual(unfilled.outcome, GameRunner.OUTCOME.PLAYING,
+    'one completed line must not fail early');
+  assert.strictEqual(connect(unfilled, [3, 4]), true);
+  assert.strictEqual(unfilled.outcome, GameRunner.OUTCOME.FAILED);
+  assert.strictEqual(unfilled.failureReason, 'unfilled-cells');
+  assert.strictEqual(unfilled.remainingCellCount(), 2);
+  assert.strictEqual(unfilled.remainingPlayableCells, 2);
+  assert.strictEqual(unfilled.isGameOver, false, 'legacy isGameOver remains win-only');
+  assert.strictEqual(unfilled.isTerminal(), true);
+  const failedElapsed = unfilled.elapsedMs();
+  const realNow = Date.now;
+  try {
+    Date.now = () => realNow() + 2000;
+    assert.strictEqual(unfilled.elapsedMs(), failedElapsed, 'failed timer is frozen');
+  } finally {
+    Date.now = realNow;
+  }
+  assert.strictEqual(unfilled.touchStart(0), false, 'failed board rejects new input');
+  assert.strictEqual(unfilled.undo(), false, 'failed board can only be restarted');
+  unfilled.reset();
+  assert.strictEqual(unfilled.outcome, GameRunner.OUTCOME.PLAYING);
+  assert.strictEqual(unfilled.failureReason, null);
+  assert.strictEqual(unfilled.isTerminal(), false);
+  assert.strictEqual(unfilled.remainingPlayableCells, 0);
+
+  const blockedFailure = new GameRunner(level(3, 2, [
+    { Start: 0, End: 1 }
+  ]), ['#f00'], null, { blocked: [2, 3, 3, -1, 99] });
+  assert.strictEqual(connect(blockedFailure, [0, 1]), true);
+  assert.strictEqual(blockedFailure.outcome, GameRunner.OUTCOME.FAILED);
+  assert.strictEqual(blockedFailure.remainingCellCount(), 2,
+    'remaining count excludes normalized blocked cells');
 
   const blockedRelease = new GameRunner(level(3, 2, [
     { Start: 0, End: 2 },
@@ -117,6 +160,7 @@ function run() {
   assert.strictEqual(connect(blocked, [0, 1]), true);
   assert.strictEqual(connect(blocked, [2, 5]), true);
   assert.strictEqual(blocked.isGameOver, true, 'completion ignores blocked cells');
+  assert.strictEqual(blocked.outcome, GameRunner.OUTCOME.WON);
   assert.deepStrictEqual(blocked.owner, [0, 0, 1, -1, -1, 1]);
   assert.strictEqual(blocked.filledCount(), 4, 'filledCount excludes blocked cells');
 

@@ -198,7 +198,12 @@
 | `PORTAL_LOCKED` | 手指仍按住，刚进入 A | 当前路径最后一格是 A；后续 move 不再改变路径 |
 | `PORTAL_WAIT` | 已松手，等待从 B 重新按下 | A 段和恢复快照保留；只接受配对 B |
 | `PORTAL_CONTINUE` | 已从 B 按下，但尚未走出第一格 | 当前线路和传送跳跃上下文保留；无有效移动时抬手回 `PORTAL_WAIT` |
-| `SOLVED` | 当前线路/棋盘已完成 | 禁止新手势；结果和结算由应用层处理 |
+| `SOLVED` | 棋盘已全覆盖并胜利 | 禁止新手势；结果和结算由应用层处理 |
+
+`portalPhase` 只描述传送门手势阶段，终局由独立的 `outcome` 表达：`playing`、`won`、
+`failed`。只有所有线路正式提交后才评估终局；剩余可走格为 0 时 `won` 并进入 `SOLVED`，
+仍有可走格时 `failed / unfilled-cells`。失败保持已提交后的 `READY` phase，但
+`isTerminal()` 会冻结输入、撤销和计时；`PORTAL_LOCKED/WAIT/CONTINUE` 永不提前判败。
 
 ### 4.2 状态转移图
 
@@ -223,7 +228,7 @@ PORTAL_CONTINUE
   └─ B 段非法/取消 ─────────────→ PORTAL_WAIT（清 B 段，保留 A 段）
 
 DRAWING
-  ├─ 到普通目标端点并松手 ──────→ READY 或 SOLVED
+  ├─ 到普通目标端点并松手 ──────→ READY、SOLVED 或 failed 终局
   └─ 再次进入其他可用门 ───────→ PORTAL_LOCKED（未来扩展；v1 关卡限制一组门）
 ```
 
@@ -482,6 +487,8 @@ cancelPortalContinuation() -> boolean
 - `selectedCells` 的连续段 API 尽量保持可用。非相邻跳跃应通过平行的 `selectedSegments` / `portalJumps` 元数据表达，不把旧数组改成对象；
 - `touchEnd()` 的布尔返回值继续只表示“整条线路已成功提交”，到达 A 或进入等待态不能返回完成；
 - pending 状态不得写进已完成线路快照，取消时通过入口前快照恢复。
+- 普通关和传送门关共用 outcome 判定；失败不改变 `completedSegments`、`completedTeleports`
+  或普通 snapshot 形状，reset 会同时清理 outcome 与所有 portal 临时状态。
 
 ### 8.2 `src/app.js`：输入与场景编排
 
@@ -490,6 +497,8 @@ cancelPortalContinuation() -> boolean
 - `onPointerStart()`：区分普通起笔、正确 B 起笔和错误等待态按下；保存 pointer id；错误按下触发 runner 的回滚接口，但不启动新线；
 - `onPointerMove()` / `traceBoard()`：继续负责坐标插值和逐格转发；一旦 runner 报告进入 `PORTAL_LOCKED`，立即停止本次插值；
 - `onPointerEnd()`：把释放交给 runner；对 `PORTAL_WAIT` 不播放普通线路失败音效、不触发完成结算；
+- `onPathCompleted()`：只在整条线路提交后读取 runner outcome；`won` 沿用现有完成结算，
+  `failed` 只显示未填满弹窗，不写进度、广告或胜利音；
 - `onPointerCancel()`：根据 runner 状态执行普通手势回滚、portal pending 回滚或 B 段局部回滚；
 - `onHide()` / `onShow()`：清除旧 pointer token、暂停/恢复计时和音频，按第 5 节清理临时状态；
 - `performAction('play:reset'/'play:undo'/'daily:reset'/'daily:undo')`：调用 runner 的统一 portal 清理/撤销接口；
@@ -611,6 +620,8 @@ cancelPortalContinuation() -> boolean
 - A/B 双向进入均可用；
 - 同一 pair 重复使用被拒绝；
 - 两个门格计入 `filledCount()` 和 `isBoardComplete()`；
+- `PORTAL_WAIT/CONTINUE` 不会判败；最后一条分段路径正式提交后，按剩余可走格互斥判定
+  `won` 或 `failed / unfilled-cells`；
 - `undo/reset/abort/cancel` 清理 pending、门占用和快照；
 - 跨行相邻判断不会把边界两格误判为相邻；
 - 多指和过期 pointer 不改变状态。
@@ -693,4 +704,3 @@ cancelPortalContinuation() -> boolean
 7. 传送门图标加载失败时仍可完成关卡；
 8. 文案、配对标记和触摸吸附范围经过至少一轮可用性测试；
 9. README 的玩法说明和本文的“实现状态”同步更新。
-

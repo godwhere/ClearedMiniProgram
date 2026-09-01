@@ -188,9 +188,10 @@ class CanvasRenderer {
     const opts = options || {};
     const enabled = opts.enabled !== false;
     const pressed = id === pressedId;
+    const opacity = opts.opacity === undefined ? 1 : clamp(Number(opts.opacity) || 0, 0, 1);
     const ctx = this.ctx;
     ctx.save();
-    ctx.globalAlpha = enabled ? 1 : 0.32;
+    ctx.globalAlpha = (enabled ? 1 : 0.32) * opacity;
     this.roundedRect(rect.x, rect.y, rect.w, rect.h, opts.radius || skin.layout.buttonRadius);
     ctx.fillStyle = pressed
       ? skin.colors.levelCellPressed
@@ -205,13 +206,13 @@ class CanvasRenderer {
     const labelX = rect.x + rect.w / 2 + (opts.icon ? 13 : 0);
     if (opts.icon) {
       ctx.save();
-      ctx.globalAlpha = enabled ? 1 : 0.5;
+      ctx.globalAlpha = (enabled ? 1 : 0.5) * opacity;
       this.drawIcon(opts.icon, rect.x + rect.w / 2 - 24, rect.y + rect.h / 2, (opts.fontSize || 18) * 1.25);
       ctx.restore();
     }
     this.text(label, labelX, rect.y + rect.h / 2, opts.fontSize || 18, {
       weight: opts.weight || 400,
-      alpha: enabled ? 1 : 0.5
+      alpha: (enabled ? 1 : 0.5) * opacity
     });
     this.addHit(id, rect, enabled);
   }
@@ -562,6 +563,16 @@ class CanvasRenderer {
       ctx.lineTo(-size * 0.1, size * 0.3);
       ctx.lineTo(size * 0.46, -size * 0.34);
       ctx.stroke();
+    } else if (type === 'warning') {
+      ctx.arc(0, 0, size * 0.43, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(0, -size * 0.22);
+      ctx.lineTo(0, size * 0.08);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(0, size * 0.24, Math.max(1.5, size * 0.045), 0, Math.PI * 2);
+      ctx.fill();
     } else if (type === 'home') {
       ctx.moveTo(-size * 0.42, -size * 0.02);
       ctx.lineTo(0, -size * 0.4);
@@ -1668,7 +1679,11 @@ class CanvasRenderer {
     });
     this.text(runner.timeText(), width / 2, topUi + 51, 12, { alpha: 0.62 });
 
-    const showActions = model.scene !== 'result';
+    const failedResult = model.scene === 'result' && model.result && model.result.outcome === 'failed';
+    // Keep the failed board in its exact play-layout position so the remaining
+    // cells stay visible behind the modal. The actions are drawn disabled and
+    // their hits are removed by drawFailureDialog().
+    const showActions = model.scene !== 'result' || failedResult;
     const actionHeight = showActions ? 78 : 0;
     const actionTop = safeBottom - actionHeight;
     const boardTop = headerTop + headerHeight + 16;
@@ -1894,7 +1909,8 @@ class CanvasRenderer {
 
     // Keep the same vertical budget as the ordinary board while using the
     // current daily level's declared geometry (3×3 intro or 8×10 extreme).
-    const showActions = !isResult;
+    const failedResult = isResult && model && model.result && model.result.outcome === 'failed';
+    const showActions = !isResult || failedResult;
     const actionHeight = showActions ? 78 : 0;
     const actionTop = safeBottom - actionHeight;
     const boardTop = headerTop + headerHeight + 16;
@@ -2004,12 +2020,122 @@ class CanvasRenderer {
     }
   }
 
+  drawFailureDialog(model, now, options) {
+    const opts = options || {};
+    const result = model.result || {};
+    const visibleAt = Number(opts.visibleAt === undefined ? model.resultVisibleAt : opts.visibleAt) || 0;
+
+    // A terminal failure is modal from the commit boundary, not merely from
+    // the first visible dialog frame. Remove every underlying hit immediately
+    // so the delayed final clear animation cannot leak taps to board controls.
+    this.hits = [];
+    if (now < visibleAt) return;
+
+    const skin = this.skinService.current();
+    const metrics = this.platform.metrics;
+    const width = metrics.width;
+    const height = metrics.height;
+    const safeTop = Number(metrics.safeTop) || 0;
+    const safeBottom = Number(metrics.safeBottom) || height;
+    const daily = opts.daily === true;
+    const enter = clamp((now - visibleAt) / 180, 0, 1);
+    const eased = 1 - Math.pow(1 - enter, 3);
+    const panelWidth = Math.min(360, Math.max(288, width - 48), width - 32);
+    const stacked = panelWidth < 280;
+    const desiredHeight = stacked ? (daily ? 318 : 300) : (daily ? 254 : 238);
+    const panelHeight = Math.min(desiredHeight, Math.max(220, safeBottom - safeTop - 24));
+    const panelX = (width - panelWidth) / 2;
+    const centeredY = (safeTop + safeBottom - panelHeight) / 2;
+    const panelY = clamp(centeredY, safeTop + 12, safeBottom - panelHeight - 12);
+    const shiftedY = panelY + (1 - eased) * 8;
+    const ctx = this.ctx;
+
+    ctx.save();
+    ctx.globalAlpha = 0.3 * eased;
+    ctx.fillStyle = '#000000';
+    ctx.fillRect(0, 0, width, height);
+    ctx.restore();
+
+    ctx.save();
+    ctx.globalAlpha = eased;
+    this.roundedRect(panelX, shiftedY, panelWidth, panelHeight, 16);
+    ctx.fillStyle = skin.colors.strongPanel;
+    ctx.fill();
+    ctx.strokeStyle = skin.colors.hairline || 'rgba(255,255,255,0.42)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.restore();
+
+    ctx.save();
+    ctx.globalAlpha = eased;
+    this.drawIcon('warning', width / 2, shiftedY + 40, 40);
+    ctx.restore();
+    this.text('挑战失败', width / 2, shiftedY + 82, 27, { weight: 300, alpha: eased });
+    this.text(`还有 ${Math.max(1, Number(result.remainingCells) || 1)} 个空格未消除`,
+      width / 2, shiftedY + 116, 15, { alpha: 0.9 * eased, maxWidth: panelWidth - 32 });
+    this.text('连接棋子的同时，需要经过全部格子',
+      width / 2, shiftedY + 143, 12, { alpha: 0.68 * eased, maxWidth: panelWidth - 32 });
+    if (daily) {
+      this.text('重试当前关不会额外消耗次数',
+        width / 2, shiftedY + 164, 11, { alpha: 0.56 * eased, maxWidth: panelWidth - 32 });
+    }
+
+    const backAction = daily ? 'dailyResult:home' : 'result:levels';
+    const retryAction = daily ? 'dailyFailure:retry' : 'failure:retry';
+    const backLabel = daily || model.isPortalTrial ? '返回主页' : '返回选关';
+    const retryLabel = daily ? '重试本关' : '重新开始';
+    const buttonHeight = stacked ? 44 : 48;
+    if (stacked) {
+      const buttonWidth = Math.min(220, panelWidth - 32);
+      const buttonX = (width - buttonWidth) / 2;
+      const primaryY = shiftedY + panelHeight - buttonHeight * 2 - 26;
+      this.button(retryAction, { x: buttonX, y: primaryY, w: buttonWidth, h: buttonHeight }, retryLabel, {
+        fontSize: 15,
+        opacity: eased,
+        fill: skin.colors.primaryButton,
+        stroke: skin.colors.primaryButtonStroke
+      }, model.pressedId);
+      this.button(backAction, { x: buttonX, y: primaryY + buttonHeight + 10, w: buttonWidth, h: buttonHeight }, backLabel, {
+        fontSize: 15,
+        opacity: eased,
+        fill: skin.colors.secondaryButton,
+        stroke: skin.colors.primaryButtonStroke
+      }, model.pressedId);
+      return;
+    }
+
+    const buttonGap = 10;
+    const buttonWidth = (panelWidth - 32 - buttonGap) / 2;
+    const buttonY = shiftedY + panelHeight - buttonHeight - 16;
+    this.button(backAction, { x: panelX + 16, y: buttonY, w: buttonWidth, h: buttonHeight }, backLabel, {
+      fontSize: 15,
+      opacity: eased,
+      fill: skin.colors.secondaryButton,
+      stroke: skin.colors.primaryButtonStroke
+    }, model.pressedId);
+    this.button(retryAction, {
+      x: panelX + 16 + buttonWidth + buttonGap,
+      y: buttonY,
+      w: buttonWidth,
+      h: buttonHeight
+    }, retryLabel, {
+      fontSize: 15,
+      opacity: eased,
+      fill: skin.colors.primaryButton,
+      stroke: skin.colors.primaryButtonStroke
+    }, model.pressedId);
+  }
+
   drawDailyResult(model, now) {
     const skin = this.skinService.current();
     const { width, height } = this.platform.metrics;
     const visibleAt = Number(model.dailyResultVisibleAt || model.resultVisibleAt) || 0;
-    if (now < visibleAt) return;
     const result = model.result || {};
+    if (result.outcome === 'failed') {
+      this.drawFailureDialog(model, now, { daily: true, visibleAt });
+      return;
+    }
+    if (now < visibleAt) return;
     const ctx = this.ctx;
     // The daily result has one extra status line (round count and remaining
     // entries). Keep a minimum panel height so that line never overlaps the
@@ -2174,6 +2300,10 @@ class CanvasRenderer {
   drawResult(model, now) {
     const skin = this.skinService.current();
     const { width, height } = this.platform.metrics;
+    if (model.result && model.result.outcome === 'failed') {
+      this.drawFailureDialog(model, now, { daily: false, visibleAt: model.resultVisibleAt });
+      return;
+    }
     if (now < model.resultVisibleAt) return;
 
     const ctx = this.ctx;

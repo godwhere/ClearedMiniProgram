@@ -329,6 +329,9 @@ new GameRunner(level, palette, onChange, {
 - fixedLine、owner、touched 不为阻挡格分配线路。
 - 完成判定和 filledCount() 只统计可走格。
 - snapshot()、undo()、rebuildOwners() 不得把阻挡格恢复为可走格。
+- 每条线路都已提交且剩余可走格为 0 时 outcome=won；每条线路都已提交但仍有可走格时
+  outcome=failed、reason=unfilled-cells。线路未全部提交时保持 playing。
+- 失败立即冻结当前 runner 的输入和计时，但失败面板须等待最后一条清除动画结束后出现。
 
 ## 9. 提示、渲染与难度展示
 
@@ -351,6 +354,8 @@ new GameRunner(level, palette, onChange, {
 - 每个 Blocked 格显示为不可走镂空，不绘制 tile、端点、提示或清除动画，也不产生棋盘 UI hit。
 - 主题只负责 tile、背景和按钮，不判断 Blocked。
 - 结果页只显示每日完成、总用时和次数状态，不显示虚构货币数量。
+- 未填满失败使用同一 Canvas 结果层，显示剩余空格数、“返回主页”和“重试本关”；面板出现后
+  不得保留棋盘、顶部控制、提示或撤回的命中区域。
 
 ## 10. App 编排边界
 
@@ -383,6 +388,8 @@ this.daily = {
 - enterDaily() 先解析 Day、校验两关、检查 canEnter()，创建 runner 成功后再 recordEntry()。
 - 第 0 关通关后记录该 level 完成，累计时间，设置 levelIndex=1 并创建第二关 runner；不增加进入次数。
 - 第 1 关通关后记录最终完成，切换 dailyResult；普通存档、普通广告和普通统计不变。
+- 任一关 outcome=failed 时不得记录 level 完成、推进 levelIndex 或触发 onDailyCompleted；
+  dailyFailure:retry 只重置当前 runner，保留已完成的前置 level 结果且不增加进入次数。
 - dailyResult:replay 只有在仍可进入时才重开；次数耗尽时按钮禁用。
 - daily:reset 只重置当前 runner；不扣额外次数。
 - daily:revive 当前返回未实现状态且不注册 hit；未来由广告/分享服务授权后调用次数增加接口。
@@ -501,7 +508,9 @@ onDailyCompleted({
 6. **主页**：命中顺序为 home:dailyChallenge → home:corridor → home:start；按钮位置和安全区公式正确；次数耗尽时每日按钮无 hit；旧 home:themes action 仍可兼容调用。
 7. **每日场景**：标题和 1/2、2/2；第 0 关通关进入第 1 关且不扣次数；第 1 关通关进入结果页；重玩受次数限制；复活 action 仅预留。
 8. **隔离**：每日不改变普通完成数、lastPlayed、totalClears 或普通广告计数。
-9. **回归**：实现阶段运行 node tests/run.js，所有既有普通连线、122 关、主题和音频测试通过。
+9. **失败与重试**：第 0/1 关留空失败都不写完成；第 1 关失败保留第 0 关结果；重试当前关
+   不改变 entriesUsed/entriesRemaining；弹窗延迟期和显示期都无底层点击穿透。
+10. **回归**：实现阶段运行 node tests/run.js，所有既有普通连线、122 关、主题和音频测试通过。
 
 ## 14. 实施顺序
 

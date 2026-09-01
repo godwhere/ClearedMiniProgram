@@ -208,6 +208,34 @@ function run() {
   app.performAction('play:back');
   assert.strictEqual(app.scene, 'home');
   assert.strictEqual(app.runner, null);
+
+  // A valid but short portal route can finish the only line while leaving
+  // cells empty. It must use the shared failure modal, keep ordinary progress
+  // untouched, and label the back action as a return to the home scene.
+  app.performAction('home:portalTrial');
+  app.tick(Date.now() + 1000);
+  const failureLayout = app.renderer.boardLayout;
+  const failurePoint = (index, id) => ({
+    x: failureLayout.x + (index % failureLayout.cols + 0.5) * failureLayout.cell,
+    y: failureLayout.y + (Math.floor(index / failureLayout.cols) + 0.5) * failureLayout.cell,
+    id
+  });
+  const completedBeforeFailure = app.progress.completedCount();
+  app.onPointerStart(failurePoint(0, 20));
+  [1, 6, 5, 10, 11, 16, 15, 20, 21].forEach(c => app.onPointerMove(failurePoint(c, 20)));
+  app.onPointerEnd(failurePoint(21, 20));
+  app.onPointerStart(failurePoint(2, 21));
+  [3, 4, 9, 14, 19, 24].forEach(c => app.onPointerMove(failurePoint(c, 21)));
+  app.onPointerEnd(failurePoint(24, 21));
+  assert.strictEqual(app.runner.outcome, GameRunner.OUTCOME.FAILED);
+  assert.strictEqual(app.result.remainingCells, 8);
+  assert.strictEqual(app.scene, 'result');
+  assert.strictEqual(app.progress.completedCount(), completedBeforeFailure);
+  app.tick(app.resultVisibleAt + 180);
+  assert.deepStrictEqual(app.renderer.hits.map(hit => hit.id), ['result:levels', 'failure:retry']);
+  app.performAction('result:levels');
+  assert.strictEqual(app.scene, 'home');
+  assert.strictEqual(app.runner, null);
 }
 
 module.exports = run;
