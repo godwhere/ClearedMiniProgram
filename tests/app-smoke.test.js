@@ -4,6 +4,7 @@ const ClearedApp = require('../src/app.js');
 const GameRunner = require('../core/game-runner.js');
 const { createCatalogRunContext } = require('../src/gameplay/run-context.js');
 const solutions = require('../data/solutions.js');
+const portalSolutions = require('../data/portal-solutions.js');
 
 function fakeContext() {
   const context = {};
@@ -243,22 +244,22 @@ function run() {
   assert.strictEqual(app.result, null);
   assert.strictEqual(app.clearAnimation, null);
 
-  // The ordinary selector is one continuous 1-62 catalog, paged independently
+  // The ordinary selector is one continuous 1-92 catalog, paged independently
   // from the canonical set/level coordinates used by progress and hints.
   app.scene = 'levels';
   app.levelPageIndex = 0;
   let levelModel = app.buildModel();
-  assert.strictEqual(levelModel.totalLevels, 62);
-  assert.strictEqual(levelModel.levelPageCount, 3);
+  assert.strictEqual(levelModel.totalLevels, 92);
+  assert.strictEqual(levelModel.levelPageCount, 4);
   assert.strictEqual(levelModel.levelItems.length, 25);
   assert.strictEqual(levelModel.levelItems[0].displayNumber, 1);
   assert.strictEqual(levelModel.levelItems[0].action, 'level:0:0');
   assert.strictEqual(levelModel.levelItems[24].displayNumber, 25);
   assert.strictEqual(levelModel.levelItems[24].action, 'level:3:7');
-  assert.deepStrictEqual([0, 1, 2].map(pageIndex => {
+  assert.deepStrictEqual([0, 1, 2, 3].map(pageIndex => {
     app.levelPageIndex = pageIndex;
     return app.buildModel().levelItems.length;
-  }), [25, 25, 12]);
+  }), [25, 25, 25, 17]);
 
   app.levelPageIndex = 0;
   app.performAction('levels:next');
@@ -271,12 +272,12 @@ function run() {
   assert.strictEqual(levelModel.levelItems[7].action, 'level:4:0',
     'the first 8x8 board is ordinary level 33');
 
-  app.levelPageIndex = 2;
+  app.levelPageIndex = 3;
   levelModel = app.buildModel();
-  assert.strictEqual(levelModel.levelRangeStart, 51);
-  assert.strictEqual(levelModel.levelRangeEnd, 62);
-  assert.strictEqual(levelModel.levelItems.length, 12);
-  assert.strictEqual(levelModel.levelItems[11].action, 'level:4:29');
+  assert.strictEqual(levelModel.levelRangeStart, 76);
+  assert.strictEqual(levelModel.levelRangeEnd, 92);
+  assert.strictEqual(levelModel.levelItems.length, 17);
+  assert.strictEqual(levelModel.levelItems[16].action, 'level:4:59');
 
   const activeCompletedBeforeRetiredSave = app.ordinaryCompletedCount();
   app.progress.state.completed['1:5'] = true;
@@ -286,8 +287,8 @@ function run() {
   app.scene = 'home';
   const homeModelWithRetiredSave = app.buildModel();
   assert.strictEqual(homeModelWithRetiredSave.completedCount, activeCompletedBeforeRetiredSave,
-    'retired ordinary progress is preserved but excluded from the active 1-62 count');
-  assert.strictEqual(homeModelWithRetiredSave.totalLevels, 62);
+    'retired ordinary progress is preserved but excluded from the active 1-92 count');
+  assert.strictEqual(homeModelWithRetiredSave.totalLevels, 92);
 
   app.progress.state.lastPlayed = { setIndex: 2, levelIndex: 10 };
   app.performAction('home:levels');
@@ -303,28 +304,64 @@ function run() {
     'the legacy two-part level action still resolves within the current set');
   app.performAction('play:back');
 
-  app.progress.state.completed['4:28'] = true;
-  app.levelPageIndex = 2;
-  assert.strictEqual(app.performAction('level:4:29'), undefined);
+  app.progress.state.completed['4:58'] = true;
+  app.levelPageIndex = 3;
+  assert.strictEqual(app.performAction('level:4:59'), undefined);
   assert.strictEqual(app.scene, 'play');
   assert.strictEqual(app.setIndex, 4);
-  assert.strictEqual(app.levelIndex, 29);
+  assert.strictEqual(app.levelIndex, 59);
+  assert.strictEqual(app.runContext.source.kind, 'catalog');
+  assert.strictEqual(app.runContext.progressionScope, 'ordinary');
   const finalOrdinaryModel = app.buildModel();
-  assert.strictEqual(finalOrdinaryModel.ordinaryLevelNumber, 62);
-  assert.strictEqual(finalOrdinaryModel.ordinaryLevelCount, 62);
+  assert.strictEqual(finalOrdinaryModel.ordinaryLevelNumber, 92);
+  assert.strictEqual(finalOrdinaryModel.ordinaryLevelCount, 92);
   assert.strictEqual(finalOrdinaryModel.hasNext, false);
+  assert.strictEqual(app.showHint(), true);
+  assert.strictEqual(app.hint.source, 'solution');
   app.performAction('play:back');
   assert.strictEqual(app.scene, 'levels');
-  assert.strictEqual(app.levelPageIndex, 2,
+  assert.strictEqual(app.levelPageIndex, 3,
     'returning from the last ordinary level restores its selector page');
 
-  app.performAction('level:4:29');
+  app.performAction('level:4:59');
   app.scene = 'result';
   app.result = { outcome: GameRunner.OUTCOME.WON };
   app.performAction('result:next');
   assert.strictEqual(app.scene, 'levels');
-  assert.strictEqual(app.levelPageIndex, 2,
-    'the final ordinary result returns to the page containing level 62');
+  assert.strictEqual(app.levelPageIndex, 3,
+    'the final ordinary result returns to the page containing level 92');
+
+  // A catalog Portal level still settles through the ordinary progress domain
+  // after its segmented answer is completed; only the dedicated trial domain
+  // is intentionally non-persistent.
+  const portalApp = new ClearedApp(new WechatPlatform(createWxMock()), {
+    solutionCatalog: solutions,
+    portalSolutions
+  });
+  portalApp.progress.state.completed['4:29'] = true;
+  assert.strictEqual(portalApp.openLevel(4, 30), true);
+  const portalLevel = portalApp.runner.level;
+  const portalAnswer = portalSolutions.ByLevelId[portalLevel.Id];
+  assert(portalAnswer, 'the first catalog Portal level has a keyed answer');
+  portalAnswer.forEach((lineAnswer, lineIndex) => {
+    const segments = lineAnswer.Segments || [];
+    segments.forEach((segment, segmentIndex) => {
+      const cells = segment.Cells || [];
+      assert.strictEqual(portalApp.runner.touchStart(cells[0]), true);
+      cells.slice(1).forEach(cell => portalApp.runner.touchMove(cell));
+      const ended = portalApp.runner.touchEnd(cells[cells.length - 1]);
+      if (segmentIndex < segments.length - 1) {
+        assert.strictEqual(ended, false);
+      } else {
+        assert.strictEqual(ended, true);
+        const completed = portalApp.runner.getCompletedLine(lineIndex);
+        portalApp.onPathCompleted(lineIndex, completed.cells, completed.segments);
+      }
+    });
+  });
+  assert.strictEqual(portalApp.scene, 'result');
+  assert.strictEqual(portalApp.progress.isCompleted(4, 30), true,
+    'ordinary catalog Portal completion writes the ordinary progress key');
 }
 
 module.exports = run;

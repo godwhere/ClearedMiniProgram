@@ -3,6 +3,7 @@
 const assert = require('assert');
 const GameRunner = require('../core/game-runner.js');
 const portalValidation = require('../core/portal-validation.js');
+const HintService = require('../src/services/hint-service.js');
 const portalDemo = require('../data/portal-demo.js');
 const portalSolutions = require('../data/portal-solutions.js');
 const catalog = require('../data/catalog-v2.js');
@@ -89,6 +90,7 @@ function run() {
   // ship without a validator/replayable answer.
   const ordinarySet8 = catalog.sets[4];
   assert(ordinarySet8, 'ordinary 8x8 catalog set is required');
+  const hints = new HintService();
   const ordinaryPortalGames = (ordinarySet8.Games || []).filter(game =>
     game && (game.Mechanic === 'portal' || game.mechanic === 'portal'));
   assert.strictEqual(ordinaryPortalGames.length, 30,
@@ -107,6 +109,9 @@ function run() {
       `${game.Id} publishing validation failed: ${validation.errors.join(',')}`);
     const answer = portalSolutions.ByLevelId[game.Id];
     assert(Array.isArray(answer), `${game.Id} answer missing`);
+    const hint = hints.find(new GameRunner(game, ordinarySet8.Palette), 4, 30 + index);
+    assert(hint && hint.source === 'solution',
+      `${game.Id} must expose its keyed Portal hint`);
     answer.forEach(lineAnswer => {
       (lineAnswer.Segments || []).forEach(segment => {
         if (!segment.Exit) return;

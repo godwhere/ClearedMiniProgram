@@ -12,13 +12,18 @@ function run() {
   assert(Array.isArray(solutions.sets), 'solutions must expose sets');
   assert.strictEqual(solutions.sets.length, catalog.sets.length);
   assert.deepStrictEqual(solutions.sets.map(set => set.length), [2, 5, 10, 15, 30]);
-  assert.strictEqual(solutions.sets.reduce((total, set) => total + set.length, 0), 62);
+  assert.strictEqual(solutions.sets.reduce((total, set) => total + set.length, 0), 62,
+    'the flat solution table remains reserved for the 62 non-Portal levels');
 
   catalog.sets.forEach((set, setIndex) => {
     const setSolutions = solutions.sets[setIndex];
     assert(Array.isArray(setSolutions), `${set.Name} solutions missing`);
-    assert.strictEqual(setSolutions.length, set.Games.length);
-    set.Games.forEach((game, levelIndex) => {
+    const ordinaryGames = (set.Games || []).reduce((result, game, levelIndex) => {
+      if (!game || game.Mechanic === 'portal' || game.mechanic === 'portal') return result;
+      result.push({ game, levelIndex });
+      return result;
+    }, []);
+    ordinaryGames.forEach(({ game, levelIndex }) => {
       const paths = setSolutions[levelIndex];
       const total = game.Width * game.Height;
       assert(Array.isArray(paths), `${set.Name}/${game.Name} paths missing`);

@@ -1,6 +1,7 @@
 'use strict';
 
-// Portal-aware answers are intentionally separate from data/solutions.js:
+// Portal-aware answers for both trial and ordinary catalog levels are
+// intentionally separate from data/solutions.js:
 // every line is an ordered list of contiguous segments, with an explicit
 // release-and-reconnect edge between the segment ending at an entry portal and
 // the segment beginning at a chosen exit. Cells inside a segment are ordinary
