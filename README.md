@@ -29,6 +29,7 @@
 传送门玩法的入口段锁定、松手后任选同网络其他出口、错误选择回滚、试玩关卡、分段解答格式和
 `GameRunner`/输入/渲染代码边界记录在 [`docs/portal-mechanic.md`](docs/portal-mechanic.md)。
 目前已完成 Portal v2 单网络任选出口、分段手势/提示、完整路径清除动画与 5 个试玩关卡（`data/portal-demo.js`），并保留 Portal v1 题面和解答兼容。提示只在到门锁定和松手等待两个阶段出现在棋盘上方，带轻微呼吸效果；门格不显示 `P1`，Portal 阶段不震动，完整线路消除仍保留原有震动。
+传送门试玩保留为兼容入口，但不在主页注册可见按钮；普通 Portal 章节通过连续选关进入。
 传送门以 [`src/mechanics/portal.js`](src/mechanics/portal.js) 作为独立“玩法拓展”定义，不属于主题或特效回廊；试玩通关不写入普通关卡进度、最佳时间或广告计数。门格只显示传送门，不叠加当前主题棋子；默认图标为
 [`assets/icons/portal.png`](assets/icons/portal.png)。
 

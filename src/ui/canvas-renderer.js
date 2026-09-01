@@ -673,24 +673,6 @@ class CanvasRenderer {
     this.iconButton('home:sound', { x: width - 58, y: safeTop + (skin.layout.homeTopUiOffset || 0) + 8, w: 44, h: 44 },
       model.soundEnabled ? 'sound' : 'mute', true, model.pressedId);
 
-    const portalTrial = model && model.portalTrial;
-    if (portalTrial && portalTrial.enabled !== false && portalTrial.action) {
-      const trialBtnWidth = 110;
-      const trialBtnHeight = 44;
-      const trialBtnX = 18;
-      const trialBtnY = safeTop + (skin.layout.homeTopUiOffset || 0) + 8;
-      this.button(portalTrial.action, {
-        x: trialBtnX,
-        y: trialBtnY,
-        w: trialBtnWidth,
-        h: trialBtnHeight
-      }, portalTrial.label || portalTrial.name || '传送门试玩', {
-        fill: skin.colors.secondaryButton,
-        stroke: skin.colors.primaryButtonStroke,
-        fontSize: 14
-      }, model.pressedId);
-    }
-
     const buttonHeight = 54;
     const buttonGap = 12;
     // The home actions use a two-row composition: daily challenge and themes

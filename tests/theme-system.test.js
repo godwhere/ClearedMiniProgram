@@ -212,6 +212,8 @@ function runRendererChecks() {
   assert(homeIds.indexOf('home:start') >= 0);
   assert(homeIds.indexOf('home:themes') >= 0);
   assert(homeIds.indexOf('home:dailyChallenge') >= 0);
+  assert.strictEqual(homeIds.indexOf('home:portalTrial'), -1,
+    'portal trial is not exposed as a visible home action');
   assert.strictEqual(homeIds.indexOf('home:levels'), -1, 'level picker is no longer a home button');
   const homeButtons = renderer.hits.filter(hit => /^home:(dailyChallenge|themes|start)$/.test(hit.id));
   assert.deepStrictEqual(homeButtons.map(hit => hit.id), [

@@ -93,8 +93,10 @@ function run() {
   assert(app.buildModel().portalTrial, 'home model exposes the gameplay extension definition');
   assert.strictEqual(app.buildModel().portalTrial.action, 'home:portalTrial');
   app.tick(Date.now());
-  assert.strictEqual(app.renderer.hitTest(73, 98), 'home:portalTrial',
-    'the dedicated gameplay-extension button is reachable on the home screen');
+  assert.strictEqual(app.renderer.hitTest(73, 98), null,
+    'the portal trial is no longer a visible home hit');
+  assert.strictEqual(app.renderer.hits.some(hit => hit.id === 'home:portalTrial'), false,
+    'the portal trial action remains hidden from the home hit map');
 
   // Enter demo level 1 through the gameplay-extension entry.
   const level1 = portalDemo.Games[0]; // 5x5, Start: 0, End: 24, Portals: P1, A: 21, B: 2

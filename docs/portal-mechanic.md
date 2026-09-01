@@ -5,6 +5,9 @@
 > 实现状态：单网络任选出口、分段提示、触摸取消、5 个试玩关与发布校验已接入；微信开发者工具及真机仍需发布前验收。
 > 运行时：微信小游戏单 Canvas 链路 `game.js → src/bootstrap.js → src/app.js → core/game-runner.js / src/ui/canvas-renderer.js`
 
+试玩 action `home:portalTrial` / `corridor:portalTrial` 仍保留用于兼容调用和测试，
+但当前不在主页注册可见命中；普通 Portal 关卡通过连续选关进入。
+
 ## 1. 目的与当前规则
 
 传送门把“从同色端点连续拖到另一端点”的局部连线扩展成“入口段 → 松手 → 出口段”的跨区域连线。它改变棋盘拓扑，不属于主题、清除特效、广告或进度结算。
