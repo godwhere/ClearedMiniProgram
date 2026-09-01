@@ -3,7 +3,6 @@
 const assert = require('assert');
 const WechatPlatform = require('../src/platform/wechat.js');
 const ClearedApp = require('../src/app.js');
-const GameRunner = require('../core/game-runner.js');
 const portalDemo = require('../data/portal-demo.js');
 const portalSolutions = require('../data/portal-solutions.js');
 
@@ -84,16 +83,21 @@ function run() {
     portalSolutions
   });
   app.start();
+  let ordinaryCompletionAds = 0;
+  app.ads.onLevelCompleted = () => { ordinaryCompletionAds += 1; };
+  assert.strictEqual(app.hints.portalSolutions, portalSolutions,
+    'App must pass injected portal solutions to HintService');
+  assert(app.buildModel().portalTrial, 'home model exposes the gameplay extension definition');
+  assert.strictEqual(app.buildModel().portalTrial.action, 'home:portalTrial');
+  app.tick(Date.now());
+  assert.strictEqual(app.renderer.hitTest(73, 98), 'home:portalTrial',
+    'the dedicated gameplay-extension button is reachable on the home screen');
 
-  // Setup demo level 1 directly in runner for play scene
+  // Enter demo level 1 through the gameplay-extension entry.
   const level1 = portalDemo.Games[0]; // 5x5, Start: 0, End: 24, Portals: P1, A: 21, B: 2
-  app.setIndex = 0;
-  app.levelIndex = 0;
-  app.currentSet = portalDemo;
-  app.currentLevel = level1;
-  app.runner = new GameRunner(level1, portalDemo.Palette, () => app.invalidate());
-  app.scene = 'play';
-  app.levelEnteredAt = Date.now();
+  assert.strictEqual(app.openPortalTrial(0), true);
+  assert.strictEqual(app.activeMechanicId, 'portal');
+  assert.strictEqual(app.setIndex, -1, 'trial does not reuse an ordinary catalog index');
   app.tick(Date.now());
 
   const layout = app.renderer.boardLayout;
@@ -119,7 +123,10 @@ function run() {
   app.onPointerMove(cellPoint(22, 1));
   assert.strictEqual(app.runner.portalPhase, 'PORTAL_LOCKED');
   assert.strictEqual(app.runner.selectedCells[app.runner.selectedCells.length - 1], 21);
-  app.onPointerEnd(cellPoint(21, 1));
+  app.onPointerCancel(cellPoint(21, 1));
+  assert.strictEqual(app.runner.portalPhase, 'PORTAL_WAIT',
+    'touchcancel at a locked portal is treated as releasing at the entry');
+  assert.strictEqual(app.pointer, null);
 
   // 2. Fast swipe jump over A: traceBoard stops at A
   app.runner.reset();
@@ -140,6 +147,15 @@ function run() {
   const model = app.buildModel();
   assert.strictEqual(model.expectedExit, 2);
   assert.strictEqual(model.portalInstruction, '从另一端继续');
+
+  // Cancelling an exit-side gesture drops only that side and keeps A waiting.
+  app.onPointerStart(cellPoint(2, 30));
+  app.onPointerMove(cellPoint(3, 30));
+  app.onPointerCancel(cellPoint(3, 30));
+  assert.strictEqual(app.runner.portalPhase, 'PORTAL_WAIT');
+  assert.strictEqual(app.runner.portalPending.exit, 2);
+  assert.strictEqual(app.runner.selectedCells[app.runner.selectedCells.length - 1], 21);
+  assert.strictEqual(app.pointer, null);
 
   // 4. Wrong tap (not on B=2): cancels A segment, does NOT start new line
   app.onPointerStart(cellPoint(10, 3));
@@ -164,6 +180,19 @@ function run() {
   app.onPointerEnd(cellPoint(24, 5));
   assert.strictEqual(app.runner.isGameOver, true);
   assert.strictEqual(app.scene, 'result');
+  assert.strictEqual(app.clearAnimation.cells.length, 25,
+    'clear animation includes both portal path segments');
+  assert.deepStrictEqual(app.clearAnimation.segments.map(segment => segment.length), [10, 15]);
+  assert.deepStrictEqual(app.progress.state.completed, {},
+    'portal trials must not write ordinary level completion');
+  assert.strictEqual(app.progress.state.lastPlayed, null,
+    'portal trials must not replace the ordinary resume target');
+  assert.strictEqual(app.progress.state.stats.totalClears, 0,
+    'portal trials must not increment ordinary clear/ad counters');
+  assert.strictEqual(ordinaryCompletionAds, 0,
+    'portal trials must not enter the ordinary completion-ad flow');
+  assert.strictEqual(app.result.persisted, false);
+  assert.strictEqual(app.result.gameplayExtensionId, 'portal');
 
   // 6. onHide() clears pending portal state
   app.runner.reset();
@@ -178,7 +207,7 @@ function run() {
   assert.strictEqual(app.runner.portalPhase, 'READY');
   assert.strictEqual(app.pointer, null);
 
-  // 7. Test home:portalTrial and corridor:portalTrial entry flows
+  // 7. Test the dedicated home gameplay-extension entry.
   app.scene = 'home';
   app.performAction('home:portalTrial');
   assert.strictEqual(app.scene, 'play');
@@ -197,17 +226,39 @@ function run() {
   assert.strictEqual(app.scene, 'home');
   assert.strictEqual(app.runner, null);
 
-  // Corridor entry
+  // Portal is not a corridor/theme/effect entry.
   app.scene = 'corridor';
+  assert.deepStrictEqual(app.corridorDescriptors().map(item => item.id), ['themes', 'effects']);
   app.performAction('corridor:portalTrial');
   assert.strictEqual(app.scene, 'play');
-  assert.strictEqual(app.currentSet, portalDemo);
-  assert.strictEqual(app.levelIndex, 0);
-
-  // Back button returns home
+  assert.strictEqual(app.currentSet, portalDemo,
+    'the hidden legacy action remains compatible without a corridor card');
+  // Back button returns home.
   app.performAction('play:back');
   assert.strictEqual(app.scene, 'home');
   assert.strictEqual(app.runner, null);
+
+  // A custom solution manifest must not be shadowed by the built-in default.
+  const customSolutions = { ByLevelId: { custom: [] } };
+  const customApp = new ClearedApp(new WechatPlatform(createWxMock()), {
+    portalSolutions: customSolutions
+  });
+  assert.strictEqual(customApp.hints.portalSolutions, customSolutions);
+
+  // Malformed injected definitions never expose/open a trial that could fall
+  // through to ordinary ProgressStore keys.
+  const invalidDefinitionApp = new ClearedApp(new WechatPlatform(createWxMock()), {
+    portalMechanic: {
+      enabled: true,
+      mechanic: 'portal',
+      rulesVersion: 1,
+      trial: { action: 'home:portalTrial', set: portalDemo, solutions: portalSolutions }
+    },
+    portalDemo,
+    portalSolutions
+  });
+  assert.strictEqual(invalidDefinitionApp.portalTrialDescriptor(), null);
+  assert.strictEqual(invalidDefinitionApp.openPortalTrial(0), false);
 }
 
 module.exports = run;

@@ -45,6 +45,7 @@ class CanvasRenderer {
     this.boardLayout = null;
     this.portalImage = null;
     this.portalImageLoading = false;
+    this.portalImageSource = null;
     this.invalidate = function () {};
     this.loadSkinAssets();
   }
@@ -615,12 +616,17 @@ class CanvasRenderer {
     ctx.restore();
   }
 
-  ensurePortalImage() {
-    if (this.portalImage) return this.portalImage;
-    if (this.portalImageLoading) return null;
+  ensurePortalImage(source) {
+    const requestedSource = typeof source === 'string' && source
+      ? source : 'assets/icons/portal.png';
+    if (this.portalImage && this.portalImageSource === requestedSource) return this.portalImage;
+    if (this.portalImageLoading && this.portalImageSource === requestedSource) return null;
+    this.portalImage = null;
+    this.portalImageSource = requestedSource;
     this.portalImageLoading = true;
     try {
-      this.platform.createImage('assets/icons/portal.png', (error, image) => {
+      this.platform.createImage(requestedSource, (error, image) => {
+        if (this.portalImageSource !== requestedSource) return;
         this.portalImageLoading = false;
         if (!error && image) {
           this.portalImage = image;
@@ -661,15 +667,22 @@ class CanvasRenderer {
     ctx.restore();
   }
 
-  drawPortals(portals, runner, setStyle, now, boardLayout, gap) {
+  drawPortals(portals, runner, setStyle, now, boardLayout, gap, iconSource, clearAnimation) {
     if (!Array.isArray(portals) || !portals.length || !boardLayout) return;
     const { x: boardX, y: boardY, cell, cols } = boardLayout;
     const ctx = this.ctx;
-    const portalImage = this.ensurePortalImage();
+    const skin = this.skinService.current();
+    const portalImage = this.ensurePortalImage(iconSource);
     const isWaiting = !!(runner && runner.portalPending && runner.portalPhase === 'PORTAL_WAIT');
     const isLocked = !!(runner && runner.portalLock && runner.portalPhase === 'PORTAL_LOCKED');
     const expectedExit = isWaiting ? runner.portalPending.exit : -1;
     const lockedEntry = isLocked ? runner.portalLock.entry : -1;
+    const clearStartedAt = Number(clearAnimation && clearAnimation.startedAt);
+    const clearDuration = Number(clearAnimation && clearAnimation.durationMs);
+    const clearActive = Number.isFinite(clearStartedAt) &&
+      now < clearStartedAt + (Number.isFinite(clearDuration) && clearDuration > 0 ? clearDuration : 300);
+    const clearingCells = new Set(clearActive && Array.isArray(clearAnimation.cells)
+      ? clearAnimation.cells : []);
 
     portals.forEach(portal => {
       const id = portal.id || portal.Id || 'P1';
@@ -677,13 +690,22 @@ class CanvasRenderer {
 
       cells.forEach(cellIndex => {
         if (!Number.isInteger(cellIndex) || cellIndex < 0) return;
-        if (runner && runner.owner && runner.owner[cellIndex] >= 0) return;
+        const owned = !!(runner && runner.owner && runner.owner[cellIndex] >= 0);
+        const clearingOwned = owned && clearingCells.has(cellIndex);
+        if (owned && !clearingOwned) return;
 
         const col = cellIndex % cols;
         const row = Math.floor(cellIndex / cols);
         const x = boardX + col * cell + gap;
         const y = boardY + row * cell + gap;
         const size = Math.max(1, cell - gap * 2);
+
+        if (clearingOwned) {
+          this.drawTile(-1, x, y, size, {
+            color: skin.colors.emptyCell,
+            skin
+          });
+        }
 
         if (portalImage) {
           this.drawImageContain(portalImage, { x: x + 2, y: y + 2, w: size - 4, h: size - 4 }, { fit: 'contain' });
@@ -734,20 +756,23 @@ class CanvasRenderer {
     this.iconButton('home:sound', { x: width - 58, y: safeTop + (skin.layout.homeTopUiOffset || 0) + 8, w: 44, h: 44 },
       model.soundEnabled ? 'sound' : 'mute', true, model.pressedId);
 
-    const trialBtnWidth = 110;
-    const trialBtnHeight = 44;
-    const trialBtnX = 18;
-    const trialBtnY = safeTop + (skin.layout.homeTopUiOffset || 0) + 8;
-    this.button('home:portalTrial', {
-      x: trialBtnX,
-      y: trialBtnY,
-      w: trialBtnWidth,
-      h: trialBtnHeight
-    }, '传送门试玩', {
-      fill: skin.colors.secondaryButton,
-      stroke: skin.colors.primaryButtonStroke,
-      fontSize: 14
-    }, model.pressedId);
+    const portalTrial = model && model.portalTrial;
+    if (portalTrial && portalTrial.enabled !== false && portalTrial.action) {
+      const trialBtnWidth = 110;
+      const trialBtnHeight = 44;
+      const trialBtnX = 18;
+      const trialBtnY = safeTop + (skin.layout.homeTopUiOffset || 0) + 8;
+      this.button(portalTrial.action, {
+        x: trialBtnX,
+        y: trialBtnY,
+        w: trialBtnWidth,
+        h: trialBtnHeight
+      }, portalTrial.label || portalTrial.name || '传送门试玩', {
+        fill: skin.colors.secondaryButton,
+        stroke: skin.colors.primaryButtonStroke,
+        fontSize: 14
+      }, model.pressedId);
+    }
 
     const buttonHeight = 54;
     const buttonGap = 12;
@@ -1314,20 +1339,6 @@ class CanvasRenderer {
       ctx.restore();
       return;
     }
-    if (id === 'portalTrial') {
-      const portalImage = this.ensurePortalImage();
-      const span = Math.min(rect.w, rect.h);
-      const size = span * 0.72;
-      const x = rect.x + (rect.w - size) / 2;
-      const y = rect.y + (rect.h - size) / 2;
-      if (portalImage) {
-        this.drawImageContain(portalImage, { x, y, w: size, h: size }, { fit: 'contain' });
-      } else {
-        this.drawPortalFallback(x, y, size, Date.now());
-      }
-      ctx.restore();
-      return;
-    }
     // Theme entry preview: four small color tiles, independent from the
     // selected theme's runtime sprites.
     const gap = clamp(Math.min(rect.w, rect.h) * 0.07, 3, 8);
@@ -1699,15 +1710,20 @@ class CanvasRenderer {
     for (let row = 0; row < game.Height; row++) {
       for (let col = 0; col < game.Width; col++) {
         const index = row * game.Width + col;
-        if (runner.owner[index] >= 0) continue;
-
         const stagger = ((row + col) / Math.max(1, game.Width + game.Height - 2)) * 120;
         const enter = clamp((enterElapsed - stagger) / Math.max(1, enterMs - 120), 0, 1);
         const x = boardX + col * cell + gap;
         const y = boardY + row * cell + gap - (1 - enter) * 12;
         const size = Math.max(1, cell - gap * 2);
+        if (runner.isBlockedCell && runner.isBlockedCell(index)) {
+          this.drawBlockedCell(x, y, size, enter, skin);
+          continue;
+        }
+        if (runner.owner[index] >= 0) continue;
+
         const fixedLine = runner.fixedLine[index];
-        const selected = !!selectedSet[index];
+        const portalCell = this.isPortalIndex(runner, index);
+        const selected = !portalCell && !!selectedSet[index];
         let color = skin.colors.emptyCell;
         if (selected) color = setStyle.palette[runner.selectedLine % setStyle.palette.length] || '#ffffff';
         else if (fixedLine >= 0) color = setStyle.palette[fixedLine % setStyle.palette.length] || '#ffffff';
@@ -1716,7 +1732,7 @@ class CanvasRenderer {
         const activeScale = selected
           ? 1 + (skin.layout.activeCellScale - 1) * (0.72 + activePulse * 0.28)
           : 1;
-        this.drawTile(selected ? runner.selectedLine : fixedLine, x, y, size, {
+        this.drawTile(portalCell ? -1 : (selected ? runner.selectedLine : fixedLine), x, y, size, {
           color,
           alpha: enter,
           scale: activeScale,
@@ -1729,11 +1745,24 @@ class CanvasRenderer {
       }
     }
 
-    this.drawPortals(game.Portals || runner.portals || [], runner, setStyle, now, this.boardLayout, gap);
+    this.drawClearAnimation(model.clearAnimation, setStyle.palette, now, gap, runner);
 
-    this.drawClearAnimation(model.clearAnimation, setStyle.palette, now, gap);
-
-    if (model.hint && now < model.hintUntil) this.drawHintPath(model.hint, setStyle.palette, now);
+    if (model.hint && now < model.hintUntil) {
+      this.drawHintPath(model.hint, setStyle.palette, now, runner);
+    }
+    // Portals are the top-most board semantic. Theme, hint and clear-effect
+    // tiles deliberately skip these cells so a character sprite can never sit
+    // underneath or cover a portal icon.
+    this.drawPortals(
+      game.Portals || runner.portals || [],
+      runner,
+      setStyle,
+      now,
+      this.boardLayout,
+      gap,
+      model.portalTrial && model.portalTrial.icon,
+      model.clearAnimation
+    );
     if (showActions) this.drawPlayActions(model, actionTop, now);
 
     if (model.scene === 'result') this.drawResult(model, now);
@@ -1795,6 +1824,12 @@ class CanvasRenderer {
     if (runner && runner.blockedMask && runner.blockedMask[index]) return true;
     const blocked = challenge && (challenge.Blocked || challenge.blocked);
     return Array.isArray(blocked) && blocked.indexOf(index) >= 0;
+  }
+
+  isPortalIndex(runner, index) {
+    if (!runner || !Number.isInteger(index)) return false;
+    if (typeof runner.isPortalCell === 'function') return runner.isPortalCell(index);
+    return !!(runner.portalByCell && runner.portalByCell[index]);
   }
 
   drawBlockedCell(x, y, size, alpha, skin) {
@@ -1940,7 +1975,8 @@ class CanvasRenderer {
           const enter = clamp((enterElapsed - stagger) / Math.max(1, enterMs - 120), 0, 1);
           const y = yBase - (1 - enter) * 12;
           const fixedLine = runner.fixedLine ? runner.fixedLine[index] : -1;
-          const selected = !!selectedSet[index];
+          const portalCell = this.isPortalIndex(runner, index);
+          const selected = !portalCell && !!selectedSet[index];
           let color = skin.colors.emptyCell;
           if (selected) color = palette[runner.selectedLine % palette.length] || '#ffffff';
           else if (fixedLine >= 0) color = palette[fixedLine % palette.length] || '#ffffff';
@@ -1949,7 +1985,7 @@ class CanvasRenderer {
           const activeScale = selected
             ? 1 + (skin.layout.activeCellScale - 1) * (0.72 + activePulse * 0.28)
             : 1;
-          this.drawTile(selected ? runner.selectedLine : fixedLine, x, y, size, {
+          this.drawTile(portalCell ? -1 : (selected ? runner.selectedLine : fixedLine), x, y, size, {
             color,
             alpha: enter,
             scale: activeScale,
@@ -1962,10 +1998,20 @@ class CanvasRenderer {
         }
       }
 
-      this.drawPortals(challenge && (challenge.Portals || challenge.portals) || (runner && runner.portals) || [], runner, { palette }, now, this.boardLayout, gap);
-
-      this.drawClearAnimation(model.clearAnimation, palette, now, gap);
-      if (model.hint && now < model.hintUntil) this.drawHintPath(model.hint, palette, now);
+      this.drawClearAnimation(model.clearAnimation, palette, now, gap, runner);
+      if (model.hint && now < model.hintUntil) {
+        this.drawHintPath(model.hint, palette, now, runner);
+      }
+      this.drawPortals(
+        challenge && (challenge.Portals || challenge.portals) || (runner && runner.portals) || [],
+        runner,
+        { palette },
+        now,
+        this.boardLayout,
+        gap,
+        model.portalTrial && model.portalTrial.icon,
+        model.clearAnimation
+      );
       if (showActions) this.drawDailyActions(model, actionTop, now);
     }
 
@@ -2055,7 +2101,7 @@ class CanvasRenderer {
     }, model.pressedId);
   }
 
-  drawHintPath(hint, palette, now) {
+  drawHintPath(hint, palette, now, runner) {
     if (!hint || !this.boardLayout) return;
     const segments = hint.segments || (hint.path && hint.path.length >= 2 ? [hint.path] : null);
     if (!segments || !segments.length) return;
@@ -2069,6 +2115,7 @@ class CanvasRenderer {
     segments.forEach(segment => {
       if (!Array.isArray(segment) || !segment.length) return;
       segment.forEach((index, order) => {
+        if (this.isPortalIndex(runner, index)) return;
         const x = boardX + (index % cols) * cell + gap;
         const y = boardY + Math.floor(index / cols) * cell + gap;
         const endpointPulse = order === 0 || order === segment.length - 1 ? 1.04 : 1;
@@ -2083,7 +2130,7 @@ class CanvasRenderer {
     });
   }
 
-  drawClearAnimation(animation, palette, now, gap) {
+  drawClearAnimation(animation, palette, now, gap, runner) {
     if (!animation || !this.boardLayout) return;
     const skin = this.skinService.current();
     let effect = null;
@@ -2151,6 +2198,7 @@ class CanvasRenderer {
     const cells = Array.isArray(animation.cells) ? animation.cells : [];
     cells.forEach((index, order) => {
       if (!Number.isInteger(index) || index < 0 || index >= cols * this.boardLayout.rows) return;
+      if (this.isPortalIndex(runner, index)) return;
       const col = index % cols;
       const row = Math.floor(index / cols);
       const local = clamp(progress * (1 + staggerRatio * 10) - order * staggerRatio, 0, 1);
@@ -2181,18 +2229,29 @@ class CanvasRenderer {
     const panelY = (height - panelHeight) / 2;
     ctx.fillStyle = skin.colors.strongPanel;
     ctx.fillRect(0, panelY, width, panelHeight);
+    const trialResult = model.result && model.result.persisted === false &&
+      !!model.result.gameplayExtensionId;
     this.drawIcon('check', width / 2, panelY + 47, 40);
-    this.text(model.result.newBest ? '新纪录' : '完成', width / 2, panelY + 92, 27, { weight: 300 });
-    this.text(`本次 ${GameRunner.formatTime(model.result.elapsedMs)} · 最佳 ${GameRunner.formatTime(model.result.bestMs)}`, width / 2, panelY + 124, 13, { alpha: 0.72 });
+    this.text(trialResult ? '试玩完成' : (model.result.newBest ? '新纪录' : '完成'),
+      width / 2, panelY + 92, 27, { weight: 300 });
+    const resultText = trialResult
+      ? `本次 ${GameRunner.formatTime(model.result.elapsedMs)} · 试玩不记录最佳`
+      : `本次 ${GameRunner.formatTime(model.result.elapsedMs)} · 最佳 ${GameRunner.formatTime(model.result.bestMs)}`;
+    this.text(resultText, width / 2, panelY + 124, 13, { alpha: 0.72 });
 
     const gap = 10;
-    const buttonWidth = Math.min(104, (width - 48 - gap * 2) / 3);
-    const totalWidth = buttonWidth * 3 + gap * 2;
+    const buttonCount = trialResult && !model.hasNext ? 2 : 3;
+    const buttonWidth = Math.min(104, (width - 48 - gap * (buttonCount - 1)) / buttonCount);
+    const totalWidth = buttonWidth * buttonCount + gap * (buttonCount - 1);
     const x = (width - totalWidth) / 2;
     const y = panelY + panelHeight - 72;
-    this.button('result:levels', { x, y, w: buttonWidth, h: 46 }, '选关', { fontSize: 15 }, model.pressedId);
+    this.button('result:levels', { x, y, w: buttonWidth, h: 46 },
+      trialResult ? '返回主页' : '选关', { fontSize: 15 }, model.pressedId);
     this.button('result:replay', { x: x + buttonWidth + gap, y, w: buttonWidth, h: 46 }, '重玩', { fontSize: 15 }, model.pressedId);
-    this.button('result:next', { x: x + (buttonWidth + gap) * 2, y, w: buttonWidth, h: 46 }, model.hasNext ? '下一关' : '关卡列表', { fontSize: 15 }, model.pressedId);
+    if (buttonCount === 3) {
+      this.button('result:next', { x: x + (buttonWidth + gap) * 2, y, w: buttonWidth, h: 46 },
+        model.hasNext ? '下一关' : '关卡列表', { fontSize: 15 }, model.pressedId);
+    }
   }
 }
 

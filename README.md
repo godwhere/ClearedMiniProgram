@@ -26,9 +26,10 @@
 回廊功能入口、消除特效选择页、首个“逐渐消失”特效以及首页主题入口迁移契约，记录在
 [`docs/corridor-and-clear-effects.md`](docs/corridor-and-clear-effects.md)。第一版场景、特效和首页回廊入口已接入，旧主题 action 仍兼容保留。
 
-传送门玩法的入口段锁定、松手后从配对出口继续、错误选择回滚、试用关卡计划、分段解答格式和
+传送门玩法的入口段锁定、松手后从配对出口继续、错误选择回滚、试玩关卡、分段解答格式和
 `GameRunner`/输入/渲染代码边界记录在 [`docs/portal-mechanic.md`](docs/portal-mechanic.md)。
-目前已完成核心规则、手势编排、分段提示、Canvas 渲染与 5 个试用关卡（`data/portal-demo.js`）及分段解答（`data/portal-solutions.js`）的完整接入与测试验证；默认传送门图标为
+目前已完成双向传送、分段手势/提示、完整路径清除动画与 5 个试玩关卡（`data/portal-demo.js`）。
+传送门以 [`src/mechanics/portal.js`](src/mechanics/portal.js) 作为独立“玩法拓展”定义，不属于主题或特效回廊；试玩通关不写入普通关卡进度、最佳时间或广告计数。门格只显示传送门，不叠加当前主题棋子；默认图标为
 [`assets/icons/portal.png`](assets/icons/portal.png)。
 
 “高难关卡”主页入口及“每日挑战”模式的棋盘、日期、镂空、存档和实现边界记录在
@@ -92,6 +93,7 @@ src/skins/music.js              音乐主题 manifest（10 个音乐精灵）
 src/skins/vehicles.js           交通工具主题 manifest（10 个交通工具精灵）
 src/effects/index.js            内置消除特效注册入口
 src/effects/fade.js             “逐渐消失”特效 manifest
+src/mechanics/portal.js         传送门玩法拓展定义、试玩集与解答依赖
 src/config/ads.js               广告位与展示频率配置
 src/config/progression.js       跨关卡组解锁配置
 src/config/audio.js              音频资源与音量配置

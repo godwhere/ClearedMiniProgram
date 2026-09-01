@@ -1,8 +1,8 @@
 # 传送门玩法设计与实现边界
 
 > 设计记录：2026-09-01  
-> 需求状态：已确认进入“试用关卡”设计阶段。  
-> 实现状态：已完成规则机、分段手势、Canvas 渲染、分段提示与 5 个试用关卡及测试套件的完整接入。  
+> 需求状态：v1 试玩契约已冻结并实现。
+> 实现状态：规则机、双向分段提示、触摸取消、Canvas 渲染、5 个试玩关与发布校验已接入；微信开发者工具及真机仍需发布前验收。
 > 运行时：微信小游戏单 Canvas 链路 `game.js → src/bootstrap.js → src/app.js → core/game-runner.js / src/ui/canvas-renderer.js`
 
 ## 1. 目的与核心判断
@@ -319,7 +319,7 @@ DRAWING
 约定：
 
 - `Mechanic: 'portal'` 是显式规则选择；`Portals` 存在但未声明机制属于数据错误；
-- `PortalRulesVersion: 1` 只用于校验和未来迁移，不让关卡作者覆盖运行时规则；
+- `PortalRulesVersion: 1` 为 v1 必填契约；缺失、非 1 或未来版本不会启用 v1 运行时规则；
 - `Portals[].Id` 在关卡内唯一、非空、稳定；
 - `A`、`B` 是行优先索引：`index = row * Width + col`；
 - A/B 双向，不在数据中写方向、脚本或函数；
@@ -339,13 +339,14 @@ DRAWING
 
 ### 6.3 数据校验
 
-建议新增纯函数校验模块（规划名：`core/portal-validation.js`），供普通关卡和每日服务复用。校验至少包含：
+`core/portal-validation.js` 是题面与分段解答的纯函数发布校验模块。校验包含：
 
 - `Portals` 必须是数组；
 - 每个 portal 必须是对象；
 - `Id` 必须是非空字符串且不重复；
 - `A`、`B` 必须是整数、在棋盘范围内且不相等；
 - 所有 portal 格全局唯一；
+- `Blocked` 必须为整数数组，值在棋盘范围内且不重复；非法值不得减少解答覆盖数；
 - portal 格不得与 `Blocked` 重叠；
 - portal 格不得与任何线路端点重叠；
 - v1 传送门对数量不得超过一个；
@@ -354,7 +355,7 @@ DRAWING
 - 试用关卡必须有至少一个合法解；
 - 解答中的每一次跳跃必须匹配真实 portal 对，且每对门只使用一次。
 
-建议的稳定错误码：
+稳定错误码包含：
 
 ```text
 portal-mechanic-invalid
@@ -367,6 +368,10 @@ portal-cell-out-of-range
 portal-cell-duplicate
 portal-endpoint-conflict
 portal-blocked-conflict
+portal-blocked-required-array
+portal-blocked-integer
+portal-blocked-out-of-range
+portal-blocked-duplicate
 portal-pair-count-exceeded
 portal-solution-required
 solution-portal-transition-required
@@ -386,7 +391,7 @@ solution-portal-order
 
 ### 7.2 portal 解答格式
 
-规划新增 `data/portal-solutions.js`，每条线路按段保存：
+`data/portal-solutions.js` 按段保存每条线路：
 
 ```js
 {
@@ -432,12 +437,15 @@ solution-portal-order
 - 存储解答优先，运行时 BFS 只能把 portal pair 当作一条特殊边；
 - BFS 输出必须重新分段，不能返回 `[A, B]` 作为普通相邻路径；
 - 当前处于 `PORTAL_WAIT` 时，提示只显示配对 B 和 B 之后的剩余段；
+- A/B 不携带固定方向；等待态按本次 `entry/exit` 与起笔端点选择存储解的正向或反向；
+- 进入门格后必须使用传送边，BFS 不得从入口继续走普通相邻边；
+- 玩家的入口段与存储解不同时，剩余提示不得穿过已保留的入口格；
 - 如果没有 portal-aware 解法，返回 `null` 或明确的“该关暂无提示”，不能返回一条不可操作的直线；
 - HintService 不修改 runner，不写进度，不播放音效。
 
 ## 8. 代码边界
 
-以下边界是实现前的硬约束。模块可以增加内部辅助函数，但不得把其他模块的职责搬进来。
+以下是已实现的模块边界。模块可以增加内部辅助函数，但不得把其他模块的职责搬进来。
 
 ### 8.1 `core/game-runner.js`：唯一规则权威
 
@@ -461,7 +469,7 @@ solution-portal-order
 - 不直接绘制路径；
 - 不自行调用 HintService 或求解器。
 
-**规划中的只读查询/状态接口：**
+**已接入的只读查询/状态接口：**
 
 ```js
 portalAt(index) -> { id, entry: index, exit } | null
@@ -472,6 +480,7 @@ portalStatus() -> null | {
   entryCells, usedPairIds
 }
 cancelPortalContinuation() -> boolean
+handlePointerCancel() -> boolean
 ```
 
 接口名称可调整，但应用层必须能获得上述语义，不得读取 runner 私有数组后自行推断规则。
@@ -495,6 +504,8 @@ cancelPortalContinuation() -> boolean
 - `performAction('play:reset'/'play:undo'/'daily:reset'/'daily:undo')`：调用 runner 的统一 portal 清理/撤销接口；
 - `buildModel()`：向 renderer 提供 data-only 的 `portals`、`portalState`、`portalInstruction`、分段路径和 `expectedExit`；
 - `openLevel()` 与每日 runner 构造：把关卡的 `Mechanic`/`Portals` 传给 runner，但不在 app 中重复做门合法性判断。
+- 首页可见 action 为 `home:portalTrial`；旧 `corridor:portalTrial` 只作为不可见的兼容别名，回廊不注册传送门卡片或 hit。
+- 试玩结果页显示“试玩完成 / 试玩不记录最佳”，返回 action 回首页，不宣称已写入普通选关进度。
 
 **不得负责：**
 
@@ -513,6 +524,8 @@ cancelPortalContinuation() -> boolean
 - 加载并缓存 `assets/icons/portal.png`；
 - 按棋盘 cell 几何绘制传送门图标、配对标记、环形高亮和等待脉冲；
 - 绘制 A 段、B 段和普通线路；传送跳跃只绘制断开的提示线、弧线、箭头或配对光效；
+- 门格只绘制空格底板、传送门、编号与状态光圈；主题棋子、提示棋子和清除棋子均不叠加在门格；线路清除期间空格底板和门图标保留到动画结束；
+- 普通 play 与 daily 使用同一阻挡格视觉语义，`Blocked` 不得绘成可走空格；
 - 在 `PORTAL_WAIT` 高亮 `expectedExit` 并显示提示文案；
 - 对资源加载失败提供纯色/矢量回退，不阻塞关卡输入；
 - 保持 `cellAt()`、`boardLayout` 和现有安全区布局语义。
@@ -572,18 +585,19 @@ cancelPortalContinuation() -> boolean
 
 | 模块 | v1 边界 |
 | --- | --- |
-| `data/catalog-v2.js` | 试用关卡以独立 set 注册；普通旧 set 不改写 |
+| `src/mechanics/portal.js` | 声明玩法 ID、v1 版本、图标、首页试玩 action、试玩 set 与分段解答；不注册进主题/特效回廊 |
+| `data/catalog-v2.js` | 只保留 122 个普通关；传送门试玩不占用普通 set/level 索引 |
 | `data/portal-solutions.js` | 保存 portal 分段解答；不污染 `data/solutions.js` 的旧数组格式 |
-| `src/services/progress-store.js` | 复用现有 set/level 完成与最佳时间；不新增 portal 专用存档字段 |
+| `src/services/progress-store.js` | 传送门试玩不写普通完成、最佳时间、`lastPlayed` 或 `totalClears`；结果只在当次会话展示 |
 | `src/services/audio-service.js` | 只提供/播放已有或新增的 portal 音效；不判断规则 |
 | `src/services/clear-effect-service.js` | 不读取 portal；线路完成后的清除特效仍由 app 快照决定 |
 | `src/skins/*` | 可提供图标尺寸、颜色 token 或回退色；不决定配对和状态 |
-| `src/bootstrap.js` | 只负责注入 catalog、validator、solutions 等依赖；不承载 portal 状态 |
+| `src/bootstrap.js` | 只负责注入 portal 玩法定义及其解答依赖；不承载 portal 状态 |
 | `pages/*`、根目录旧小程序页面 | 不作为实现入口，继续保持排除状态 |
 
-## 9. 试用关卡计划
+## 9. 试玩关卡
 
-第一批建议制作 5 个关卡，先固定一对双向中性传送门；关卡设计目标比数量更重要。
+第一批已实现 5 个关卡，固定一对双向中性传送门。
 
 | ID | 设计目标 | 关卡要求 | 观察点 |
 | --- | --- | --- | --- |
@@ -599,7 +613,7 @@ cancelPortalContinuation() -> boolean
 
 ### 10.1 规则层
 
-规划 `tests/game-runner-portal.test.js`，至少覆盖：
+`tests/game-runner-portal.test.js` 覆盖：
 
 - 没有 `Portals` 的旧关卡全部保持旧行为；
 - 从端点滑到 A，A 后继续 move 被忽略；
@@ -617,22 +631,25 @@ cancelPortalContinuation() -> boolean
 
 ### 10.2 输入编排层
 
-规划 `tests/app-portal.test.js`，至少覆盖：
+`tests/app-portal.test.js` 覆盖：
 
 - `start endpoint → move → end portal → start paired exit → move → end target` 完整 pointer 序列；
 - 大步移动在 A 处截断，不越过 A；
 - 等待态按错后 A 段消失，下一次可从普通端点重新开始；
+- `touchcancel` 在入口锁定时进入等待，在出口段中只回滚出口段；
 - 普通、daily（未来启用）使用同一 portal runner 流程；
 - `onHide/onShow` 不恢复旧 pointer，不留下幽灵 pending；
 - reset/back/切关不把 pending 带到下一关；
 - 完成后仍进入原有 result/dailyResult 结算路径。
+- 试玩结果不写入普通关卡完成、最佳时间、`lastPlayed` 和广告计数；
+- 传送线路清除动画快照包含入口段和出口段。
 
 ### 10.3 数据、提示与渲染层
 
-- `tests/portal-validation.test.js`：字段类型、ID/格重复、越界、端点/阻挡冲突、pair 数量和稳定错误码；
-- `tests/hint-service-portal.test.js`：分段解答、portal-aware BFS、pending 时只显示出口后段、无解返回 null；
-- `tests/renderer-portal.test.js`：图标加载/回退、配对高亮、等待文案、分段绘制、无跨门直线、无门关卡零回归；
-- 试用关卡解答检查：每段相邻、跳跃匹配、门不重复、全板覆盖；
+- `tests/portal-validation.test.js`：字段类型、规则版本、ID/格重复、越界 Blocked、端点/阻挡冲突、pair 数量和稳定错误码；
+- `tests/hint-service-portal.test.js`：正反向分段解答、强制 portal edge BFS、入口段避让、pending 剩余段与无解返回 null；
+- `tests/renderer-portal.test.js`：图标加载/回退、配对高亮、等待文案、门格不叠加主题/提示棋子、普通 play 阻挡格与无门回归；
+- `tests/portal-publishing.test.js`：5 个真实试玩题面/解答校验、逐段 `GameRunner` 重放和全板覆盖；
 - `node tests/run.js` 在接入代码后必须全量通过，现有 122 关数据测试不得新增回归。
 
 ### 10.4 真机验收指标
@@ -646,39 +663,13 @@ cancelPortalContinuation() -> boolean
 - 等待 B 时的误触位置分布；
 - 低分辨率屏幕上图标、配对标记和触摸吸附范围是否清晰。
 
-## 11. 分阶段实施顺序
+## 11. 实现状态
 
-### 阶段 0：本文档与资源确认（当前阶段）
-
-- 冻结 v1 规则和错误选择回滚语义；
-- 确认 [`assets/icons/portal.png`](../assets/icons/portal.png) 作为默认棋盘图标；
-- 确认试用关卡数量、命名和验收指标；
-- 不修改 `GameRunner`、app 输入或 renderer。
-
-### 阶段 1：纯数据与规则
-
-- 实现 portal 数据规范化和纯校验；
-- 扩展 `GameRunner` 状态机、快照和撤销；
-- 先完成规则层单测；
-- 普通 122 关回归通过后再继续。
-
-### 阶段 2：提示与解答
-
-- 建立 `data/portal-solutions.js`；
-- 扩展 HintService 的分段格式和 portal edge 搜索；
-- 通过解答覆盖和无解校验。
-
-### 阶段 3：输入与渲染
-
-- 接入 app pointer 编排和生命周期清理；
-- 接入 portal 图标、配对标记、等待高亮和分段绘制；
-- 完成 Canvas/触摸烟雾测试和真机安全区验收。
-
-### 阶段 4：试用关卡
-
-- 加入 5 个 `portal-demo-*` 关卡和分段解答；
-- 在独立试用关卡组中开放，不改变普通关卡解锁顺序；
-- 收集体验数据后，再决定是否支持多对门、串联门或每日挑战。
+- 已完成：题面/解答校验、双向规则状态机、撤销/取消/生命周期契约。
+- 已完成：正反向存储解、强制传送边 BFS、分段提示与完整路径清除动画。
+- 已完成：独立玩法拓展定义、首页试玩入口、普通进度隔离、门格专属渲染与 Blocked 视觉。
+- 已完成：5 关真实数据发布校验和 `GameRunner` 逐段重放。
+- 待发布前执行：微信开发者工具编译/预览、安全区与真机触摸验收。
 
 ## 12. 兼容与发布门槛
 
@@ -693,4 +684,3 @@ cancelPortalContinuation() -> boolean
 7. 传送门图标加载失败时仍可完成关卡；
 8. 文案、配对标记和触摸吸附范围经过至少一轮可用性测试；
 9. README 的玩法说明和本文的“实现状态”同步更新。
-

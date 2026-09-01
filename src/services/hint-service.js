@@ -73,64 +73,189 @@ class HintService {
       if (isWait && lineIndex !== waitingLine) continue;
 
       const lineSolution = paths[lineIndex];
-      if (!lineSolution || !Array.isArray(lineSolution.Segments) || lineSolution.Segments.length === 0) continue;
+      const stored = this.normalizeStoredPortalLine(lineSolution);
+      if (!stored) continue;
 
-      const segments = lineSolution.Segments;
       if (isWait) {
-        // If in waiting state, hint shows the remaining segment(s) after portal B
-        if (segments.length <= 1) continue;
-        const remainingSegments = segments.slice(1).map(s => (s.Cells || s.cells || []).slice());
-        const remainingCells = [].concat(...remainingSegments);
-        const playable = remainingCells.every(index => this.isPlayable(runner, index));
-        if (!playable) continue;
-        const clear = remainingCells.every(index => (
-          runner.owner[index] < 0 || runner.owner[index] === lineIndex || index === runner.portalPending.exit
-        ));
-        if (clear) {
+        const context = this.portalWaitContext(runner, lineIndex);
+        if (!context) continue;
+        const directions = [stored, this.reverseStoredPortalLine(stored)];
+
+        for (let directionIndex = 0; directionIndex < directions.length; directionIndex++) {
+          const direction = directions[directionIndex];
+          if (direction.start !== context.origin || direction.end !== context.target) continue;
+
+          const transitionIndex = direction.teleports.findIndex(teleport => (
+            teleport.from === runner.portalPending.entry &&
+            teleport.to === runner.portalPending.exit &&
+            (!runner.portalPending.pairId || !teleport.pairId ||
+              teleport.pairId === runner.portalPending.pairId)
+          ));
+          if (transitionIndex < 0) continue;
+
+          const remaining = {
+            segments: direction.segments.slice(transitionIndex + 1).map(segment => segment.slice()),
+            teleports: direction.teleports.slice(transitionIndex + 1).map(teleport => Object.assign({}, teleport))
+          };
+          remaining.path = this.flattenPortalSegments(remaining.segments);
+          remaining.start = remaining.path[0];
+          remaining.end = remaining.path[remaining.path.length - 1];
+
+          if (remaining.start !== runner.portalPending.exit || remaining.end !== context.target) continue;
+          if (!this.isStoredPortalPathUsable(runner, lineIndex, remaining, {
+            forbiddenCells: context.entryCells,
+            initialPortalExit: runner.portalPending.exit,
+            usedPairIds: (runner.portalPending.usedPairIds || []).concat(runner.portalPending.pairId || [])
+          })) continue;
+
           return {
             lineIndex,
-            segments: remainingSegments,
-            teleports: [],
-            path: remainingCells,
+            segments: remaining.segments,
+            teleports: remaining.teleports,
+            path: remaining.path,
             source: 'solution',
-            requiresRelease: false
+            requiresRelease: remaining.segments.length > 1
           };
         }
       } else {
-        const allCells = [];
-        const segmentCells = [];
-        const teleports = [];
-        segments.forEach(seg => {
-          const cells = (seg.Cells || seg.cells || []).slice();
-          segmentCells.push(cells);
-          allCells.push(...cells);
-          const exit = seg.Exit || seg.exit;
-          if (exit) {
-            teleports.push({
-              pairId: exit.PairId || exit.pairId || exit.Id || exit.id,
-              from: exit.From !== undefined ? exit.From : exit.from,
-              to: exit.To !== undefined ? exit.To : exit.to
-            });
-          }
-        });
-        const playable = allCells.every(index => this.isPlayable(runner, index));
-        if (!playable) continue;
-        const clear = allCells.every(index => (
-          runner.owner[index] < 0 || runner.owner[index] === lineIndex
+        const line = (runner.level.Lines || [])[lineIndex];
+        if (!line) continue;
+        const directions = [stored, this.reverseStoredPortalLine(stored)];
+        const direction = directions.find(candidate => (
+          candidate.start === line.Start && candidate.end === line.End
         ));
-        if (clear) {
+        if (direction && this.isStoredPortalPathUsable(runner, lineIndex, direction)) {
           return {
             lineIndex,
-            segments: segmentCells,
-            teleports,
-            path: allCells,
+            segments: direction.segments.map(segment => segment.slice()),
+            teleports: direction.teleports.map(teleport => Object.assign({}, teleport)),
+            path: direction.path.slice(),
             source: 'solution',
-            requiresRelease: segments.length > 1
+            requiresRelease: direction.segments.length > 1
           };
         }
       }
     }
     return null;
+  }
+
+  normalizeStoredPortalLine(lineSolution) {
+    if (!lineSolution || typeof lineSolution !== 'object') return null;
+    const rawSegments = lineSolution.Segments || lineSolution.segments;
+    if (!Array.isArray(rawSegments) || rawSegments.length === 0) return null;
+
+    const segments = rawSegments.map(segment => {
+      const cells = segment && (segment.Cells || segment.cells);
+      return Array.isArray(cells) ? cells.slice() : [];
+    });
+    if (segments.some(segment => segment.length === 0)) return null;
+
+    const teleports = [];
+    for (let index = 0; index + 1 < rawSegments.length; index++) {
+      const rawExit = rawSegments[index] && (rawSegments[index].Exit || rawSegments[index].exit);
+      if (!rawExit || typeof rawExit !== 'object') return null;
+      const from = rawExit.From !== undefined ? rawExit.From : rawExit.from;
+      const to = rawExit.To !== undefined ? rawExit.To : rawExit.to;
+      teleports.push({
+        pairId: rawExit.PairId || rawExit.pairId || rawExit.Id || rawExit.id,
+        from: from === undefined ? segments[index][segments[index].length - 1] : from,
+        to: to === undefined ? segments[index + 1][0] : to
+      });
+    }
+
+    const path = this.flattenPortalSegments(segments);
+    return {
+      segments,
+      teleports,
+      path,
+      start: path[0],
+      end: path[path.length - 1]
+    };
+  }
+
+  reverseStoredPortalLine(stored) {
+    const segments = stored.segments.slice().reverse().map(segment => segment.slice().reverse());
+    const teleports = stored.teleports.slice().reverse().map(teleport => ({
+      pairId: teleport.pairId,
+      from: teleport.to,
+      to: teleport.from
+    }));
+    const path = this.flattenPortalSegments(segments);
+    return {
+      segments,
+      teleports,
+      path,
+      start: path[0],
+      end: path[path.length - 1]
+    };
+  }
+
+  flattenPortalSegments(segments) {
+    const cells = [];
+    (segments || []).forEach(segment => {
+      (segment || []).forEach(index => cells.push(index));
+    });
+    return cells;
+  }
+
+  portalWaitContext(runner, lineIndex) {
+    const pending = runner.portalPending;
+    const line = (runner.level.Lines || [])[lineIndex];
+    if (!pending || !line) return null;
+    const entryCells = this.flattenPortalSegments(pending.entrySegments || []);
+    const origin = entryCells[0];
+    let target = null;
+    if (origin === line.Start) target = line.End;
+    else if (origin === line.End) target = line.Start;
+    if (target === null) return null;
+    return { origin, target, entryCells };
+  }
+
+  isStoredPortalPathUsable(runner, lineIndex, candidate, options) {
+    options = options || {};
+    if (!candidate || !Array.isArray(candidate.segments) || candidate.segments.length === 0) return false;
+    if (!Array.isArray(candidate.teleports) || candidate.teleports.length !== candidate.segments.length - 1) return false;
+
+    const forbidden = new Set(options.forbiddenCells || []);
+    const usedPairs = new Set((options.usedPairIds || []).filter(Boolean));
+    const seenCells = new Set();
+
+    for (let segmentIndex = 0; segmentIndex < candidate.segments.length; segmentIndex++) {
+      const segment = candidate.segments[segmentIndex];
+      if (!Array.isArray(segment) || segment.length === 0) return false;
+      for (let cellIndex = 0; cellIndex < segment.length; cellIndex++) {
+        const cell = segment[cellIndex];
+        if (!this.isPlayable(runner, cell) || forbidden.has(cell) || seenCells.has(cell)) return false;
+        const owner = runner.owner[cell];
+        const fixed = runner.fixedLine[cell];
+        if (owner >= 0 && owner !== lineIndex) return false;
+        if (fixed >= 0 && fixed !== lineIndex) return false;
+        if (cellIndex > 0 && !runner.adjacent(segment[cellIndex - 1], cell)) return false;
+
+        const isInitialExit = segmentIndex === 0 && cellIndex === 0 &&
+          options.initialPortalExit === cell;
+        const isTeleportArrival = segmentIndex > 0 && cellIndex === 0 &&
+          candidate.teleports[segmentIndex - 1].to === cell;
+        const isTeleportEntry = segmentIndex + 1 < candidate.segments.length &&
+          cellIndex === segment.length - 1 && candidate.teleports[segmentIndex].from === cell;
+        if (runner.isPortalCell && runner.isPortalCell(cell) &&
+            !isInitialExit && !isTeleportArrival && !isTeleportEntry) return false;
+        seenCells.add(cell);
+      }
+
+      if (segmentIndex + 1 < candidate.segments.length) {
+        const teleport = candidate.teleports[segmentIndex];
+        const from = segment[segment.length - 1];
+        const to = candidate.segments[segmentIndex + 1][0];
+        if (teleport.from !== from || teleport.to !== to) return false;
+        const portal = runner.portalAt && runner.portalAt(from);
+        if (!portal || portal.exit !== to) return false;
+        if (teleport.pairId && portal.id !== teleport.pairId) return false;
+        if (usedPairs.has(portal.id)) return false;
+        usedPairs.add(portal.id);
+      }
+    }
+    return true;
   }
 
   findAvailablePortalPath(runner) {
@@ -142,8 +267,10 @@ class HintService {
       if (runner.completed && runner.completed[lineIndex]) return;
       if (isWait && lineIndex !== runner.portalPending.lineIndex) return;
 
+      const context = isWait ? this.portalWaitContext(runner, lineIndex) : null;
+      if (isWait && !context) return;
       const start = isWait ? runner.portalPending.exit : line.Start;
-      const end = line.End;
+      const end = isWait ? context.target : line.End;
       const result = this.shortestPortalPath(runner, lineIndex, start, end, isWait);
       if (result) {
         candidates.push(Object.assign({ lineIndex, source: 'search' }, result));
@@ -156,73 +283,134 @@ class HintService {
 
   shortestPortalPath(runner, lineIndex, start, end, isWait) {
     if (!this.isPlayable(runner, start) || !this.isPlayable(runner, end)) return null;
-    const total = runner.level.Width * runner.level.Height;
-    const previous = new Array(total).fill(null);
-    const queue = [start];
-    previous[start] = { from: start, edgeType: 'grid' };
+    const pending = isWait ? runner.portalPending : null;
+    const context = isWait ? this.portalWaitContext(runner, lineIndex) : null;
+    const forbidden = new Set(context ? context.entryCells : []);
+    const initialUsedPairs = new Set();
+    if (pending) {
+      (pending.usedPairIds || []).forEach(pairId => initialUsedPairs.add(pairId));
+      if (pending.pairId) initialUsedPairs.add(pending.pairId);
+    }
+
+    const canUseCell = (index, state) => {
+      if (!this.isPlayable(runner, index)) return false;
+      if (forbidden.has(index) || (state && state.visited.has(index))) return false;
+      if (runner.selectedContains && runner.selectedContains(index)) return false;
+      const owner = runner.owner[index];
+      const fixed = runner.fixedLine[index];
+      if (owner >= 0 && owner !== lineIndex) return false;
+      if (fixed >= 0 && fixed !== lineIndex && index !== end) return false;
+      return true;
+    };
+
+    const keyFor = state => {
+      const pairs = Array.from(state.usedPairs).sort().join(',');
+      return `${state.cell}|${state.arrivedViaTeleport ? 1 : 0}|${pairs}`;
+    };
+    const startState = {
+      cell: start,
+      parent: null,
+      edgeType: 'grid',
+      pairId: null,
+      fromCell: null,
+      toCell: null,
+      arrivedViaTeleport: !!isWait,
+      usedPairs: initialUsedPairs,
+      visited: new Set([start])
+    };
+    const queue = [startState];
+    const visitedStates = new Set([keyFor(startState)]);
+    let found = null;
 
     for (let head = 0; head < queue.length; head++) {
-      const current = queue[head];
-      if (current === end) break;
-      const point = runner.indexToXY(current);
-      const neighbors = [];
-      if (point.x > 0) neighbors.push({ index: current - 1, edgeType: 'grid' });
-      if (point.x + 1 < runner.level.Width) neighbors.push({ index: current + 1, edgeType: 'grid' });
-      if (point.y > 0) neighbors.push({ index: current - runner.level.Width, edgeType: 'grid' });
-      if (point.y + 1 < runner.level.Height) neighbors.push({ index: current + runner.level.Width, edgeType: 'grid' });
-
-      // If current is a portal cell and player hasn't already passed it
-      if (!isWait && runner.isPortalCell && runner.isPortalCell(current)) {
-        const portal = runner.portalAt(current);
-        if (portal && runner.portalExitAvailable(portal, lineIndex)) {
-          neighbors.push({
-            index: portal.exit,
-            edgeType: 'teleport',
-            pairId: portal.id,
-            from: portal.entry,
-            to: portal.exit
-          });
-        }
+      const state = queue[head];
+      const current = state.cell;
+      if (current === end) {
+        found = state;
+        break;
       }
 
-      neighbors.forEach(item => {
-        const next = item.index;
-        if (previous[next]) return;
-        if (!this.isPlayable(runner, next)) return;
-        const owner = runner.owner[next];
-        const fixed = runner.fixedLine[next];
-        if (owner >= 0 && owner !== lineIndex) return;
-        if (fixed >= 0 && fixed !== lineIndex && next !== end) return;
-        previous[next] = { from: current, edgeType: item.edgeType, pairId: item.pairId, fromCell: item.from, toCell: item.to };
-        queue.push(next);
+      const portal = runner.portalAt && runner.portalAt(current);
+      if (portal && !state.arrivedViaTeleport) {
+        if (state.usedPairs.has(portal.id)) continue;
+        if (runner.portalExitAvailable && !runner.portalExitAvailable(portal, lineIndex)) continue;
+        if (!canUseCell(portal.exit, state)) continue;
+
+        const usedPairs = new Set(state.usedPairs);
+        usedPairs.add(portal.id);
+        const visited = new Set(state.visited);
+        visited.add(portal.exit);
+        const nextState = {
+          cell: portal.exit,
+          parent: state,
+          edgeType: 'teleport',
+          pairId: portal.id,
+          fromCell: portal.entry,
+          toCell: portal.exit,
+          arrivedViaTeleport: true,
+          usedPairs,
+          visited
+        };
+        const key = keyFor(nextState);
+        if (!visitedStates.has(key)) {
+          visitedStates.add(key);
+          queue.push(nextState);
+        }
+        continue;
+      }
+
+      const point = runner.indexToXY(current);
+      const neighbors = [];
+      if (point.x > 0) neighbors.push(current - 1);
+      if (point.x + 1 < runner.level.Width) neighbors.push(current + 1);
+      if (point.y > 0) neighbors.push(current - runner.level.Width);
+      if (point.y + 1 < runner.level.Height) neighbors.push(current + runner.level.Width);
+
+      neighbors.forEach(next => {
+        if (!canUseCell(next, state)) return;
+        const nextPortal = runner.portalAt && runner.portalAt(next);
+        if (nextPortal && state.usedPairs.has(nextPortal.id)) return;
+        const visited = new Set(state.visited);
+        visited.add(next);
+        const nextState = {
+          cell: next,
+          parent: state,
+          edgeType: 'grid',
+          pairId: null,
+          fromCell: current,
+          toCell: next,
+          arrivedViaTeleport: false,
+          usedPairs: new Set(state.usedPairs),
+          visited
+        };
+        const key = keyFor(nextState);
+        if (visitedStates.has(key)) return;
+        visitedStates.add(key);
+        queue.push(nextState);
       });
     }
 
-    if (!previous[end]) return null;
+    if (!found) return null;
 
-    // Reconstruct path and segments
     const chain = [];
-    for (let current = end; ; current = previous[current].from) {
-      chain.push({ cell: current, prevInfo: previous[current] });
-      if (current === start) break;
-    }
+    for (let state = found; state; state = state.parent) chain.push(state);
     chain.reverse();
 
     const segments = [[]];
     const teleports = [];
     const flatPath = [];
 
-    chain.forEach((step, idx) => {
-      flatPath.push(step.cell);
-      if (idx > 0 && step.prevInfo && step.prevInfo.edgeType === 'teleport') {
+    chain.forEach((state, idx) => {
+      flatPath.push(state.cell);
+      if (idx > 0 && state.edgeType === 'teleport') {
         teleports.push({
-          pairId: step.prevInfo.pairId,
-          from: step.prevInfo.fromCell,
-          to: step.prevInfo.toCell
+          pairId: state.pairId,
+          from: state.fromCell,
+          to: state.toCell
         });
-        segments.push([step.cell]);
+        segments.push([state.cell]);
       } else {
-        segments[segments.length - 1].push(step.cell);
+        segments[segments.length - 1].push(state.cell);
       }
     });
 
@@ -230,7 +418,7 @@ class HintService {
       segments,
       teleports,
       path: flatPath,
-      requiresRelease: !isWait && segments.length > 1
+      requiresRelease: segments.length > 1
     };
   }
 

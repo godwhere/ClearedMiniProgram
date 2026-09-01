@@ -94,6 +94,14 @@ function run() {
     [baseLevel({ Portals: [{ Id: 'P1', A: 1, B: 6 }, { Id: 'P2', A: 6, B: 5 }] }), 'portal-cell-duplicate'],
     [baseLevel({ Portals: [{ Id: 'P1', A: 0, B: 6 }] }), 'portal-endpoint-conflict'],
     [baseLevel({ Blocked: [6] }), 'portal-blocked-conflict'],
+    [baseLevel({ PortalRulesVersion: undefined }), 'portal-rules-version-invalid'],
+    [baseLevel({ Blocked: null }), 'portal-blocked-required-array'],
+    [baseLevel({ Blocked: [2.5] }), 'portal-blocked-integer'],
+    [baseLevel({ Blocked: [-1] }), 'portal-blocked-out-of-range'],
+    [baseLevel({
+      Lines: [{ Start: 0, End: 7 }],
+      Blocked: [2, 2]
+    }), 'portal-blocked-duplicate'],
     [baseLevel({ PortalRulesVersion: 2 }), 'portal-rules-version-invalid'],
     [baseLevel({ Portals: [] }), 'portal-pair-required'],
     [{ Mechanic: 'normal', Portals: [{ Id: 'P1', A: 1, B: 6 }] }, 'portal-mechanic-invalid']
@@ -171,6 +179,34 @@ function run() {
     Blocked: [2, 3, 4, 5]
   });
   assert.strictEqual(validatePortalSolution(oneLineLevel, oneLine).ok, true);
+
+  // An out-of-range Blocked value is both invalid authoring data and cannot
+  // lower the expected coverage count to disguise a missing real cell.
+  const forgedCoverageLevel = baseLevel({
+    Lines: [
+      { Start: 0, End: 4 },
+      { Start: 2, End: 7 }
+    ],
+    Portals: [{ Id: 'P1', A: 1, B: 5 }],
+    Blocked: [99]
+  });
+  const forgedCoverageSolution = [
+    {
+      Segments: [
+        { Cells: [0, 1], Exit: { PairId: 'P1', From: 1, To: 5 } },
+        { Cells: [5, 4] }
+      ]
+    },
+    { Segments: [{ Cells: [2, 3, 7] }] }
+  ];
+  const forgedCoverage = validatePortalSolution(
+    forgedCoverageLevel,
+    forgedCoverageSolution
+  );
+  assert.strictEqual(forgedCoverage.ok, false);
+  assert(has(forgedCoverage, 'portal-blocked-out-of-range'));
+  assert(has(forgedCoverage, 'solution-incomplete'),
+    'invalid blockers must not reduce required in-range coverage');
 }
 
 module.exports = run;

@@ -1,9 +1,9 @@
 'use strict';
 
-// Stand-alone trial set for the v1 portal mechanic.  It is deliberately kept
-// out of catalog-v2.js until the runtime portal adapter is enabled.  Each game
-// carries a stable Id so portal-solutions.js can be consumed independently by
-// HintService/validation tooling.
+// Stand-alone trial set for the v1 portal gameplay extension. It deliberately
+// stays outside the ordinary catalog so trial clears cannot unlock or overwrite
+// normal progression. Each game carries a stable Id so portal-solutions.js can
+// be consumed independently by HintService and publishing validation.
 module.exports = {
   Name: 'Portal Trials',
   Color: '#00ABA9',
@@ -83,4 +83,3 @@ module.exports = {
     }
   ]
 };
-
