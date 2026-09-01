@@ -711,7 +711,7 @@ tests/renderer-portal.test.js        修改
 **步骤**：
 
 1. 从普通 play/daily 共用代码中提取 board layout 和基础格绘制。
-2. 把 portal icon 加载、fallback、锁定环和等待环迁入 portal overlay；内部 ID 不进入视觉层。
+2. 把 portal icon 加载、fallback、LOCKED 入口居中放大/选中高亮和等待环迁入 portal overlay；内部 ID 不进入视觉层。
 3. App/Presenter 根据 Runner 只读状态构建 board ViewModel。
 4. Renderer 按固定顺序绘制：底板 → 普通格/路径 → 清除动画 → 提示 → portal overlay。
 5. Portal 格继续跳过主题、路径提示和清除棋子；清除期间底板和门图标保留。

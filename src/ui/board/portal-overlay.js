@@ -125,6 +125,10 @@ class PortalOverlay {
         const x = layout.x + col * layout.cell + gap;
         const y = layout.y + row * layout.cell + gap;
         const size = Math.max(1, layout.cell - gap * 2);
+        const lockedSelected = isLocked && cellIndex === lockedEntry;
+        const lockedBreath = lockedSelected
+          ? 0.5 + Math.sin(now / 160) * 0.5
+          : 0;
 
         if (clearingOwned) {
           this.drawTile(-1, x, y, size, {
@@ -132,15 +136,37 @@ class PortalOverlay {
             skin
           });
         }
+
+        if (lockedSelected) {
+          ctx.save();
+          this.roundedRect(x - 2, y - 2, size + 4, size + 4, 7);
+          ctx.fillStyle = '#00e5ff';
+          ctx.globalAlpha = 0.14 + lockedBreath * 0.12;
+          ctx.fill();
+          ctx.strokeStyle = '#00e5ff';
+          ctx.lineWidth = Math.max(2.5, 3 + lockedBreath * 1.5);
+          ctx.globalAlpha = 0.88 + lockedBreath * 0.12;
+          ctx.stroke();
+          ctx.restore();
+        }
+
+        const iconScale = lockedSelected ? 1.1 + lockedBreath * 0.06 : 1;
         if (image) {
+          const iconSize = Math.max(1, (size - 4) * iconScale);
           this.drawImageContain(image, {
-            x: x + 2,
-            y: y + 2,
-            w: size - 4,
-            h: size - 4
+            x: x + size / 2 - iconSize / 2,
+            y: y + size / 2 - iconSize / 2,
+            w: iconSize,
+            h: iconSize
           }, { fit: 'contain' });
         } else {
-          this.drawFallback(x, y, size, now);
+          const fallbackSize = size * iconScale;
+          this.drawFallback(
+            x + size / 2 - fallbackSize / 2,
+            y + size / 2 - fallbackSize / 2,
+            fallbackSize,
+            now
+          );
         }
 
         if (isWaiting && expectedExits.has(cellIndex)) {
@@ -154,16 +180,6 @@ class PortalOverlay {
           ctx.restore();
         }
 
-        if (isLocked && cellIndex === lockedEntry) {
-          const breath = 0.5 + Math.sin(now / 120) * 0.5;
-          ctx.save();
-          ctx.strokeStyle = '#00e5ff';
-          ctx.lineWidth = Math.max(2, 2 + breath * 2);
-          ctx.globalAlpha = 0.85 + breath * 0.15;
-          this.roundedRect(x - 1, y - 1, size + 2, size + 2, 6);
-          ctx.stroke();
-          ctx.restore();
-        }
       });
     });
   }

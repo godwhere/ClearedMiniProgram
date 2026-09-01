@@ -511,6 +511,14 @@ function run() {
   assert.strictEqual(ringCalls.length, 1,
     'PortalOverlay retains the singular expectedExit compatibility path');
 
+  overlayImageCalls.length = 0;
+  ringCalls.length = 0;
+  overlay.draw(readyPortal, overlayBoard, overlayLayout, 3, 100);
+  const normalPortalRects = overlayImageCalls.map(call => call[1]);
+  assert.strictEqual(normalPortalRects.length, 2);
+
+  overlayContext.calls.length = 0;
+  overlayImageCalls.length = 0;
   ringCalls.length = 0;
   const lockedPortal = deepFreeze({
     icon: 'assets/icons/portal.png',
@@ -521,7 +529,22 @@ function run() {
     lockedEntry: 21
   });
   overlay.draw(lockedPortal, overlayBoard, overlayLayout, 3, 100);
-  assert.strictEqual(ringCalls.length, 1, 'PORTAL_LOCKED draws exactly one entry lock ring');
+  const lockedPortalRects = overlayImageCalls.map(call => call[1]);
+  assert.strictEqual(ringCalls.length, 1,
+    'PORTAL_LOCKED draws exactly one selected-entry highlight');
+  assert(lockedPortalRects[0].w > normalPortalRects[0].w,
+    'the locked entry portal grows while selected');
+  assert.strictEqual(lockedPortalRects[1].w, normalPortalRects[1].w,
+    'unselected portals keep their normal size');
+  assert.strictEqual(
+    lockedPortalRects[0].x + lockedPortalRects[0].w / 2,
+    normalPortalRects[0].x + normalPortalRects[0].w / 2,
+    'the selected portal scales around its center without shifting cells'
+  );
+  assert(overlayContext.calls.some(call => call.method === 'fill'),
+    'the locked entry receives a filled cyan selection halo');
+  assert(overlayContext.calls.some(call => call.method === 'stroke'),
+    'the locked entry receives a visible selection outline');
 }
 
 module.exports = run;
