@@ -12,6 +12,12 @@ const audioConfig = require('./config/audio.js');
 const CanvasRenderer = require('./ui/canvas-renderer.js');
 const defaultSkins = require('./skins/index.js');
 const defaultPortalMechanic = require('./mechanics/portal.js');
+const {
+  createCatalogRunContext,
+  createMechanicTrialRunContext
+} = require('./gameplay/run-context.js');
+const completionPolicies = require('./gameplay/completion-policies.js');
+const BoardInputController = require('./gameplay/board-input-controller.js');
 
 // Daily challenge files are introduced independently from the ordinary
 // level/catalog pipeline.  Keep direct app construction (including older
@@ -261,10 +267,12 @@ class ClearedApp {
 
     this.renderer = new CanvasRenderer(platform, this.skins, this.clearEffects);
     this.renderer.setInvalidate(() => this.invalidate());
+    this.boardInput = new BoardInputController(null, this.renderer);
 
     this.scene = 'home';
     this.setIndex = 0;
     this.levelIndex = 0;
+    this.runContext = null;
     // Keep theme pagination independent from the level-group cursor.  A theme
     // selection never changes this value, so returning to the gallery keeps
     // the user on the page they were browsing.
@@ -280,10 +288,7 @@ class ClearedApp {
         { id: 'themes', name: '主题', action: 'corridor:themes' },
         { id: 'effects', name: '特效', action: 'corridor:effects' }
       ];
-    this.currentSet = null;
-    this.currentLevel = null;
     this.runner = null;
-    this.activeMechanicId = null;
     this.pointer = null;
     this.pressedId = null;
     this.clearAnimation = null;
@@ -334,6 +339,7 @@ class ClearedApp {
 
   emptyDailyState() {
     return {
+      progressionScope: 'daily',
       dayId: null,
       dateKey: null,
       levels: [],
@@ -727,20 +733,22 @@ class ClearedApp {
 
   runnerOutcome(runner) {
     if (!runner) return OUTCOME.PLAYING;
-    if (runner.outcome === OUTCOME.WON || runner.outcome === OUTCOME.FAILED) {
-      return runner.outcome;
-    }
-    return runner.isGameOver ? OUTCOME.WON : OUTCOME.PLAYING;
+    const state = typeof runner.getViewState === 'function' ? runner.getViewState() : null;
+    return state && (state.outcome === OUTCOME.WON || state.outcome === OUTCOME.FAILED)
+      ? state.outcome
+      : OUTCOME.PLAYING;
   }
 
   runnerTerminal(runner) {
-    if (runner && typeof runner.isTerminal === 'function') return runner.isTerminal();
-    return this.runnerOutcome(runner) !== OUTCOME.PLAYING;
+    const state = runner && typeof runner.getViewState === 'function'
+      ? runner.getViewState()
+      : null;
+    return !!(state && state.terminal);
   }
 
   isPortalTrial() {
-    const id = this.portalMechanic && this.portalMechanic.id;
-    return !!id && this.activeMechanicId === id;
+    const source = this.runContext && this.runContext.source;
+    return !!source && source.kind === 'mechanic-trial' && source.id === 'portal-trial';
   }
 
   portalTrialDescriptor() {
@@ -817,8 +825,10 @@ class ClearedApp {
       if (timestamp < start + duration + 80) return true;
     }
     if (this.hint && timestamp < this.hintUntil) return true;
-    if (this.scene === 'play' && this.runner && this.runner.selectedLine >= 0) return true;
-    if (this.scene === 'daily' && this.daily.runner && this.daily.runner.selectedLine >= 0) return true;
+    if (this.scene === 'play' && this.runner &&
+        this.runner.getSelectionState().lineIndex >= 0) return true;
+    if (this.scene === 'daily' && this.daily.runner &&
+        this.daily.runner.getSelectionState().lineIndex >= 0) return true;
     if (this.scene === 'result') {
       const enterMs = this.result && this.result.outcome === OUTCOME.FAILED
         ? FAILURE_DIALOG_ENTER_MS : 80;
@@ -830,6 +840,93 @@ class ClearedApp {
       if (timestamp < this.daily.resultVisibleAt + enterMs) return true;
     }
     return false;
+  }
+
+  buildBoardViewModel(runner, clearAnimation) {
+    if (!runner || typeof runner.getViewState !== 'function') return null;
+    let viewState;
+    try {
+      viewState = cloneData(runner.getViewState());
+    } catch (error) {
+      return null;
+    }
+    const boardState = viewState && viewState.board;
+    if (!boardState || typeof boardState !== 'object') return null;
+    const width = Number(boardState.width);
+    const height = Number(boardState.height);
+    const total = width * height;
+    if (!Number.isInteger(width) || !Number.isInteger(height) || width <= 0 || height <= 0 ||
+        !Number.isInteger(total)) return null;
+
+    const selection = viewState.selection && typeof viewState.selection === 'object'
+      ? viewState.selection : { lineIndex: -1, cells: [], segments: [], teleports: [] };
+    const selectedCells = new Set();
+    if (Array.isArray(selection.segments) && selection.segments.length) {
+      selection.segments.forEach(segment => {
+        if (Array.isArray(segment)) segment.forEach(index => selectedCells.add(index));
+      });
+    } else if (Array.isArray(selection.cells)) {
+      selection.cells.forEach(index => selectedCells.add(index));
+    }
+
+    const mechanicState = viewState.mechanic && typeof viewState.mechanic === 'object'
+      ? viewState.mechanic : { id: null, portals: [] };
+    const portals = Array.isArray(mechanicState.portals) ? mechanicState.portals : [];
+    const portalCells = new Set();
+    portals.forEach(portal => {
+      if (!portal || typeof portal !== 'object') return;
+      const cells = Array.isArray(portal.cells)
+        ? portal.cells
+        : [portal.A === undefined ? portal.a : portal.A,
+          portal.B === undefined ? portal.b : portal.B];
+      cells.forEach(index => {
+        if (Number.isInteger(index) && index >= 0 && index < total) portalCells.add(index);
+      });
+    });
+
+    const blocked = Array.isArray(boardState.blocked) ? boardState.blocked : [];
+    const blockedSet = new Set(blocked);
+    const blockedMask = Array.isArray(boardState.blockedMask) ? boardState.blockedMask : [];
+    const owner = Array.isArray(boardState.owner) ? boardState.owner : [];
+    const fixedLine = Array.isArray(boardState.fixedLine) ? boardState.fixedLine : [];
+    const cells = new Array(total);
+    for (let index = 0; index < total; index++) {
+      cells[index] = {
+        index,
+        blocked: blockedMask[index] === true || blockedSet.has(index),
+        owner: Number.isInteger(owner[index]) ? owner[index] : -1,
+        fixedLine: Number.isInteger(fixedLine[index]) ? fixedLine[index] : -1,
+        selected: selectedCells.has(index),
+        portal: portalCells.has(index)
+      };
+    }
+
+    const pending = mechanicState.pending;
+    const locked = mechanicState.locked;
+    const portal = mechanicState.id === 'portal' ? {
+      icon: this.portalMechanic && this.portalMechanic.icon,
+      portals: cloneData(portals),
+      phase: mechanicState.phase,
+      expectedExit: pending && Number.isInteger(pending.exit) ? pending.exit : null,
+      lockedEntry: locked && Number.isInteger(locked.entry) ? locked.entry : null
+    } : null;
+    return {
+      board: {
+        width,
+        height,
+        lines: cloneData(boardState.lines || []),
+        cells,
+        completedPaths: cloneData(viewState.completedPaths || []),
+        selection: cloneData(selection),
+        clearAnimation: cloneData(clearAnimation),
+        hint: cloneData(this.hint),
+        hintUntil: this.hintUntil
+      },
+      mechanic: { portal },
+      elapsedText: typeof viewState.timeText === 'string' ? viewState.timeText : '0:00',
+      canUndo: viewState.canUndo === true,
+      terminal: viewState.terminal === true
+    };
   }
 
   buildModel() {
@@ -880,8 +977,8 @@ class ClearedApp {
 
     if (activeDaily) {
       const completed = this.dailyCompletionState(dailyResolution);
-      const portalStatus = activeDaily.runner && typeof activeDaily.runner.portalStatus === 'function'
-        ? activeDaily.runner.portalStatus() : null;
+      const boardView = this.buildBoardViewModel(activeDaily.runner, activeDaily.clearAnimation);
+      const portalStatus = boardView && boardView.mechanic.portal;
       return Object.assign(base, {
         dailyAvailable: !!activeDaily.challenge,
         dailyEntryAvailable: this.dailyDebugUnlimited || activeDaily.entriesRemaining > 0,
@@ -904,10 +1001,13 @@ class ClearedApp {
         dailyEntryLimit: activeDaily.entryLimit,
         dailyEntriesRemaining: this.dailyDebugUnlimited ? null : activeDaily.entriesRemaining,
         dailyDebugUnlimited: this.dailyDebugUnlimited,
-        runner: activeDaily.runner,
+        board: boardView && boardView.board,
+        mechanic: boardView ? boardView.mechanic : { portal: null },
+        elapsedText: boardView ? boardView.elapsedText : '0:00',
+        canUndo: !!(boardView && boardView.canUndo),
         levelEnteredAt: activeDaily.enteredAt,
         clearAnimation: activeDaily.clearAnimation,
-        hintAvailable: !!activeDaily.runner && !this.runnerTerminal(activeDaily.runner),
+        hintAvailable: !!boardView && !boardView.terminal,
         result: activeDaily.result,
         resultVisibleAt: activeDaily.resultVisibleAt,
         runStartedAt: activeDaily.runStartedAt,
@@ -916,9 +1016,9 @@ class ClearedApp {
         // These fields are intentionally namespaced by scene/action in the
         // renderer; no ordinary setIndex/levelIndex is supplied here.
         dailyResultVisibleAt: activeDaily.resultVisibleAt,
-        portals: activeDaily.runner ? activeDaily.runner.portals : [],
+        portals: portalStatus ? portalStatus.portals : [],
         portalStatus,
-        expectedExit: activeDaily.runner && activeDaily.runner.portalPending ? activeDaily.runner.portalPending.exit : null,
+        expectedExit: portalStatus ? portalStatus.expectedExit : null,
         portalInstruction: portalStatus && portalStatus.phase === 'PORTAL_WAIT' ? '从另一端继续' : null
       });
     }
@@ -994,27 +1094,33 @@ class ClearedApp {
     }
 
     if (this.scene === 'play' || this.scene === 'result') {
-      const set = this.currentSet || sets[this.setIndex];
-      const level = this.currentLevel || (set && set.Games && set.Games[this.levelIndex]);
-      const portalStatus = this.runner && typeof this.runner.portalStatus === 'function'
-        ? this.runner.portalStatus() : null;
+      const context = this.runContext;
+      const set = context && context.set;
+      const level = context && context.level;
+      const activeLevelIndex = context ? context.levelIndex : this.levelIndex;
+      const trial = !!context && context.source.kind === 'mechanic-trial';
+      const boardView = this.buildBoardViewModel(this.runner, this.clearAnimation);
+      const portalStatus = boardView && boardView.mechanic.portal;
       return Object.assign(base, {
         set,
         level,
-        levelIndex: this.levelIndex,
-        runner: this.runner,
+        levelIndex: activeLevelIndex,
+        board: boardView && boardView.board,
+        mechanic: boardView ? boardView.mechanic : { portal: null },
+        elapsedText: boardView ? boardView.elapsedText : '0:00',
+        canUndo: !!(boardView && boardView.canUndo),
         levelEnteredAt: this.levelEnteredAt,
         clearAnimation: this.clearAnimation,
-        hintAvailable: !this.runnerTerminal(this.runner),
+        hintAvailable: !!boardView && !boardView.terminal,
         result: this.result,
         resultVisibleAt: this.resultVisibleAt,
-        hasNext: this.isPortalTrial()
-          ? (this.levelIndex + 1 < ((this.portalDemo && this.portalDemo.Games) || []).length)
-          : !!this.progression.nextLevel(this.setIndex, this.levelIndex),
-        isPortalTrial: this.isPortalTrial(),
-        portals: this.runner ? this.runner.portals : [],
+        hasNext: trial
+          ? (activeLevelIndex + 1 < ((set && set.Games) || []).length)
+          : !!(context && this.progression.nextLevel(context.setIndex, activeLevelIndex)),
+        isPortalTrial: trial,
+        portals: portalStatus ? portalStatus.portals : [],
         portalStatus,
-        expectedExit: this.runner && this.runner.portalPending ? this.runner.portalPending.exit : null,
+        expectedExit: portalStatus ? portalStatus.expectedExit : null,
         portalInstruction: portalStatus && portalStatus.phase === 'PORTAL_WAIT' ? '从另一端继续' : null
       });
     }
@@ -1025,8 +1131,28 @@ class ClearedApp {
     this.dirty = true;
   }
 
+  handleBoardInputEvents(events) {
+    (Array.isArray(events) ? events : []).forEach(event => {
+      if (!event || !event.type) return;
+      if (event.type === 'step') {
+        this.audio.playSfx('step');
+      } else if (event.type === 'portal-wait' && event.action === 'end') {
+        this.platform.triggerHaptic('light');
+      } else if (event.type === 'invalid-selection' && event.action === 'end') {
+        this.audio.playSfx('error');
+      } else if (event.type === 'path-completed' && event.commit) {
+        this.onPathCompleted(
+          event.commit.lineIndex,
+          event.commit.cells,
+          event.commit.segments
+        );
+      }
+    });
+    this.invalidate();
+  }
+
   onPointerStart(point) {
-    if (!point || this.pointer) return;
+    if (!point || this.pointer || this.boardInput.isActive()) return;
     this.audio.unlock();
     const hit = this.renderer.hitTest(point.x, point.y);
     if (hit) {
@@ -1040,26 +1166,9 @@ class ClearedApp {
         (this.scene === 'daily' && this.daily.runner)) {
       this.hint = null;
       this.hintUntil = 0;
-      const cellIndex = this.renderer.cellAt(point.x, point.y);
       const runner = this.activeRunner();
-
-      // If waiting for portal exit, any tap is handled by runner.touchStart(cellIndex)
-      if (runner && runner.portalPending && runner.portalPhase === 'PORTAL_WAIT') {
-        if (runner.touchStart(cellIndex)) {
-          this.pointer = { mode: 'board', id: point.id, start: point, last: point };
-        }
-        this.invalidate();
-        return;
-      }
-
-      // GameRunner owns the definitive blocked-cell check.  The explicit
-      // guard keeps lightweight runner doubles and older runtimes safe while
-      // ensuring a blocked cell can never start a gesture.
-      const playable = typeof runner.isPlayableCell !== 'function' || runner.isPlayableCell(cellIndex);
-      if (playable && runner.touchStart(cellIndex)) {
-        this.pointer = { mode: 'board', id: point.id, start: point, last: point };
-        this.invalidate();
-      }
+      if (this.boardInput.runner !== runner) this.boardInput.setRunner(runner);
+      this.handleBoardInputEvents(this.boardInput.start(point));
       return;
     }
 
@@ -1073,80 +1182,29 @@ class ClearedApp {
   }
 
   onPointerMove(point) {
-    if (!point || !this.pointer || point.id !== this.pointer.id) return;
-    if (this.pointer.mode === 'board') {
-      const runner = this.activeRunner();
-      if (runner && (runner.portalPhase === 'PORTAL_LOCKED' || runner.portalPhase === 'PORTAL_WAIT')) {
-        this.pointer.last = point;
-        return;
-      }
-      this.traceBoard(this.pointer.last, point);
+    if (point && this.boardInput.isActive()) {
+      this.handleBoardInputEvents(this.boardInput.move(point));
+      return;
     }
+    if (!point || !this.pointer || point.id !== this.pointer.id) return;
     this.pointer.last = point;
   }
 
   traceBoard(from, to) {
-    const layout = this.renderer.boardLayout;
-    if (!layout) return;
-    const dx = to.x - from.x;
-    const dy = to.y - from.y;
-    const distance = Math.sqrt(dx * dx + dy * dy);
-    const steps = Math.max(1, Math.ceil(distance / Math.max(6, layout.cell * 0.32)));
-    let moved = false;
-    for (let step = 1; step <= steps; step++) {
-      const point = {
-        x: from.x + dx * step / steps,
-        y: from.y + dy * step / steps
-      };
-      const cellIndex = this.renderer.cellAt(point.x, point.y);
-      const runner = this.activeRunner();
-      if (cellIndex >= 0 && runner &&
-          (typeof runner.isPlayableCell !== 'function' || runner.isPlayableCell(cellIndex)) &&
-          runner.touchMove(cellIndex)) {
-        moved = true;
-      }
-      if (runner && (runner.portalPhase === 'PORTAL_LOCKED' || runner.portalLock)) {
-        break;
-      }
-    }
-    if (moved) this.audio.playSfx('step');
-    this.invalidate();
+    if (!to || !this.boardInput.isActive()) return;
+    this.handleBoardInputEvents(this.boardInput.move(to));
   }
 
   onPointerEnd(point) {
+    if (this.boardInput.isActive()) {
+      this.pressedId = null;
+      this.handleBoardInputEvents(this.boardInput.end(point));
+      return;
+    }
     if (!this.pointer || (point && point.id !== this.pointer.id)) return;
     const active = this.pointer;
     this.pointer = null;
     this.pressedId = null;
-
-    if (active.mode === 'board') {
-      if (point) this.traceBoard(active.last, point);
-      const runner = this.activeRunner();
-      if (!runner) {
-        this.invalidate();
-        return;
-      }
-      const lineIndex = runner.selectedLine;
-      const selectedCells = runner.selectedCells.slice();
-      const hadSelection = lineIndex >= 0;
-      const endIndex = point ? this.renderer.cellAt(point.x, point.y) : -1;
-      const connected = runner.touchEnd(endIndex);
-      if (connected) {
-        const completedCells = runner.completedPaths && runner.completedPaths[lineIndex];
-        const completedSegments = runner.completedSegments && runner.completedSegments[lineIndex];
-        this.onPathCompleted(
-          lineIndex,
-          Array.isArray(completedCells) ? completedCells : selectedCells,
-          Array.isArray(completedSegments) ? completedSegments : null
-        );
-      } else if (runner.portalPhase === 'PORTAL_WAIT') {
-        this.platform.triggerHaptic('light');
-      } else if (hadSelection) {
-        this.audio.playSfx('error');
-      }
-      this.invalidate();
-      return;
-    }
 
     const end = point || active.last;
     const dx = end.x - active.start.x;
@@ -1177,14 +1235,12 @@ class ClearedApp {
   }
 
   onPointerCancel(point) {
-    if (!this.pointer || (point && point.id !== this.pointer.id)) return;
-    if (this.pointer.mode === 'board') {
-      const runner = this.activeRunner();
-      if (runner) {
-        if (typeof runner.handlePointerCancel === 'function') runner.handlePointerCancel();
-        else runner.abortSelection();
-      }
+    if (this.boardInput.isActive()) {
+      this.handleBoardInputEvents(this.boardInput.cancel(point, 'pointer-cancel'));
+      this.pressedId = null;
+      return;
     }
+    if (!this.pointer || (point && point.id !== this.pointer.id)) return;
     this.pointer = null;
     this.pressedId = null;
     this.invalidate();
@@ -1217,14 +1273,13 @@ class ClearedApp {
     else this.clearAnimation = animation;
     const outcome = this.runnerOutcome(runner);
     if (outcome === OUTCOME.FAILED) {
-      const remainingCells = typeof runner.remainingCellCount === 'function'
-        ? runner.remainingCellCount()
-        : Math.max(1, Number(runner.remainingPlayableCells) || 1);
+      const runnerState = runner.getViewState();
+      const remainingCells = Math.max(1, Number(runnerState.remainingPlayableCells) || 1);
       const failure = {
         outcome: OUTCOME.FAILED,
-        reason: runner.failureReason || 'unfilled-cells',
+        reason: runnerState.failureReason || 'unfilled-cells',
         remainingCells,
-        elapsedMs: runner.elapsedMs()
+        elapsedMs: runnerState.elapsedMs
       };
       const resultDelayMs = Number(skin && skin.animation && skin.animation.resultDelayMs) || 0;
       const visibleAt = now + Math.max(animation.durationMs, resultDelayMs);
@@ -1232,7 +1287,7 @@ class ClearedApp {
       this.platform.triggerHaptic('medium');
       this.pointer = null;
       this.pressedId = null;
-      if (this.renderer && Array.isArray(this.renderer.hits)) this.renderer.hits = [];
+      if (this.renderer) this.renderer.clearInteractionHits();
       if (this.scene === 'daily') {
         this.daily.result = failure;
         this.daily.resultVisibleAt = visibleAt;
@@ -1256,33 +1311,18 @@ class ClearedApp {
 
     if (outcome !== OUTCOME.WON) return;
     if (this.scene === 'daily') {
-      this.completeDailyLevel();
+      completionPolicies.settle(this.daily, { complete: () => this.completeDailyLevel() });
       return;
     }
-    if (this.isPortalTrial()) {
-      const elapsedMs = runner.elapsedMs();
-      this.result = {
-        elapsedMs,
-        firstClear: false,
-        newBest: false,
-        previousBest: 0,
-        bestMs: elapsedMs,
-        persisted: false,
-        gameplayExtensionId: this.activeMechanicId
-      };
-      this.resultVisibleAt = now + this.skins.current().animation.resultDelayMs;
-      this.scene = 'result';
-      return;
-    }
-    const completion = this.progress.recordCompletion(
-      this.setIndex,
-      this.levelIndex,
-      runner.elapsedMs()
-    );
-    this.result = Object.assign({ elapsedMs: runner.elapsedMs() }, completion);
+    const completion = completionPolicies.settle(this.runContext, {
+      progress: this.progress,
+      ads: this.ads,
+      elapsedMs: runner.elapsedMs()
+    });
+    if (!completion) return;
+    this.result = completion;
     this.resultVisibleAt = now + this.skins.current().animation.resultDelayMs;
     this.scene = 'result';
-    this.ads.onLevelCompleted(this.progress.state.stats.totalClears);
   }
 
   dailyCompletionCall(level, levelIndex, elapsedMs) {
@@ -1415,6 +1455,7 @@ class ClearedApp {
       daily.challenge = nextLevel;
       daily.challengeId = this.dailyLevelId(nextLevel, nextIndex, daily.resolution);
       daily.runner = nextRunner;
+      this.boardInput.setRunner(nextRunner);
       daily.enteredAt = Date.now();
       daily.clearAnimation = null;
       this.hint = null;
@@ -1496,6 +1537,7 @@ class ClearedApp {
   resetCurrentLevel() {
     if (!this.runner) return false;
     this.runner.reset();
+    this.boardInput.setRunner(this.runner);
     this.scene = 'play';
     this.levelEnteredAt = Date.now();
     this.lastClockSecond = -1;
@@ -1506,7 +1548,7 @@ class ClearedApp {
     this.hintUntil = 0;
     this.pointer = null;
     this.pressedId = null;
-    if (this.renderer && Array.isArray(this.renderer.hits)) this.renderer.hits = [];
+    if (this.renderer) this.renderer.clearInteractionHits();
     this.invalidate();
     return true;
   }
@@ -1515,6 +1557,7 @@ class ClearedApp {
     const daily = this.daily;
     if (!daily || !daily.runner) return false;
     daily.runner.reset();
+    this.boardInput.setRunner(daily.runner);
     daily.enteredAt = Date.now();
     daily.result = null;
     daily.resultVisibleAt = 0;
@@ -1525,7 +1568,7 @@ class ClearedApp {
     this.hintUntil = 0;
     this.pointer = null;
     this.pressedId = null;
-    if (this.renderer && Array.isArray(this.renderer.hits)) this.renderer.hits = [];
+    if (this.renderer) this.renderer.clearInteractionHits();
     this.invalidate();
     return true;
   }
@@ -1646,6 +1689,7 @@ class ClearedApp {
       this.openLevel(this.setIndex, Number(action.split(':')[1]));
     } else if (action === 'daily:home' || action === 'daily:back') {
       this.scene = 'home';
+      this.boardInput.setRunner(null);
       this.hint = null;
       this.hintUntil = 0;
       this.pointer = null;
@@ -1669,6 +1713,7 @@ class ClearedApp {
       return false;
     } else if (action === 'dailyResult:home' || action === 'dailyResult:back') {
       this.scene = 'home';
+      this.boardInput.setRunner(null);
       this.pointer = null;
       this.hint = null;
       this.hintUntil = 0;
@@ -1682,14 +1727,12 @@ class ClearedApp {
     } else if (action === 'play:back' || action === 'result:levels') {
       if (this.isPortalTrial()) {
         this.scene = 'home';
-        this.currentSet = null;
-        this.currentLevel = null;
-        this.runner = null;
-        this.activeMechanicId = null;
       } else {
         this.scene = 'levels';
-        this.runner = null;
       }
+      this.runner = null;
+      this.runContext = null;
+      this.boardInput.setRunner(null);
     } else if (action === 'play:reset') {
       if (!this.runner) return;
       this.resetCurrentLevel();
@@ -1701,9 +1744,9 @@ class ClearedApp {
       this.showHint();
     } else if (action === 'result:replay') {
       if (this.isPortalTrial()) {
-        this.openPortalTrial(this.levelIndex);
-      } else {
-        this.openLevel(this.setIndex, this.levelIndex);
+        this.openPortalTrial(this.runContext.levelIndex);
+      } else if (this.runContext) {
+        this.openLevel(this.runContext.setIndex, this.runContext.levelIndex);
       }
     } else if (action === 'failure:retry') {
       if (this.scene === 'result' && this.result && this.result.outcome === OUTCOME.FAILED) {
@@ -1711,22 +1754,27 @@ class ClearedApp {
       }
     } else if (action === 'result:next') {
       if (this.isPortalTrial()) {
-        if (this.levelIndex + 1 < ((this.portalDemo && this.portalDemo.Games) || []).length) {
-          this.openPortalTrial(this.levelIndex + 1);
+        const context = this.runContext;
+        if (context && context.levelIndex + 1 < ((context.set && context.set.Games) || []).length) {
+          this.openPortalTrial(context.levelIndex + 1);
         } else {
           this.scene = 'home';
-          this.currentSet = null;
-          this.currentLevel = null;
           this.runner = null;
-          this.activeMechanicId = null;
+          this.runContext = null;
+          this.boardInput.setRunner(null);
         }
-      } else {
-        const target = this.progression.nextLevel(this.setIndex, this.levelIndex);
+      } else if (this.runContext) {
+        const target = this.progression.nextLevel(
+          this.runContext.setIndex,
+          this.runContext.levelIndex
+        );
         if (target && this.progression.isUnlocked(target.setIndex, target.levelIndex)) {
           this.openLevel(target.setIndex, target.levelIndex);
         } else {
           this.scene = 'levels';
           this.runner = null;
+          this.runContext = null;
+          this.boardInput.setRunner(null);
         }
       }
     }
@@ -1734,9 +1782,7 @@ class ClearedApp {
         this.renderer && typeof this.renderer.invalidateEffectPreviews === 'function') {
       this.renderer.invalidateEffectPreviews();
     }
-    if ((ordinaryFailure || dailyFailure) && this.renderer && Array.isArray(this.renderer.hits)) {
-      this.renderer.hits = [];
-    }
+    if ((ordinaryFailure || dailyFailure) && this.renderer) this.renderer.clearInteractionHits();
     this.invalidate();
   }
 
@@ -2000,6 +2046,7 @@ class ClearedApp {
       dayFirstClear: false,
       completionRecorded: false
     });
+    this.boardInput.setRunner(runner);
     this.scene = 'daily';
     this.pointer = null;
     this.pressedId = null;
@@ -2055,6 +2102,7 @@ class ClearedApp {
     daily.challenge = daily.levels[0];
     daily.challengeId = this.dailyLevelId(daily.challenge, 0, current);
     daily.runner = runner;
+    this.boardInput.setRunner(runner);
     daily.enteredAt = Date.now();
     daily.runStartedAt = daily.enteredAt;
     daily.elapsedBeforeLevel = 0;
@@ -2086,17 +2134,20 @@ class ClearedApp {
   }
 
   openLevel(setIndex, levelIndex) {
-    const set = catalog.sets[setIndex];
-    if (!set || !set.Games[levelIndex]) return false;
+    const context = createCatalogRunContext(catalog, setIndex, levelIndex);
+    if (!context) return false;
     if (!this.progression.isUnlocked(setIndex, levelIndex)) return false;
-    this.setIndex = setIndex;
-    this.levelIndex = levelIndex;
-    this.currentSet = null;
-    this.currentLevel = null;
-    this.activeMechanicId = null;
-    this.progress.markOpened(setIndex, levelIndex);
+    this.runContext = context;
+    this.setIndex = context.setIndex;
+    this.levelIndex = context.levelIndex;
+    this.progress.markOpened(context.setIndex, context.levelIndex);
     this.progress.save();
-    this.runner = new GameRunner(set.Games[levelIndex], set.Palette || [], () => this.invalidate());
+    this.runner = new GameRunner(
+      context.level,
+      context.set.Palette || [],
+      () => this.invalidate()
+    );
+    this.boardInput.setRunner(this.runner);
     this.scene = 'play';
     this.levelEnteredAt = Date.now();
     this.lastClockSecond = -1;
@@ -2111,17 +2162,20 @@ class ClearedApp {
 
   openPortalTrial(levelIndex = 0) {
     if (!this.portalTrialDescriptor()) return false;
-    const set = this.portalDemo;
-    if (!set || !Array.isArray(set.Games) || !set.Games.length) return false;
-    const safeIndex = Math.max(0, Math.min(levelIndex, set.Games.length - 1));
-    const game = set.Games[safeIndex];
-    if (!game) return false;
-    this.currentSet = set;
-    this.currentLevel = game;
-    this.activeMechanicId = this.portalMechanic && this.portalMechanic.id;
-    this.setIndex = -1;
-    this.levelIndex = safeIndex;
-    this.runner = new GameRunner(game, set.Palette || [], () => this.invalidate());
+    const context = createMechanicTrialRunContext(
+      this.portalMechanic,
+      levelIndex,
+      this.portalDemo
+    );
+    if (!context) return false;
+    this.runContext = context;
+    this.levelIndex = context.levelIndex;
+    this.runner = new GameRunner(
+      context.level,
+      context.set.Palette || [],
+      () => this.invalidate()
+    );
+    this.boardInput.setRunner(this.runner);
     this.scene = 'play';
     this.levelEnteredAt = Date.now();
     this.lastClockSecond = -1;
@@ -2136,7 +2190,12 @@ class ClearedApp {
 
   showHint() {
     if (this.scene !== 'play' || !this.runner || this.runnerTerminal(this.runner)) return false;
-    const hint = this.hints.find(this.runner, this.setIndex, this.levelIndex);
+    const context = this.runContext;
+    const hint = this.hints.find(
+      this.runner,
+      context ? context.setIndex : null,
+      context ? context.levelIndex : this.levelIndex
+    );
     if (!hint) {
       this.hint = null;
       this.hintUntil = 0;
@@ -2189,36 +2248,20 @@ class ClearedApp {
     const byId = catalog.ByChallengeId || catalog.byChallengeId || catalog;
     const paths = byId && byId[challengeId];
     if (!Array.isArray(paths) || !this.daily.runner) return null;
-    if (typeof this.hints.pickStoredPath === 'function') {
-      return this.hints.pickStoredPath(paths, this.daily.runner);
-    }
-    for (let lineIndex = 0; lineIndex < paths.length; lineIndex++) {
-      const path = paths[lineIndex];
-      if (!Array.isArray(path) || path.length < 2 || this.daily.runner.completed[lineIndex]) continue;
-      const valid = path.every(index => {
-        if (typeof this.daily.runner.isPlayableCell === 'function' &&
-            !this.daily.runner.isPlayableCell(index)) return false;
-        return this.daily.runner.owner[index] < 0 || this.daily.runner.owner[index] === lineIndex;
-      });
-      if (valid) return { lineIndex, path: path.slice(), source: 'solution' };
-    }
-    return null;
+    return typeof this.hints.pickStoredPath === 'function'
+      ? this.hints.pickStoredPath(paths, this.daily.runner)
+      : null;
   }
 
   onHide() {
-    if (this.pointer && this.pointer.mode === 'board') {
-      const runner = this.activeRunner();
-      if (runner) runner.abortSelection();
-    }
     this.pointer = null;
     this.pressedId = null;
     const runner = this.activeRunner();
     if (runner) {
-      if (runner.portalPending || runner.portalLock ||
-          runner.portalPhase === 'PORTAL_CONTINUE' ||
-          runner.portalPhase === 'PORTAL_LOCKED' ||
-          runner.portalPhase === 'PORTAL_WAIT') {
-        runner.cancelPortalContinuation();
+      if (this.boardInput.isActive() && this.boardInput.runner === runner) {
+        this.boardInput.cancel(null, 'navigation');
+      } else {
+        runner.cancelGesture('navigation');
       }
       runner.pause();
     }

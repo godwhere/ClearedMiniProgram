@@ -97,8 +97,10 @@ function run() {
   // Enter demo level 1 through the gameplay-extension entry.
   const level1 = portalDemo.Games[0]; // 5x5, Start: 0, End: 24, Portals: P1, A: 21, B: 2
   assert.strictEqual(app.openPortalTrial(0), true);
-  assert.strictEqual(app.activeMechanicId, 'portal');
-  assert.strictEqual(app.setIndex, -1, 'trial does not reuse an ordinary catalog index');
+  assert.strictEqual(app.runContext.mechanic.id, 'portal');
+  assert.strictEqual(app.runContext.setIndex, null,
+    'trial explicitly has no ordinary catalog index');
+  assert(app.setIndex >= 0, 'the level-picker cursor never becomes a business sentinel');
   app.tick(Date.now());
 
   const layout = app.renderer.boardLayout;
@@ -174,7 +176,9 @@ function run() {
   // Tap on B=2
   app.onPointerStart(cellPoint(2, 5));
   assert.strictEqual(app.runner.portalPhase, 'PORTAL_CONTINUE');
-  assert.strictEqual(app.pointer.mode, 'board');
+  assert.strictEqual(app.boardInput.isActive(), true,
+    'the board controller owns the continuation pointer');
+  assert.strictEqual(app.pointer, null, 'App no longer duplicates board pointer state');
 
   // Move through remaining cells to End 24
   [3, 4, 9, 8, 7, 12, 13, 14, 19, 18, 17, 22, 23, 24].forEach(c => app.onPointerMove(cellPoint(c, 5)));
@@ -186,6 +190,8 @@ function run() {
   assert.deepStrictEqual(app.clearAnimation.segments.map(segment => segment.length), [10, 15]);
   assert.deepStrictEqual(app.progress.state.completed, {},
     'portal trials must not write ordinary level completion');
+  assert.deepStrictEqual(app.progress.state.bestMs, {},
+    'portal trials must not write ordinary best times');
   assert.strictEqual(app.progress.state.lastPlayed, null,
     'portal trials must not replace the ordinary resume target');
   assert.strictEqual(app.progress.state.stats.totalClears, 0,
@@ -212,7 +218,8 @@ function run() {
   app.scene = 'home';
   app.performAction('home:portalTrial');
   assert.strictEqual(app.scene, 'play');
-  assert.strictEqual(app.currentSet, portalDemo);
+  assert.strictEqual(app.runContext.set, portalDemo);
+  assert.strictEqual(app.runContext.source.id, 'portal-trial');
   assert.strictEqual(app.levelIndex, 0);
   assert.strictEqual(app.runner.level.Id, 'portal-demo-01');
 
@@ -226,14 +233,15 @@ function run() {
   app.performAction('result:next');
   assert.strictEqual(app.scene, 'home');
   assert.strictEqual(app.runner, null);
+  assert.strictEqual(app.runContext, null);
 
   // Portal is not a corridor/theme/effect entry.
   app.scene = 'corridor';
   assert.deepStrictEqual(app.corridorDescriptors().map(item => item.id), ['themes', 'effects']);
   app.performAction('corridor:portalTrial');
   assert.strictEqual(app.scene, 'play');
-  assert.strictEqual(app.currentSet, portalDemo,
-    'the hidden legacy action remains compatible without a corridor card');
+  assert.strictEqual(app.runContext.set, portalDemo,
+    'corridor:portalTrial remains a compatible alias without a corridor card');
   // Back button returns home.
   app.performAction('play:back');
   assert.strictEqual(app.scene, 'home');

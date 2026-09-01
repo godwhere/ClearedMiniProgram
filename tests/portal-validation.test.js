@@ -1,6 +1,7 @@
 'use strict';
 
 const assert = require('assert');
+const portalSchema = require('../core/portal-schema.js');
 const portalValidation = require('../core/portal-validation.js');
 
 const {
@@ -47,6 +48,62 @@ function has(result, code) {
 }
 
 function run() {
+  [
+    'validate',
+    'validatePortalData',
+    'validatePortal',
+    'validateLevel',
+    'validatePortalLevel'
+  ].forEach(name => {
+    assert.strictEqual(portalValidation[name], portalValidation,
+      `${name} must remain an alias of the default validator export`);
+  });
+  assert.strictEqual(portalValidation.validateSolution,
+    portalValidation.validatePortalSolution);
+  assert.strictEqual(portalValidation.ERROR_CODES, portalValidation.codes);
+  assert.deepStrictEqual(Object.values(portalValidation.codes).sort(), [
+    'portal-blocked-conflict',
+    'portal-blocked-duplicate',
+    'portal-blocked-integer',
+    'portal-blocked-out-of-range',
+    'portal-blocked-required-array',
+    'portal-board-dimensions-invalid',
+    'portal-cell-duplicate',
+    'portal-cell-integer',
+    'portal-cell-out-of-range',
+    'portal-cells-array-invalid',
+    'portal-endpoint-conflict',
+    'portal-id-duplicate',
+    'portal-id-required',
+    'portal-mechanic-invalid',
+    'portal-not-object',
+    'portal-pair-count-exceeded',
+    'portal-pair-required',
+    'portal-rules-version-invalid',
+    'portal-solution-required',
+    'portals-required-array',
+    'solution-cell-non-integer',
+    'solution-cell-out-of-range',
+    'solution-end-mismatch',
+    'solution-incomplete',
+    'solution-line-count',
+    'solution-overlap',
+    'solution-path-duplicate',
+    'solution-portal-order',
+    'solution-portal-pair-invalid',
+    'solution-portal-reuse',
+    'solution-portal-transition-required',
+    'solution-segment-non-adjacent',
+    'solution-segment-not-object',
+    'solution-segment-required',
+    'solution-start-mismatch',
+    'solution-through-blocked'
+  ]);
+  assert.strictEqual(portalValidation.normalizePortals, portalSchema.normalizePortals,
+    'validator must re-export the shared portal normalizer');
+  assert.strictEqual(portalValidation.buildPortalIndex, portalSchema.buildPortalIndex,
+    'validator must re-export the shared portal index builder');
+
   // Ordinary levels remain valid and do not acquire portal requirements.
   const ordinary = {
     Width: 3,

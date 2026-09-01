@@ -2,6 +2,7 @@ const assert = require('assert');
 const WechatPlatform = require('../src/platform/wechat.js');
 const ClearedApp = require('../src/app.js');
 const GameRunner = require('../core/game-runner.js');
+const { createCatalogRunContext } = require('../src/gameplay/run-context.js');
 const solutions = require('../data/solutions.js');
 
 function fakeContext() {
@@ -94,6 +95,7 @@ function run() {
 
   assert.strictEqual(app.openLevel(0, 1), false, 'locked levels cannot be opened directly');
   assert.strictEqual(app.openLevel(0, 0), true);
+  app.ads.onLevelCompleted = () => { throw new Error('synchronous ad failure'); };
   app.tick(Date.now() + 1000);
   assert.strictEqual(app.showHint(), true);
   assert.strictEqual(app.hint.source, 'solution');
@@ -103,12 +105,21 @@ function run() {
     y: board.y + 0.5 * board.cell,
     id: 1
   });
+  app.resetCurrentLevel();
+  assert.deepStrictEqual(app.renderer.getBoardLayout(), board,
+    'reset clears stale UI hits without dropping board geometry before the next frame');
+  const immediatePoint = Object.assign({}, point(0), { id: 41 });
+  app.onPointerStart(immediatePoint);
+  assert.strictEqual(app.boardInput.isActive(), true,
+    'the first touch immediately after reset still reaches the board');
+  app.onPointerCancel(immediatePoint);
   app.onPointerStart(point(0));
   assert.strictEqual(app.audio.unlocked, true);
   assert(api.audioContexts.length >= 1, 'first touch creates the BGM context');
   [1, 2, 3].forEach(index => app.onPointerMove(point(index)));
   app.onPointerEnd(point(4));
   assert.strictEqual(app.scene, 'result');
+  assert(app.result, 'an optional ad failure cannot strand a won board without a result');
   assert.strictEqual(app.runner.isGameOver, true);
   assert.strictEqual(app.progress.completedCount(), 1);
 
@@ -157,8 +168,8 @@ function run() {
     Palette: ['#f00', '#0f0'],
     Games: [failureLevel]
   };
-  app.currentSet = failureSet;
-  app.currentLevel = failureLevel;
+  app.runContext = createCatalogRunContext({ sets: [failureSet] }, 0, 0);
+  app.setIndex = 0;
   app.levelIndex = 0;
   app.runner = new GameRunner(failureLevel, failureSet.Palette, () => app.invalidate());
   app.scene = 'play';

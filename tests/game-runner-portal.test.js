@@ -1,5 +1,6 @@
 const assert = require('assert');
 const GameRunner = require('../core/game-runner.js');
+const portalValidation = require('../core/portal-validation.js');
 
 function portalLevel(lines, portals, extra) {
   return Object.assign({
@@ -64,6 +65,29 @@ function run() {
   assert.deepStrictEqual(legacy.completedPaths[0], [0, 1, 2, 3, 4]);
   assert.deepStrictEqual(legacy.owner, [0, 0, 0, 0, 0]);
 
+  // Runtime and authoring validation consume the same normalized descriptor
+  // and index contract, including compact/lower-case field aliases.
+  const sharedSchemaLevel = portalLevel(
+    [{ Start: 0, End: 35 }],
+    [{ id: 'P1', Cells: [7, 28] }]
+  );
+  const sharedValidation = portalValidation.validatePortals(sharedSchemaLevel);
+  const sharedRunner = new GameRunner(sharedSchemaLevel, ['#f00']);
+  assert.strictEqual(sharedValidation.ok, true);
+  assert.deepStrictEqual(
+    sharedRunner.portals.map(portal => ({ id: portal.id, A: portal.A, B: portal.B })),
+    sharedValidation.portals.map(portal => ({ id: portal.id, A: portal.A, B: portal.B }))
+  );
+  [7, 28].forEach(cell => {
+    const runtime = sharedRunner.portalAt(cell);
+    const validated = sharedValidation.portalByCell[cell];
+    assert.deepStrictEqual(runtime, {
+      id: validated.id,
+      entry: validated.entry,
+      exit: validated.exit
+    });
+  });
+
   // Runtime enables portal movement only for the explicit v1 contract.
   // Stray portal fields, missing versions, and future versions retain normal
   // four-direction movement rather than partially activating the mechanic.
@@ -97,6 +121,8 @@ function run() {
   [
     [{ A: 1, B: 3 }],
     [{ Id: 7, A: 1, B: 3 }],
+    [{ Id: 'P1', A: 1, B: 1 }],
+    [{ Id: 'P1', A: 1, B: 10 }],
     [{ Id: 'P1', A: 1, B: 3 }, { Id: 'P2', A: 6, B: 8 }]
   ].forEach(portals => {
     const invalidRuntime = new GameRunner(portalLevel(

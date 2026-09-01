@@ -2,7 +2,7 @@
 
 > 设计记录：2026-08-31  
 > 需求状态：已确认每日两关、每日进入次数 3 次；本文是实现契约。  
-> 实现状态：每日两关、每日 3 次进入、镂空规则、独立存档和主页入口已接入；调试入口可无限进入，广告/分享增次、复活和货币仍未实现。  
+> 实现状态：每日两关、每日 3 次进入、镂空规则、独立存档和主页入口已接入；棋盘输入、提示与渲染已迁入共享架构，调试入口可无限进入，广告/分享增次、复活和货币仍未实现。
 > 运行时：微信小游戏单 Canvas 链路 game.js → src/bootstrap.js → src/app.js → src/ui/canvas-renderer.js
 
 ## 1. 已确认的产品规则
@@ -339,18 +339,20 @@ new GameRunner(level, palette, onChange, {
 
 ### 9.1 提示
 
-文件：src/services/hint-service.js。
+文件：`src/services/hint-service.js`、`src/services/hints/ordinary-hint-provider.js`。
 
 - 普通 find(runner, setIndex, levelIndex) 保持兼容。
 - 每日使用 findDaily(runner, levelId, dailySolutions)，按 level ID 查询。
-- 存储路径和 BFS 都跳过 !runner.isPlayableCell(index)。
+- HintService 只从 `runner.getViewState()` 创建深拷贝 HintContext，再交给 ordinary provider。
+- 存储路径和 BFS 都根据 HintContext 的 `blocked/blockedMask` 跳过镂空格。
 - 提示不读日期、不写存档、不发奖励。
 
 ### 9.2 Renderer
 
-文件：src/ui/canvas-renderer.js。
+文件：`src/ui/canvas-renderer.js`、`src/ui/board/board-renderer.js`、`src/ui/board/interaction-map.js`。
 
 - render() 显式处理 daily 和 dailyResult，不伪造普通 set。
+- App 只提供纯 board ViewModel；每日与普通关共用同一个 BoardRenderer，Renderer 不持有 Runner。
 - 动态按当前 level 的 Width/Height 布局：第一关渲染 3×3，第二关渲染 8×10。
 - 标题至少显示“每日挑战”和 1 / 2 或 2 / 2；棋盘规格显示为 3 × 3 或 8 × 10。
 - 每个 Blocked 格显示为不可走镂空，不绘制 tile、端点、提示或清除动画，也不产生棋盘 UI hit。
@@ -367,6 +369,7 @@ new GameRunner(level, palette, onChange, {
 
 ~~~js
 this.daily = {
+  progressionScope: 'daily',
   dayId: null,
   dateKey: null,
   levels: [],
@@ -380,7 +383,7 @@ this.daily = {
   result: null,
   entriesUsed: 0,
   entryLimit: 3,
-  entriesRemaining: 5
+  entriesRemaining: 3
 };
 ~~~
 
@@ -388,6 +391,8 @@ this.daily = {
 
 - home:dailyChallenge 只调用 enterDaily()，不得调用 openLevel()。
 - enterDaily() 先解析 Day、校验两关、检查 canEnter()，创建 runner 成功后再 recordEntry()。
+- 棋盘 pointer 由 `BoardInputController` 处理，App 只消费结构化输入事件和完整 commit。
+- buildModel() 从 Runner 只读查询生成纯 board ViewModel，不向 Renderer 暴露 runner。
 - 第 0 关通关后记录该 level 完成，累计时间，设置 levelIndex=1 并创建第二关 runner；不增加进入次数。
 - 第 1 关通关后记录最终完成，切换 dailyResult；普通存档、普通广告和普通统计不变。
 - 任一关 outcome=failed 时不得记录 level 完成、推进 levelIndex 或触发 onDailyCompleted；
@@ -489,9 +494,9 @@ onDailyCompleted({
 | src/services/daily-challenge-service.js | 日期、Day/level 解析和校验 | Canvas、平台 API、写存档 |
 | src/services/daily-progress-store.js | 每日次数、level 完成、幂等 | 普通进度、余额、商城 |
 | core/game-runner.js | 通用 Blocked 规则 | 日期、难度、奖励 |
-| src/services/hint-service.js | 每日提示和镂空感知搜索 | 日期决策、发奖 |
-| src/app.js | scene、轮次、次数检查、结算分派 | 直接绘图、普通解锁 |
-| src/ui/canvas-renderer.js | 主页三按钮、动态棋盘、镂空和结果页 | 改存档、算日期、发奖 |
+| src/services/hint-service.js / hints provider | 每日提示路由和镂空感知搜索 | 持有 Runner、日期决策、发奖 |
+| src/app.js / src/gameplay/* | scene、轮次、次数检查、输入事件和结算分派 | 直接绘图、普通解锁 |
+| src/ui/canvas-renderer.js / src/ui/board/* | 主页三按钮、纯 ViewModel 动态棋盘、镂空和结果页 | 持有 Runner、改存档、算日期、发奖 |
 | src/bootstrap.js | 注入 manifest、solutions、clock、回调 | 每日业务规则 |
 | src/services/progress-store.js | 普通 schema v2 | 新增 daily 字段 |
 | src/services/ads-service.js | 普通广告策略 | 默认因每日通关触发广告 |
@@ -551,9 +556,9 @@ onDailyCompleted({
 - `src/services/daily-challenge-service.js`：日期转换、Day/level 规范化、结构与解答校验。
 - `src/services/daily-progress-store.js`：独立每日存档、每日 3 次进入、幂等键、逐关最佳时间和完成事件边界。
 - `core/game-runner.js`：通用可选 `blocked` mask；普通三参数调用保持兼容。
-- `src/services/hint-service.js`：每日 level ID 查询和镂空感知搜索。
-- `src/app.js`：`home:dailyChallenge`、两关轮次、次数门禁、每日结果和复活预留 action。
-- `src/ui/canvas-renderer.js`：主页三按钮、3×3/8×10 动态棋盘、镂空视觉、难度/次数/轮次展示。
+- `src/services/hint-service.js` / `src/services/hints/ordinary-hint-provider.js`：每日 level ID 路由和只读 HintContext 镂空感知搜索。
+- `src/app.js` / `src/gameplay/board-input-controller.js`：`home:dailyChallenge`、两关轮次、次数门禁、结构化棋盘输入、每日结果和复活预留 action。
+- `src/ui/canvas-renderer.js` / `src/ui/board/board-renderer.js` / `interaction-map.js`：主页三按钮、普通/每日共用的 3×3/8×10 纯 ViewModel 棋盘、镂空视觉、难度/次数/轮次展示。
 - `src/bootstrap.js` / `src/config/daily.js`：注入每日 manifest、解答、时区和调试开关。
 
 开发入口当前将 `dailyDebugUnlimited` 设为 `true`；发布前必须显式关闭该开关，恢复每日 3 次限制。

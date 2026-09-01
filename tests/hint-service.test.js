@@ -1,8 +1,15 @@
 const assert = require('assert');
 const HintService = require('../src/services/hint-service.js');
+const OrdinaryHintProvider = require('../src/services/hints/ordinary-hint-provider.js');
 const GameRunner = require('../core/game-runner.js');
 const catalog = require('../data/catalog-v2.js');
 const solutions = require('../data/solutions.js');
+
+function deepFreeze(value) {
+  if (!value || typeof value !== 'object' || Object.isFrozen(value)) return value;
+  Object.keys(value).forEach(key => deepFreeze(value[key]));
+  return Object.freeze(value);
+}
 
 function run() {
   const game = catalog.sets[0].Games[1];
@@ -32,7 +39,7 @@ function run() {
     Lines: [{ Start: 0, End: 2 }]
   };
   const blockedRunner = new GameRunner(blockedLevel, ['#f00']);
-  const blockedSolutions = { sets: [[[0, 1, 2]]] };
+  const blockedSolutions = { sets: [[[[0, 1, 2]]]] };
   const blockedHint = new HintService(blockedSolutions).find(blockedRunner, 0, 0);
   assert(blockedHint);
   assert.strictEqual(blockedHint.source, 'search',
@@ -50,6 +57,50 @@ function run() {
   assert.strictEqual(dailyHint.path.indexOf(1), -1);
   assert.strictEqual(new HintService(dailySolutions)
     .dailySolutionFor('daily-test-v1')[0][1], 1);
+
+  const pureContext = deepFreeze({
+    outcome: 'playing',
+    levelId: 'ordinary-provider-test',
+    board: {
+      width: 3,
+      height: 2,
+      lines: [{ Start: 0, End: 2 }],
+      blocked: [1],
+      blockedMask: [false, true, false, false, false, false],
+      owner: [-1, -1, -1, -1, -1, -1],
+      fixedLine: [0, -1, 0, -1, -1, -1]
+    },
+    completedLines: [false],
+    completedPaths: [null],
+    selection: { lineIndex: -1, cells: [], segments: [], teleports: [] },
+    mechanic: { id: null, rulesVersion: null, phase: 'READY', portals: [], pending: null, locked: null }
+  });
+  const beforeProvider = JSON.stringify(pureContext);
+  const providerHint = new OrdinaryHintProvider().find(pureContext, [[0, 1, 2]]);
+  assert(providerHint);
+  assert.strictEqual(providerHint.source, 'search');
+  assert.deepStrictEqual(providerHint.path, [0, 3, 4, 5, 2]);
+  assert.strictEqual(JSON.stringify(pureContext), beforeProvider,
+    'ordinary provider must not mutate its read-only context');
+
+  const pureCatalog = { sets: [[[[0, 3, 4, 5, 2]]]] };
+  const facadeHint = new HintService({
+    solutionCatalog: pureCatalog,
+    dailySolutions
+  }).find(pureContext, 0, 0);
+  assert(facadeHint);
+  assert.strictEqual(facadeHint.source, 'solution');
+  assert.deepStrictEqual(facadeHint.path, [0, 3, 4, 5, 2]);
+  assert.deepStrictEqual(
+    new HintService().findAvailablePath(pureContext).path,
+    [0, 3, 4, 5, 2]
+  );
+  assert.deepStrictEqual(
+    new HintService().pickStoredPath([[0, 3, 4, 5, 2]], pureContext).path,
+    [0, 3, 4, 5, 2]
+  );
+  assert.strictEqual(JSON.stringify(pureContext), beforeProvider,
+    'HintService must clone a pure context before routing it');
 }
 
 module.exports = run;

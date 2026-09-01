@@ -1,18 +1,15 @@
-const GameRunner = require('../../core/game-runner.js');
+const InteractionMap = require('./board/interaction-map.js');
+const BoardRenderer = require('./board/board-renderer.js');
+const PortalOverlay = require('./board/portal-overlay.js');
 
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
 }
 
-const EFFECT_MIN_DURATION_MS = 80;
-const EFFECT_MAX_DURATION_MS = 500;
-const DEFAULT_FADE_PARAMS = {
-  alphaFrom: 1,
-  alphaTo: 0,
-  scaleFrom: 1,
-  scaleTo: 1.14,
-  staggerRatio: 0.018
-};
+function formatTime(milliseconds) {
+  const seconds = Math.max(0, Math.floor((milliseconds || 0) / 1000));
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
+}
 
 class CanvasRenderer {
   constructor(platform, skinService, clearEffects) {
@@ -23,7 +20,27 @@ class CanvasRenderer {
     // selects effects or writes settings; a missing service simply renders the
     // classic fade fallback for older hosts/tests.
     this.clearEffects = clearEffects || null;
-    this.hits = [];
+    this.interactionMap = new InteractionMap();
+    Object.defineProperties(this, {
+      // Temporary compatibility accessors. App and legacy tests still inspect
+      // these fields while input ownership moves to BoardInputController.
+      hits: {
+        configurable: true,
+        enumerable: true,
+        get: () => this.interactionMap.hits,
+        set: value => {
+          this.interactionMap.hits = Array.isArray(value) ? value : [];
+        }
+      },
+      boardLayout: {
+        configurable: true,
+        enumerable: true,
+        get: () => this.interactionMap.getBoardLayout(),
+        set: value => {
+          this.interactionMap.setBoardLayout(value);
+        }
+      }
+    });
     this.images = {};
     // Optional non-gallery preview assets remain cacheable for future screens.
     // The theme gallery itself uses the first four tile elements instead.
@@ -42,11 +59,28 @@ class CanvasRenderer {
     this.effectSceneGeneration = 0;
     this.lastScene = null;
     this.assetGeneration = 0;
-    this.boardLayout = null;
-    this.portalImage = null;
-    this.portalImageLoading = false;
-    this.portalImageSource = null;
     this.invalidate = function () {};
+    this.portalOverlay = new PortalOverlay({
+      platform: this.platform,
+      getContext: () => this.ctx,
+      getSkin: () => this.skinService.current(),
+      drawTile: (...args) => this.drawTile(...args),
+      drawImageContain: (...args) => this.drawImageContain(...args),
+      text: (...args) => this.text(...args),
+      roundedRect: (...args) => this.roundedRect(...args),
+      invalidate: () => this.invalidate()
+    });
+    this.boardRenderer = new BoardRenderer({
+      getSkin: () => this.skinService.current(),
+      clearEffects: this.clearEffects,
+      drawTile: (...args) => this.drawTile(...args),
+      drawBlockedCell: (...args) => this.drawBlockedCell(...args),
+      text: (...args) => this.text(...args),
+      renderClearAnimation: (animation, palette, now, gap, layout, portalCells) => (
+        this.drawClearAnimation(animation, palette, now, gap, portalCells)
+      ),
+      portalOverlay: this.portalOverlay
+    });
     this.loadSkinAssets();
   }
 
@@ -125,33 +159,35 @@ class CanvasRenderer {
     ctx.fillStyle = background;
     ctx.fillRect(0, 0, width, height);
     ctx.restore();
-    this.hits = [];
-    this.boardLayout = null;
+    this.interactionMap.clear();
   }
 
   addHit(id, rect, enabled) {
-    if (enabled === false) return;
-    this.hits.push({ id, rect });
+    return this.interactionMap.add(id, rect, enabled);
   }
 
   hitTest(x, y) {
-    for (let index = this.hits.length - 1; index >= 0; index--) {
-      const hit = this.hits[index];
-      const rect = hit.rect;
-      if (x >= rect.x && x <= rect.x + rect.w && y >= rect.y && y <= rect.y + rect.h) {
-        return hit.id;
-      }
-    }
-    return null;
+    return this.interactionMap.hitTest(x, y);
   }
 
   cellAt(x, y) {
-    const layout = this.boardLayout;
-    if (!layout) return -1;
-    const col = Math.floor((x - layout.x) / layout.cell);
-    const row = Math.floor((y - layout.y) / layout.cell);
-    if (col < 0 || row < 0 || col >= layout.cols || row >= layout.rows) return -1;
-    return row * layout.cols + col;
+    return this.interactionMap.cellAt(x, y);
+  }
+
+  getBoardLayout() {
+    return this.interactionMap.getBoardLayout();
+  }
+
+  setBoardLayout(layout) {
+    return this.interactionMap.setBoardLayout(layout);
+  }
+
+  clearInteractionMap() {
+    this.interactionMap.clear();
+  }
+
+  clearInteractionHits() {
+    this.interactionMap.clearHits();
   }
 
   roundedRect(x, y, width, height, radius) {
@@ -625,138 +661,6 @@ class CanvasRenderer {
       ctx.stroke();
     }
     ctx.restore();
-  }
-
-  ensurePortalImage(source) {
-    const requestedSource = typeof source === 'string' && source
-      ? source : 'assets/icons/portal.png';
-    if (this.portalImage && this.portalImageSource === requestedSource) return this.portalImage;
-    if (this.portalImageLoading && this.portalImageSource === requestedSource) return null;
-    this.portalImage = null;
-    this.portalImageSource = requestedSource;
-    this.portalImageLoading = true;
-    try {
-      this.platform.createImage(requestedSource, (error, image) => {
-        if (this.portalImageSource !== requestedSource) return;
-        this.portalImageLoading = false;
-        if (!error && image) {
-          this.portalImage = image;
-          this.invalidate();
-        }
-      });
-    } catch (error) {
-      this.portalImageLoading = false;
-    }
-    return this.portalImage;
-  }
-
-  drawPortalFallback(x, y, size, now) {
-    const ctx = this.ctx;
-    const cx = x + size / 2;
-    const cy = y + size / 2;
-    const r = size * 0.42;
-    const pulse = 0.5 + Math.sin(now / 240) * 0.5;
-    ctx.save();
-    ctx.beginPath();
-    ctx.arc(cx, cy, r, 0, Math.PI * 2);
-    ctx.fillStyle = '#0a1d37';
-    ctx.fill();
-    ctx.strokeStyle = '#f5a623';
-    ctx.lineWidth = Math.max(2, size * 0.08);
-    ctx.stroke();
-
-    ctx.beginPath();
-    ctx.arc(cx, cy, r * 0.72, 0, Math.PI * 2);
-    ctx.fillStyle = '#00a8ff';
-    ctx.globalAlpha = 0.85 + pulse * 0.15;
-    ctx.fill();
-
-    ctx.beginPath();
-    ctx.arc(cx, cy, r * (0.32 + pulse * 0.08), 0, Math.PI * 2);
-    ctx.fillStyle = '#e0f7fa';
-    ctx.fill();
-    ctx.restore();
-  }
-
-  drawPortals(portals, runner, setStyle, now, boardLayout, gap, iconSource, clearAnimation) {
-    if (!Array.isArray(portals) || !portals.length || !boardLayout) return;
-    const { x: boardX, y: boardY, cell, cols } = boardLayout;
-    const ctx = this.ctx;
-    const skin = this.skinService.current();
-    const portalImage = this.ensurePortalImage(iconSource);
-    const isWaiting = !!(runner && runner.portalPending && runner.portalPhase === 'PORTAL_WAIT');
-    const isLocked = !!(runner && runner.portalLock && runner.portalPhase === 'PORTAL_LOCKED');
-    const expectedExit = isWaiting ? runner.portalPending.exit : -1;
-    const lockedEntry = isLocked ? runner.portalLock.entry : -1;
-    const clearStartedAt = Number(clearAnimation && clearAnimation.startedAt);
-    const clearDuration = Number(clearAnimation && clearAnimation.durationMs);
-    const clearActive = Number.isFinite(clearStartedAt) &&
-      now < clearStartedAt + (Number.isFinite(clearDuration) && clearDuration > 0 ? clearDuration : 300);
-    const clearingCells = new Set(clearActive && Array.isArray(clearAnimation.cells)
-      ? clearAnimation.cells : []);
-
-    portals.forEach(portal => {
-      const id = portal.id || portal.Id || 'P1';
-      const cells = [portal.A !== undefined ? portal.A : portal.a, portal.B !== undefined ? portal.B : portal.b];
-
-      cells.forEach(cellIndex => {
-        if (!Number.isInteger(cellIndex) || cellIndex < 0) return;
-        const owned = !!(runner && runner.owner && runner.owner[cellIndex] >= 0);
-        const clearingOwned = owned && clearingCells.has(cellIndex);
-        if (owned && !clearingOwned) return;
-
-        const col = cellIndex % cols;
-        const row = Math.floor(cellIndex / cols);
-        const x = boardX + col * cell + gap;
-        const y = boardY + row * cell + gap;
-        const size = Math.max(1, cell - gap * 2);
-
-        if (clearingOwned) {
-          this.drawTile(-1, x, y, size, {
-            color: skin.colors.emptyCell,
-            skin
-          });
-        }
-
-        if (portalImage) {
-          this.drawImageContain(portalImage, { x: x + 2, y: y + 2, w: size - 4, h: size - 4 }, { fit: 'contain' });
-        } else {
-          this.drawPortalFallback(x, y, size, now);
-        }
-
-        // Pair marker badge
-        this.text(String(id), x + size - 6, y + 8, clamp(size * 0.2, 9, 12), {
-          color: '#ffffff',
-          alpha: 0.85,
-          weight: 600,
-          align: 'right'
-        });
-
-        // Pulsing highlight ring on expected exit B when awaiting continuation
-        if (isWaiting && cellIndex === expectedExit) {
-          const breath = 0.5 + Math.sin(now / 160) * 0.5;
-          ctx.save();
-          ctx.strokeStyle = '#ffeb3b';
-          ctx.lineWidth = Math.max(2, 2.5 + breath * 1.5);
-          ctx.globalAlpha = 0.82 + breath * 0.18;
-          this.roundedRect(x - 1, y - 1, size + 2, size + 2, 6);
-          ctx.stroke();
-          ctx.restore();
-        }
-
-        // Lock pulse on entry A
-        if (isLocked && cellIndex === lockedEntry) {
-          const breath = 0.5 + Math.sin(now / 120) * 0.5;
-          ctx.save();
-          ctx.strokeStyle = '#00e5ff';
-          ctx.lineWidth = Math.max(2, 2 + breath * 2);
-          ctx.globalAlpha = 0.85 + breath * 0.15;
-          this.roundedRect(x - 1, y - 1, size + 2, size + 2, 6);
-          ctx.stroke();
-          ctx.restore();
-        }
-      });
-    });
   }
 
   drawHome(model) {
@@ -1647,12 +1551,95 @@ class CanvasRenderer {
     this.text('左右滑动切换关卡组', width / 2, controlY + 50, 11, { alpha: 0.42 });
   }
 
+  fallbackBoardViewModel(model, level) {
+    if (!level || typeof level !== 'object') return null;
+    const width = Number(level.Width === undefined ? level.width : level.Width);
+    const height = Number(level.Height === undefined ? level.height : level.Height);
+    const total = width * height;
+    if (!Number.isInteger(width) || !Number.isInteger(height) || width <= 0 || height <= 0 ||
+        !Number.isInteger(total)) return null;
+    const lines = level.Lines || level.lines || [];
+    const blocked = level.Blocked || level.blocked || [];
+    const blockedSet = new Set(Array.isArray(blocked) ? blocked : []);
+    const fixedLine = new Array(total).fill(-1);
+    lines.forEach((line, lineIndex) => {
+      const start = line && (line.Start === undefined ? line.start : line.Start);
+      const end = line && (line.End === undefined ? line.end : line.End);
+      if (Number.isInteger(start) && start >= 0 && start < total && !blockedSet.has(start)) {
+        fixedLine[start] = lineIndex;
+      }
+      if (Number.isInteger(end) && end >= 0 && end < total && !blockedSet.has(end)) {
+        fixedLine[end] = lineIndex;
+      }
+    });
+    const mechanicId = level.Mechanic === undefined ? level.mechanic : level.Mechanic;
+    const rulesVersion = level.PortalRulesVersion === undefined
+      ? level.portalRulesVersion : level.PortalRulesVersion;
+    const definitions = level.Portals || level.portals || [];
+    const portal = mechanicId === 'portal' && rulesVersion === 1 && Array.isArray(definitions)
+      ? {
+        icon: model.portalTrial && model.portalTrial.icon,
+        portals: definitions,
+        phase: model.portalStatus && model.portalStatus.phase ||
+          (model.portalInstruction ? 'PORTAL_WAIT' : 'READY'),
+        expectedExit: Number.isInteger(model.expectedExit) ? model.expectedExit : null,
+        lockedEntry: model.portalStatus && Number.isInteger(model.portalStatus.lockedEntry)
+          ? model.portalStatus.lockedEntry : null
+      }
+      : null;
+    const portalCells = new Set();
+    if (portal) {
+      portal.portals.forEach(definition => {
+        const cells = definition && Array.isArray(definition.cells)
+          ? definition.cells
+          : [definition && (definition.A === undefined ? definition.a : definition.A),
+            definition && (definition.B === undefined ? definition.b : definition.B)];
+        cells.forEach(index => {
+          if (Number.isInteger(index) && index >= 0 && index < total) portalCells.add(index);
+        });
+      });
+    }
+    return {
+      board: {
+        width,
+        height,
+        lines,
+        cells: new Array(total).fill(null).map((unused, index) => ({
+          index,
+          blocked: blockedSet.has(index),
+          owner: -1,
+          fixedLine: fixedLine[index],
+          selected: false,
+          portal: portalCells.has(index)
+        })),
+        completedPaths: [],
+        selection: { lineIndex: -1, cells: [], segments: [], teleports: [] },
+        clearAnimation: model.clearAnimation || null,
+        hint: model.hint || null,
+        hintUntil: model.hintUntil
+      },
+      mechanic: { portal }
+    };
+  }
+
+  renderBoardViewModel(model, level) {
+    if (model && model.board) return model;
+    const fallback = this.fallbackBoardViewModel(model || {}, level);
+    return fallback ? {
+      scene: model && model.scene,
+      board: fallback.board,
+      mechanic: fallback.mechanic
+    } : model;
+  }
+
   drawPlay(model, now) {
     const skin = this.skinService.current();
     const { width, safeTop, safeBottom } = this.platform.metrics;
     const setStyle = this.skinService.setStyle(model.set);
     const game = model.level;
-    const runner = model.runner;
+    const renderModel = this.renderBoardViewModel(model, game);
+    const board = renderModel && renderModel.board;
+    const portal = renderModel && renderModel.mechanic && renderModel.mechanic.portal;
     this.begin(setStyle.background);
 
     const headerTop = safeTop;
@@ -1679,7 +1666,7 @@ class CanvasRenderer {
       model.soundEnabled ? 'sound' : 'mute', true, model.pressedId);
     this.iconButton('play:reset', { x: resetX, y: topUi + 12, w: controlSize, h: 44 }, 'reset', model.scene !== 'result', model.pressedId);
 
-    const isWaiting = runner && (runner.portalPhase === 'PORTAL_WAIT');
+    const isWaiting = !!(portal && portal.phase === 'PORTAL_WAIT');
     const title = isWaiting
       ? '从另一端继续'
       : (game.Instructions || `${model.levelIndex + 1} / ${(model.set.Games || []).length}`);
@@ -1688,7 +1675,7 @@ class CanvasRenderer {
       maxWidth: width - 220,
       color: isWaiting ? '#ffeb3b' : undefined
     });
-    this.text(runner.timeText(), width / 2, topUi + 51, 12, { alpha: 0.62 });
+    this.text(model.elapsedText || '0:00', width / 2, topUi + 51, 12, { alpha: 0.62 });
 
     const failedResult = model.scene === 'result' && model.result && model.result.outcome === 'failed';
     // Keep the failed board in its exact play-layout position so the remaining
@@ -1699,85 +1686,24 @@ class CanvasRenderer {
     const actionTop = safeBottom - actionHeight;
     const boardTop = headerTop + headerHeight + 16;
     const boardBottom = actionTop - (showActions ? 14 : 20);
-    const cell = Math.min(
-      (width - 24) / game.Width,
-      (boardBottom - boardTop) / game.Height,
-      78
-    );
-    const boardWidth = cell * game.Width;
-    const boardHeight = cell * game.Height;
-    const boardX = (width - boardWidth) / 2;
-    const boardY = boardTop + Math.max(0, (boardBottom - boardTop - boardHeight) / 2);
-    this.boardLayout = { x: boardX, y: boardY, cell, cols: game.Width, rows: game.Height };
-
-    const gap = clamp(cell * skin.layout.cellGapRatio, skin.layout.minCellGap, skin.layout.maxCellGap);
-    const selectedSet = {};
-    if (runner && Array.isArray(runner.selectedSegments) && runner.selectedSegments.length) {
-      runner.selectedSegments.forEach(segment => {
-        if (Array.isArray(segment)) segment.forEach(index => { selectedSet[index] = true; });
+    if (board) {
+      const cols = Number(board.width) || game.Width;
+      const rows = Number(board.height) || game.Height;
+      const cell = Math.min(
+        (width - 24) / cols,
+        (boardBottom - boardTop) / rows,
+        78
+      );
+      const boardWidth = cell * cols;
+      const boardHeight = cell * rows;
+      const boardX = (width - boardWidth) / 2;
+      const boardY = boardTop + Math.max(0, (boardBottom - boardTop - boardHeight) / 2);
+      this.boardLayout = { x: boardX, y: boardY, cell, cols, rows };
+      this.boardRenderer.draw(renderModel, this.boardLayout, setStyle.palette, now, {
+        levelEnteredAt: model.levelEnteredAt,
+        animateBlocked: true
       });
-    } else if (runner && Array.isArray(runner.selectedCells)) {
-      runner.selectedCells.forEach(index => { selectedSet[index] = true; });
     }
-    const enterElapsed = now - model.levelEnteredAt;
-    const enterMs = skin.animation.boardEnterMs;
-
-    for (let row = 0; row < game.Height; row++) {
-      for (let col = 0; col < game.Width; col++) {
-        const index = row * game.Width + col;
-        const stagger = ((row + col) / Math.max(1, game.Width + game.Height - 2)) * 120;
-        const enter = clamp((enterElapsed - stagger) / Math.max(1, enterMs - 120), 0, 1);
-        const x = boardX + col * cell + gap;
-        const y = boardY + row * cell + gap - (1 - enter) * 12;
-        const size = Math.max(1, cell - gap * 2);
-        if (runner.isBlockedCell && runner.isBlockedCell(index)) {
-          this.drawBlockedCell(x, y, size, enter, skin);
-          continue;
-        }
-        if (runner.owner[index] >= 0) continue;
-
-        const fixedLine = runner.fixedLine[index];
-        const portalCell = this.isPortalIndex(runner, index);
-        const selected = !portalCell && !!selectedSet[index];
-        let color = skin.colors.emptyCell;
-        if (selected) color = setStyle.palette[runner.selectedLine % setStyle.palette.length] || '#ffffff';
-        else if (fixedLine >= 0) color = setStyle.palette[fixedLine % setStyle.palette.length] || '#ffffff';
-
-        const activePulse = selected ? (0.5 + Math.sin(now / 180) * 0.5) : 0;
-        const activeScale = selected
-          ? 1 + (skin.layout.activeCellScale - 1) * (0.72 + activePulse * 0.28)
-          : 1;
-        this.drawTile(portalCell ? -1 : (selected ? runner.selectedLine : fixedLine), x, y, size, {
-          color,
-          alpha: enter,
-          scale: activeScale,
-          overlay: selected ? { color: skin.colors.selectedCellOverlay, alpha: 1 } : null
-        });
-
-        if (fixedLine >= 0 && game.Lines[fixedLine].Text && !selected) {
-          this.text('→', x + size / 2, y + size / 2, clamp(size * 0.44, 14, 28), { alpha: enter, weight: 400 });
-        }
-      }
-    }
-
-    this.drawClearAnimation(model.clearAnimation, setStyle.palette, now, gap, runner);
-
-    if (model.hint && now < model.hintUntil) {
-      this.drawHintPath(model.hint, setStyle.palette, now, runner);
-    }
-    // Portals are the top-most board semantic. Theme, hint and clear-effect
-    // tiles deliberately skip these cells so a character sprite can never sit
-    // underneath or cover a portal icon.
-    this.drawPortals(
-      game.Portals || runner.portals || [],
-      runner,
-      setStyle,
-      now,
-      this.boardLayout,
-      gap,
-      model.portalTrial && model.portalTrial.icon,
-      model.clearAnimation
-    );
     if (showActions) this.drawPlayActions(model, actionTop, now);
 
     if (model.scene === 'result') this.drawResult(model, now);
@@ -1807,7 +1733,7 @@ class CanvasRenderer {
     }, '回撤', {
       fontSize: 17,
       icon: 'undo',
-      enabled: model.runner.canUndo(),
+      enabled: model.canUndo === true,
       fill: skin.colors.secondaryButton,
       stroke: skin.colors.primaryButtonStroke
     }, model.pressedId);
@@ -1833,18 +1759,6 @@ class CanvasRenderer {
     if (Array.isArray(palette) && palette.length) return palette;
     const fallback = skin && (skin.palette || (skin.colors && skin.colors.palette));
     return Array.isArray(fallback) && fallback.length ? fallback : ['#ffffff'];
-  }
-
-  dailyBlocked(challenge, runner, index) {
-    if (runner && runner.blockedMask && runner.blockedMask[index]) return true;
-    const blocked = challenge && (challenge.Blocked || challenge.blocked);
-    return Array.isArray(blocked) && blocked.indexOf(index) >= 0;
-  }
-
-  isPortalIndex(runner, index) {
-    if (!runner || !Number.isInteger(index)) return false;
-    if (typeof runner.isPortalCell === 'function') return runner.isPortalCell(index);
-    return !!(runner.portalByCell && runner.portalByCell[index]);
   }
 
   drawBlockedCell(x, y, size, alpha, skin) {
@@ -1876,9 +1790,12 @@ class CanvasRenderer {
     const safeTop = metrics.safeTop || 0;
     const safeBottom = metrics.safeBottom || metrics.height;
     const challenge = this.dailyChallenge(model);
-    const runner = model && model.runner;
-    const cols = this.dailyDimension(challenge, 'Width', 'width', 8);
-    const rows = this.dailyDimension(challenge, 'Height', 'height', 10);
+    const renderModel = this.renderBoardViewModel(model, challenge);
+    const board = renderModel && renderModel.board;
+    const cols = board && Number(board.width) > 0
+      ? Number(board.width) : this.dailyDimension(challenge, 'Width', 'width', 8);
+    const rows = board && Number(board.height) > 0
+      ? Number(board.height) : this.dailyDimension(challenge, 'Height', 'height', 10);
     const palette = this.dailyPalette(challenge, skin);
     const background = (challenge && (challenge.Color || challenge.color)) || skin.colors.homeBackground;
     this.begin(background);
@@ -1911,7 +1828,7 @@ class CanvasRenderer {
     this.iconButton(soundAction, { x: soundX, y: topUi + 12, w: controlSize, h: 44 },
       model && model.soundEnabled === false ? 'mute' : 'sound', true, model && model.pressedId);
     this.iconButton('daily:reset', { x: resetX, y: topUi + 12, w: controlSize, h: 44 },
-      'reset', !isResult && !!runner, model && model.pressedId);
+      'reset', !isResult && !!board, model && model.pressedId);
 
     const levelIndex = Math.max(0, Number(model && (
       model.dailyLevelIndex === undefined ? model.levelIndex : model.dailyLevelIndex
@@ -1959,75 +1876,12 @@ class CanvasRenderer {
     const boardHeight = cell * rows;
     const boardX = (width - boardWidth) / 2;
     const boardY = boardTop + Math.max(0, (boardBottom - boardTop - boardHeight) / 2);
-    this.boardLayout = { x: boardX, y: boardY, cell, cols, rows };
-
-    if (runner) {
-      const gap = clamp(cell * skin.layout.cellGapRatio, skin.layout.minCellGap, skin.layout.maxCellGap);
-      const selectedSet = {};
-      if (runner && Array.isArray(runner.selectedSegments) && runner.selectedSegments.length) {
-        runner.selectedSegments.forEach(segment => {
-          if (Array.isArray(segment)) segment.forEach(index => { selectedSet[index] = true; });
-        });
-      } else if (runner && Array.isArray(runner.selectedCells)) {
-        runner.selectedCells.forEach(index => { selectedSet[index] = true; });
-      }
-      const enterElapsed = now - (model.levelEnteredAt || 0);
-      const enterMs = skin.animation.boardEnterMs;
-      const lines = challenge && (challenge.Lines || challenge.lines) || [];
-
-      for (let row = 0; row < rows; row++) {
-        for (let col = 0; col < cols; col++) {
-          const index = row * cols + col;
-          const x = boardX + col * cell + gap;
-          const yBase = boardY + row * cell + gap;
-          const size = Math.max(1, cell - gap * 2);
-          if (this.dailyBlocked(challenge, runner, index)) {
-            this.drawBlockedCell(x, yBase, size, 1, skin);
-            continue;
-          }
-          if (runner.owner && runner.owner[index] >= 0) continue;
-
-          const stagger = ((row + col) / Math.max(1, cols + rows - 2)) * 120;
-          const enter = clamp((enterElapsed - stagger) / Math.max(1, enterMs - 120), 0, 1);
-          const y = yBase - (1 - enter) * 12;
-          const fixedLine = runner.fixedLine ? runner.fixedLine[index] : -1;
-          const portalCell = this.isPortalIndex(runner, index);
-          const selected = !portalCell && !!selectedSet[index];
-          let color = skin.colors.emptyCell;
-          if (selected) color = palette[runner.selectedLine % palette.length] || '#ffffff';
-          else if (fixedLine >= 0) color = palette[fixedLine % palette.length] || '#ffffff';
-
-          const activePulse = selected ? (0.5 + Math.sin(now / 180) * 0.5) : 0;
-          const activeScale = selected
-            ? 1 + (skin.layout.activeCellScale - 1) * (0.72 + activePulse * 0.28)
-            : 1;
-          this.drawTile(portalCell ? -1 : (selected ? runner.selectedLine : fixedLine), x, y, size, {
-            color,
-            alpha: enter,
-            scale: activeScale,
-            overlay: selected ? { color: skin.colors.selectedCellOverlay, alpha: 1 } : null
-          });
-
-          if (fixedLine >= 0 && lines[fixedLine] && lines[fixedLine].Text && !selected) {
-            this.text('→', x + size / 2, y + size / 2, clamp(size * 0.44, 14, 28), { alpha: enter, weight: 400 });
-          }
-        }
-      }
-
-      this.drawClearAnimation(model.clearAnimation, palette, now, gap, runner);
-      if (model.hint && now < model.hintUntil) {
-        this.drawHintPath(model.hint, palette, now, runner);
-      }
-      this.drawPortals(
-        challenge && (challenge.Portals || challenge.portals) || (runner && runner.portals) || [],
-        runner,
-        { palette },
-        now,
-        this.boardLayout,
-        gap,
-        model.portalTrial && model.portalTrial.icon,
-        model.clearAnimation
-      );
+    if (board) {
+      this.boardLayout = { x: boardX, y: boardY, cell, cols, rows };
+      this.boardRenderer.draw(renderModel, this.boardLayout, palette, now, {
+        levelEnteredAt: model.levelEnteredAt,
+        animateBlocked: false
+      });
       if (showActions) this.drawDailyActions(model, actionTop, now);
     }
 
@@ -2057,7 +1911,7 @@ class CanvasRenderer {
     }, '回撤', {
       fontSize: 17,
       icon: 'undo',
-      enabled: !!(model.runner && typeof model.runner.canUndo === 'function' && model.runner.canUndo()),
+      enabled: model.canUndo === true,
       fill: skin.colors.secondaryButton,
       stroke: skin.colors.primaryButtonStroke
     }, model.pressedId);
@@ -2193,7 +2047,7 @@ class CanvasRenderer {
     this.drawIcon('check', width / 2, panelY + 47, 40);
     const levelCount = Math.max(1, Number(model.dailyLevelCount || (model.levels && model.levels.length) || 1));
     this.text(`每日挑战完成  ${levelCount} / ${levelCount}`, width / 2, panelY + 92, 22, { weight: 300 });
-    this.text(`用时 ${GameRunner.formatTime(result.elapsedMs || 0)}`, width / 2, panelY + 124, 13, { alpha: 0.72 });
+    this.text(`用时 ${formatTime(result.elapsedMs || 0)}`, width / 2, panelY + 124, 13, { alpha: 0.72 });
     if (model.dailyDateKey) {
       this.text(model.dailyDateKey, width / 2, panelY + 147, 11, { alpha: 0.56 });
     }
@@ -2227,122 +2081,23 @@ class CanvasRenderer {
     }, model.pressedId);
   }
 
-  drawHintPath(hint, palette, now, runner) {
-    if (!hint || !this.boardLayout) return;
-    const segments = hint.segments || (hint.path && hint.path.length >= 2 ? [hint.path] : null);
-    if (!segments || !segments.length) return;
-    const { x: boardX, y: boardY, cell, cols } = this.boardLayout;
-    const skin = this.skinService.current();
-    const color = palette && palette.length ? palette[hint.lineIndex % palette.length] : '#ffffff';
-    const breath = 0.5 + Math.sin(now / 320) * 0.5;
-    const gap = clamp(cell * 0.085, 2, 5);
-    const tileSize = Math.max(1, cell - gap * 2);
-
-    segments.forEach(segment => {
-      if (!Array.isArray(segment) || !segment.length) return;
-      segment.forEach((index, order) => {
-        if (this.isPortalIndex(runner, index)) return;
-        const x = boardX + (index % cols) * cell + gap;
-        const y = boardY + Math.floor(index / cols) * cell + gap;
-        const endpointPulse = order === 0 || order === segment.length - 1 ? 1.04 : 1;
-        this.drawTile(hint.lineIndex, x, y, tileSize, {
-          color,
-          alpha: 0.62 + breath * 0.18,
-          scale: (1 + breath * 0.035) * endpointPulse,
-          overlay: { color, alpha: 0.12 },
-          skin
-        });
-      });
-    });
+  drawHintPath(hint, palette, now, portalCells) {
+    const excluded = portalCells instanceof Set
+      ? portalCells : new Set(Array.isArray(portalCells) ? portalCells : []);
+    return this.boardRenderer.drawHintPath(hint, palette, now, this.boardLayout, excluded);
   }
 
-  drawClearAnimation(animation, palette, now, gap, runner) {
-    if (!animation || !this.boardLayout) return;
-    const skin = this.skinService.current();
-    let effect = null;
-    // Normal app-created snapshots already carry all render inputs. Avoid a
-    // per-frame service lookup/deep clone in that hot path; resolve only for
-    // legacy callers that omitted one of the snapshot fields.
-    let effectType = typeof animation.type === 'string' ? animation.type : null;
-    let effectDuration = Number(animation.durationMs);
-    let params = animation.params && typeof animation.params === 'object'
-      ? animation.params : null;
-    if (!effectType || !params || !(Number.isFinite(effectDuration) && effectDuration > 0)) {
-      if (this.clearEffects) {
-        try {
-          if (typeof this.clearEffects.resolve === 'function') {
-            effect = this.clearEffects.resolve(animation.effectId);
-          } else if (typeof this.clearEffects.current === 'function') {
-            effect = this.clearEffects.current();
-          }
-        } catch (error) {
-          effect = null;
-        }
-      }
-    }
-    if (effect && typeof effect === 'object') {
-      if (!effectType && typeof effect.type === 'string') effectType = effect.type;
-      if (!(Number.isFinite(effectDuration) && effectDuration > 0)) {
-        effectDuration = Number(effect.durationMs);
-      }
-      if (!params && effect.params && typeof effect.params === 'object') params = effect.params;
-    }
-    const rawDuration = Number(animation.durationMs);
-    const legacyDuration = Number(skin.animation && skin.animation.pathClearMs);
-    const duration = Number.isFinite(rawDuration) && rawDuration > 0
-      ? clamp(rawDuration, EFFECT_MIN_DURATION_MS, EFFECT_MAX_DURATION_MS)
-      : Number.isFinite(effectDuration) && effectDuration > 0
-        ? clamp(effectDuration, EFFECT_MIN_DURATION_MS, EFFECT_MAX_DURATION_MS)
-        : Number.isFinite(legacyDuration) && legacyDuration > 0
-          ? clamp(legacyDuration, EFFECT_MIN_DURATION_MS, EFFECT_MAX_DURATION_MS)
-          : 300;
-    if (!params || typeof params !== 'object') params = DEFAULT_FADE_PARAMS;
-    // Only the fade algorithm is enabled in v1. Unknown/malformed effect
-    // types intentionally use the same deterministic fallback.
-    effectType = effectType || (effect && effect.type) || 'fade';
-    const type = effectType === 'fade' ? 'fade' : 'fade';
-    const timestamp = Number.isFinite(Number(now)) ? Number(now) : Date.now();
-    const startedAt = Number.isFinite(Number(animation.startedAt))
-      ? Number(animation.startedAt) : timestamp;
-    const progress = clamp((timestamp - startedAt) / duration, 0, 1);
-    if (progress >= 1) return;
-    const { x: boardX, y: boardY, cell, cols } = this.boardLayout;
-    const tileGap = Number(gap) >= 0 ? Number(gap) : clamp(cell * 0.085, 2, 5);
-    const color = palette && palette.length
-      ? palette[animation.lineIndex % palette.length]
-      : skin.colors.text;
-    const alphaFrom = Number.isFinite(Number(params.alphaFrom))
-      ? clamp(Number(params.alphaFrom), 0, 1) : 1;
-    const alphaTo = Number.isFinite(Number(params.alphaTo))
-      ? clamp(Number(params.alphaTo), 0, 1) : 0;
-    const scaleFrom = Number.isFinite(Number(params.scaleFrom)) && Number(params.scaleFrom) > 0
-      ? Number(params.scaleFrom) : 1;
-    const scaleTo = Number.isFinite(Number(params.scaleTo)) && Number(params.scaleTo) > 0
-      ? Number(params.scaleTo) : 1.14;
-    const staggerRatio = Number.isFinite(Number(params.staggerRatio))
-      ? clamp(Number(params.staggerRatio), 0, 0.1) : 0.018;
-    const cells = Array.isArray(animation.cells) ? animation.cells : [];
-    cells.forEach((index, order) => {
-      if (!Number.isInteger(index) || index < 0 || index >= cols * this.boardLayout.rows) return;
-      if (this.isPortalIndex(runner, index)) return;
-      const col = index % cols;
-      const row = Math.floor(index / cols);
-      const local = clamp(progress * (1 + staggerRatio * 10) - order * staggerRatio, 0, 1);
-      const alpha = alphaFrom + (alphaTo - alphaFrom) * local;
-      const scale = scaleFrom + (scaleTo - scaleFrom) * local;
-      const baseSize = cell - tileGap * 2;
-      const centerX = boardX + (col + 0.5) * cell;
-      const centerY = boardY + (row + 0.5) * cell;
-      if (type === 'fade') {
-        // Exactly one drawTile call per path cell per frame keeps the effect
-        // bounded by path length and compatible with image-backed skins.
-        this.drawTile(animation.lineIndex,
-          centerX - baseSize / 2,
-          centerY - baseSize / 2,
-          baseSize,
-          { color, alpha, scale, skin });
-      }
-    });
+  drawClearAnimation(animation, palette, now, gap, portalCells) {
+    const excluded = portalCells instanceof Set
+      ? portalCells : new Set(Array.isArray(portalCells) ? portalCells : []);
+    return this.boardRenderer.drawClearAnimation(
+      animation,
+      palette,
+      now,
+      gap,
+      this.boardLayout,
+      excluded
+    );
   }
 
   drawResult(model, now) {
@@ -2365,8 +2120,8 @@ class CanvasRenderer {
     this.text(trialResult ? '试玩完成' : (model.result.newBest ? '新纪录' : '完成'),
       width / 2, panelY + 92, 27, { weight: 300 });
     const resultText = trialResult
-      ? `本次 ${GameRunner.formatTime(model.result.elapsedMs)} · 试玩不记录最佳`
-      : `本次 ${GameRunner.formatTime(model.result.elapsedMs)} · 最佳 ${GameRunner.formatTime(model.result.bestMs)}`;
+      ? `本次 ${formatTime(model.result.elapsedMs)} · 试玩不记录最佳`
+      : `本次 ${formatTime(model.result.elapsedMs)} · 最佳 ${formatTime(model.result.bestMs)}`;
     this.text(resultText, width / 2, panelY + 124, 13, { alpha: 0.72 });
 
     const gap = 10;

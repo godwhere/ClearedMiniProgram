@@ -40,6 +40,58 @@ function assertRectInsideSafeArea(rect, metrics, label) {
     `${label} stays inside the vertical safe area`);
 }
 
+function deepFreeze(value) {
+  if (!value || typeof value !== 'object' || Object.isFrozen(value)) return value;
+  Object.keys(value).forEach(key => deepFreeze(value[key]));
+  return Object.freeze(value);
+}
+
+function renderState(runner, options) {
+  const opts = options || {};
+  const state = runner.getViewState();
+  const selected = new Set();
+  (state.selection.segments || []).forEach(segment => {
+    (segment || []).forEach(index => selected.add(index));
+  });
+  const portalCells = new Set();
+  (state.mechanic.portals || []).forEach(portal => {
+    (portal.cells || [portal.A, portal.B]).forEach(index => portalCells.add(index));
+  });
+  const portal = state.mechanic.id === 'portal' ? {
+    icon: 'assets/icons/portal.png',
+    portals: state.mechanic.portals,
+    phase: state.mechanic.phase,
+    expectedExit: state.mechanic.pending ? state.mechanic.pending.exit : null,
+    lockedEntry: state.mechanic.locked ? state.mechanic.locked.entry : null
+  } : null;
+  return {
+    board: {
+      width: state.board.width,
+      height: state.board.height,
+      lines: state.board.lines,
+      cells: state.board.owner.map((owner, index) => ({
+        index,
+        blocked: state.board.blockedMask[index] === true,
+        owner,
+        fixedLine: state.board.fixedLine[index],
+        selected: selected.has(index),
+        portal: portalCells.has(index)
+      })),
+      completedPaths: state.completedPaths,
+      selection: state.selection,
+      clearAnimation: opts.clearAnimation || null,
+      hint: opts.hint || null,
+      hintUntil: opts.hintUntil
+    },
+    mechanic: { portal },
+    elapsedText: state.timeText,
+    canUndo: state.canUndo,
+    clearAnimation: opts.clearAnimation || null,
+    hint: opts.hint || null,
+    hintUntil: opts.hintUntil
+  };
+}
+
 function run() {
   const platform = {
     context: fakeContext(),
@@ -51,6 +103,13 @@ function run() {
     setStyle(set) { return { background: set.Color, palette: set.Palette }; }
   };
   const renderer = new CanvasRenderer(platform, skins);
+  const boardScenes = [];
+  const sharedBoardDraw = renderer.boardRenderer.draw.bind(renderer.boardRenderer);
+  renderer.boardRenderer.draw = function (viewModel) {
+    boardScenes.push(viewModel && viewModel.scene);
+    return sharedBoardDraw.apply(null, arguments);
+  };
+  assert(renderer.interactionMap, 'renderer exposes the shared interaction map during migration');
   const roundedRects = [];
   const drawRoundedRect = renderer.roundedRect.bind(renderer);
   renderer.roundedRect = function (x, y, w, h, radius) {
@@ -84,13 +143,24 @@ function run() {
 
   const runner = new GameRunner(set.Games[0], set.Palette);
   runner.undoStack.push({});
-  renderer.render({
-    scene: 'play', set, level: set.Games[0], levelIndex: 0, runner,
-    levelEnteredAt: Date.now() - 1000, clearAnimation: null, pressedId: null,
-    hint: { lineIndex: 0, path: [0, 1, 2, 3, 4] }, hintUntil: Date.now() + 1000,
+  const hint = { lineIndex: 0, path: [0, 1, 2, 3, 4] };
+  const hintUntil = Date.now() + 1000;
+  const playModel = Object.assign({
+    scene: 'play', set, level: set.Games[0], levelIndex: 0,
+    levelEnteredAt: Date.now() - 1000, pressedId: null,
     hintAvailable: true
-  }, Date.now());
+  }, renderState(runner, { hint, hintUntil }));
+  deepFreeze(playModel.board);
+  deepFreeze(playModel.mechanic);
+  const frozenViewBefore = JSON.stringify({ board: playModel.board, mechanic: playModel.mechanic });
+  assert.strictEqual(Object.prototype.hasOwnProperty.call(playModel, 'runner'), false,
+    'play render model is pure data and does not expose Runner');
+  renderer.render(playModel, Date.now());
+  assert.strictEqual(JSON.stringify({ board: playModel.board, mechanic: playModel.mechanic }), frozenViewBefore,
+    'renderer does not mutate a frozen board ViewModel');
   assert(renderer.boardLayout);
+  assert.deepStrictEqual(renderer.getBoardLayout(), renderer.boardLayout,
+    'legacy boardLayout access and the locator API share one layout');
   const backHit = renderer.hits.find(hit => hit.id === 'play:back');
   assert.strictEqual(backHit.rect.y, platform.metrics.safeTop + classic.layout.playTopUiOffset + 12);
   const soundTopHit = renderer.hits.find(hit => hit.id === 'play:sound');
@@ -105,13 +175,14 @@ function run() {
   assert(renderer.hits.some(hit => hit.id === 'play:reset'));
   assert(hintHit.rect.x < undoHit.rect.x, 'hint and undo are split left/right');
   assert.strictEqual(renderer.cellAt(renderer.boardLayout.x + 1, renderer.boardLayout.y + 1), 0);
+  assert.strictEqual(renderer.interactionMap.cellAt(renderer.boardLayout.x + 1, renderer.boardLayout.y + 1), 0);
 
-  renderer.render({
-    scene: 'result', set, level: set.Games[0], levelIndex: 0, runner,
-    levelEnteredAt: Date.now() - 1000, clearAnimation: null, pressedId: null,
+  renderer.render(Object.assign({
+    scene: 'result', set, level: set.Games[0], levelIndex: 0,
+    levelEnteredAt: Date.now() - 1000, pressedId: null,
     resultVisibleAt: 0, result: { newBest: true, elapsedMs: 1200, bestMs: 1200 },
     hasNext: false
-  }, Date.now());
+  }, renderState(runner)), Date.now());
   assert(renderer.hits.some(hit => hit.id === 'result:replay'));
 
   const failureVisibleAt = 5000;
@@ -121,12 +192,12 @@ function run() {
     remainingCells: 3,
     elapsedMs: 1200
   };
-  const failureModel = {
-    scene: 'result', set, level: set.Games[0], levelIndex: 0, runner,
-    levelEnteredAt: 0, clearAnimation: null, pressedId: null,
+  const failureModel = Object.assign({
+    scene: 'result', set, level: set.Games[0], levelIndex: 0,
+    levelEnteredAt: 0, pressedId: null,
     resultVisibleAt: failureVisibleAt, result: failureResult,
     hintAvailable: true, hasNext: false
-  };
+  }, renderState(runner));
 
   platform.context.calls.length = 0;
   renderer.render(failureModel, failureVisibleAt - 1);
@@ -182,10 +253,10 @@ function run() {
     Color: set.Color,
     Palette: set.Palette
   }, set.Games[0]);
-  const dailyFailureModel = {
-    scene: 'dailyResult', challenge: dailyChallenge, runner,
+  const dailyFailureModel = Object.assign({
+    scene: 'dailyResult', challenge: dailyChallenge,
     dailyLevelIndex: 1, dailyLevelCount: 2, dailyDateKey: '2026-09-01',
-    levelEnteredAt: 0, clearAnimation: null, pressedId: null,
+    levelEnteredAt: 0, pressedId: null,
     dailyResultVisibleAt: failureVisibleAt,
     result: {
       outcome: 'failed',
@@ -196,7 +267,7 @@ function run() {
     hintAvailable: true,
     dailyEntriesRemaining: 2,
     dailyEntryLimit: 3
-  };
+  }, renderState(runner));
 
   platform.context.calls.length = 0;
   renderer.render(dailyFailureModel, failureVisibleAt - 1);
@@ -272,15 +343,17 @@ function run() {
   ].forEach(metrics => {
     platform.metrics = metrics;
     const tallRunner = new GameRunner(tallLevel, tallSet.Palette);
-    renderer.render({
-      scene: 'play', set: tallSet, level: tallLevel, levelIndex: 0, runner: tallRunner,
-      levelEnteredAt: Date.now() - 1000, clearAnimation: null, pressedId: null
-    }, Date.now());
+    renderer.render(Object.assign({
+      scene: 'play', set: tallSet, level: tallLevel, levelIndex: 0,
+      levelEnteredAt: Date.now() - 1000, pressedId: null
+    }, renderState(tallRunner)), Date.now());
     assert(renderer.boardLayout.cell > 25);
     assert(renderer.boardLayout.x >= 0);
     assert(renderer.boardLayout.y >= metrics.safeTop);
     assert(renderer.boardLayout.y + renderer.boardLayout.cell * tallLevel.Height <= metrics.safeBottom);
   });
+  assert(boardScenes.indexOf('play') >= 0 && boardScenes.indexOf('dailyResult') >= 0,
+    'ordinary and daily scenes share the same BoardRenderer instance');
 }
 
 module.exports = run;

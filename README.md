@@ -33,7 +33,7 @@
 [`assets/icons/portal.png`](assets/icons/portal.png)。
 
 传送门作为首个玩法拓展所暴露的运行上下文、规则查询、输入、提示、渲染与结算边界，以及后续分阶段迁移步骤，记录在
-[`docs/gameplay-extension-architecture.md`](docs/gameplay-extension-architecture.md)。架构重构按该文档分 PR 渐进实施，保持传送门 v1 和普通关卡行为不变。
+[`docs/gameplay-extension-architecture.md`](docs/gameplay-extension-architecture.md)。阶段 0—6 的架构重构已经完成：关卡来源与棋盘机制、规则状态与只读视图、输入、提示、结算和渲染现已分层；阶段 7 的通用机制 Registry 仍须等第二种真实玩法或 Portal v2 出现后再实施。
 
 “高难关卡”主页入口及“每日挑战”模式的棋盘、日期、镂空、存档和实现边界记录在
 [`docs/daily-challenge-mode.md`](docs/daily-challenge-mode.md)；广告/分享增次、复活和货币系统暂未接入。
@@ -68,21 +68,31 @@
 
 ```text
 game.js                         小游戏入口
-core/game-runner.js             纯规则与撤销状态（支持可选镂空），不依赖 wx/Canvas
+core/game-runner.js             纯规则、结构化手势结果与只读状态查询（支持镂空/Portal）
+core/portal-schema.js           Portal 字段读取、规范化与索引的唯一共享来源
+core/portal-solution.js         Portal 分段解规范化、反转与展平纯函数
+core/portal-validation.js       Portal 题面和分段解答的严格发布校验
 data/                           原版 JSON 与小游戏可加载的 JS 关卡模块
 data/solutions.js               122 关完整有效路径（提示数据，离线生成）
 data/daily-challenges.js        每日两关题面、日期和镂空数据
 data/daily-solutions.js         每日关卡按 level ID 索引的提示路径
-src/app.js                      场景与输入编排
+src/app.js                      场景、反馈与纯棋盘 ViewModel 编排
+src/gameplay/run-context.js     关卡来源、进度域与棋盘机制上下文
+src/gameplay/completion-policies.js 按进度域分派普通/试玩/每日结算
+src/gameplay/board-input-controller.js 棋盘 pointer 生命周期与逐格采样
 src/platform/wechat.js          Canvas、触摸、生命周期、存储和广告 API
-src/ui/canvas-renderer.js       单 Canvas 渲染与命中区域
+src/ui/canvas-renderer.js       单 Canvas 场景渲染门面
+src/ui/board/interaction-map.js 命中区域与棋盘定位
+src/ui/board/board-renderer.js  普通/每日共用的纯 ViewModel 棋盘绘制
+src/ui/board/portal-overlay.js  Portal 图标、状态光圈与资源回退
 src/services/progress-store.js  版本化本地存档
 src/services/progression-service.js 顺序解锁策略
 src/services/skin-service.js    皮肤注册与切换
 src/services/clear-effect-service.js 消除特效注册、选择与回退
 src/services/ads-service.js     激励视频/插屏广告门面，默认无广告
 src/services/audio-service.js   BGM、连线和通关音效适配
-src/services/hint-service.js    解答路径提示与运行时回退搜索
+src/services/hint-service.js    普通/Portal 提示 provider 的兼容路由门面
+src/services/hints/             只消费纯 HintContext 的普通/Portal 提示实现
 src/services/daily-challenge-service.js 日期选择、两关校验与每日题面解析
 src/services/daily-progress-store.js     每日进入次数、关卡完成和幂等存档
 src/config/daily.js              每日次数、时区和调试开关
@@ -121,8 +131,8 @@ assets/effects/fade/             “逐渐消失”特效选择页预览图
 tests/clear-effect-service.test.js、tests/clear-effect-system.test.js 特效服务与场景测试
 ```
 
-新增皮肤时，只需注册新的语义化皮肤配置和素材映射，不改关卡规则。提示路径已在发布前
-离线生成并由测试校验，运行时不需要求解器。部署广告时，在
+新增皮肤时，只需注册新的语义化皮肤配置和素材映射，不改关卡规则。正式题目的提示路径会在发布前
+离线生成并由测试校验，运行时仍保留普通与 Portal 的防御性回退搜索。部署广告时，在
 `src/config/ads.js` 填入广告位 ID；游戏规则不直接依赖广告 API。激励视频只在完整播放后
 返回奖励资格，插屏广告包含频率和最短间隔控制。
 

@@ -26,8 +26,10 @@
 - 这是原生微信小游戏：CommonJS JavaScript + 单 Canvas 2D，无 npm 运行依赖、无 DOM、无常规构建步骤。入口为 `game.js -> src/bootstrap.js -> src/app.js`。
 - 微信开发者工具可直接导入项目。不要引入 Web 专用 API、包管理器、框架或构建系统，除非需求确实无法由当前运行时完成并已说明维护成本。
 - `core/game-runner.js` 是纯玩法规则与状态权威；`core/portal-validation.js` 负责传送门题面/解答校验。两者不得依赖 `wx`、Canvas、场景 UI 或主题外观。
-- `src/app.js` 负责场景、输入和结算编排；`src/ui/canvas-renderer.js` 负责绘制与命中区域；`src/platform/wechat.js` 是微信 API 适配边界。不要跨层复制职责。
+- `GameRunner` 调用方只能通过结构化 gesture 结果和只读 board/selection/mechanic/view 查询获取状态；App、Hint 和 Renderer 不得读取其可变内部数组。
+- `src/app.js` 负责场景、反馈和结算编排；`src/gameplay/` 负责 RunContext、按进度域结算和棋盘输入；`src/ui/canvas-renderer.js` 负责场景绘制门面，`src/ui/board/` 只消费纯 ViewModel；`src/platform/wechat.js` 是微信 API 适配边界。不要跨层复制职责。
 - `src/services/` 承担存档、解锁、提示、音频、广告、每日挑战、主题和特效等领域能力；优先通过现有服务扩展，不要在 app 或 renderer 中另建平行状态。
+- `HintService` 只负责兼容路由；普通与 Portal hint provider 只能消费纯 HintContext，不能持有 Runner、Canvas 或平台对象。
 - `src/skins/*.js` 和 `src/effects/*.js` 应保持声明式 manifest；注册顺序集中在各自 `index.js`。主题和特效不能改变连线规则，也不能注入平台调用或任意业务回调。
 - `src/mechanics/*.js` 是 data-only 的玩法拓展定义，只能声明稳定 ID、规则版本、资源和试玩内容依赖；不得携带触摸、结算、存档、Canvas、平台或远程脚本回调。
 - 处理玩法拓展时必须区分“关卡来源/进度域”和“棋盘机制”：试玩是否写进度由来源决定，portal 等机制只决定规则与展示。详细迁移边界见 `docs/gameplay-extension-architecture.md`。

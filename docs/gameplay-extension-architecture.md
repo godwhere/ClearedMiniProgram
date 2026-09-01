@@ -2,7 +2,7 @@
 
 > 记录日期：2026-09-01  
 > 审阅基线：`main@4a3c34aab0f4034b886cdbf2a5cbaf14b1d038cc`  
-> 文档状态：已审阅、待分阶段实施  
+> 文档状态：阶段 0—6 已实施并进入回归基线；阶段 7 尚未触发
 > 关联文档：[`portal-mechanic.md`](portal-mechanic.md)、[`daily-challenge-mode.md`](daily-challenge-mode.md)、[`../AGENTS.md`](../AGENTS.md)
 
 ## 1. 审阅结论
@@ -19,17 +19,19 @@
 
 这些行为应当作为后续重构的回归基线，不能为了拆文件而改变。
 
-当前最主要的问题不是传送门规则不完整，而是**玩法拓展的边界只在 manifest 层出现，运行时边界仍然分散在 `GameRunner`、`ClearedApp`、`HintService` 和 `CanvasRenderer` 中**。如果直接继续增加第二种玩法，中心文件会再次扩张，并产生更多 `if (mechanic === ...)` 分支。
+审阅基线当时最主要的问题不是传送门规则不完整，而是**玩法拓展的边界只在 manifest 层出现，运行时边界仍然分散在 `GameRunner`、`ClearedApp`、`HintService` 和 `CanvasRenderer` 中**。如果在该结构上直接增加第二种玩法，中心文件会继续扩张，并产生更多 `if (mechanic === ...)` 分支。
 
 因此后续方案采用：
 
 > 先固定公开契约，再拆运行上下文和读写边界；先消除中心文件对内部状态的读取，再考虑通用玩法注册表。每一个阶段都保持可运行、可回滚、可独立提交。
 
-## 2. 当前结构中必须解决的五个问题
+## 2. 审阅基线中必须解决的五个问题（现均已解决）
+
+本节保留阶段 0 实施前的历史问题描述，用于解释重构动机；当前代码状态以第 10—11 节的完成标准和落地记录为准。
 
 ### 2.1 “关卡来源”和“棋盘机制”被混成一个判断
 
-当前 `activeMechanicId === 'portal'` 同时被用于判断：
+审阅基线中的 `activeMechanicId === 'portal'` 同时被用于判断：
 
 - 当前棋盘是否有传送门规则；
 - 当前关卡是否是试玩；
@@ -46,7 +48,7 @@
 
 ### 2.2 `setIndex = -1` 和 `currentSet/currentLevel` 构成隐式哨兵协议
 
-普通关卡使用 `catalog.sets[setIndex]`，传送门试玩使用 `currentSet/currentLevel`，并将 `setIndex` 设为 `-1`。后续每个调用方都需要记住：
+审阅基线中，普通关卡使用 `catalog.sets[setIndex]`，传送门试玩使用 `currentSet/currentLevel`，并将 `setIndex` 设为 `-1`。每个调用方都需要记住：
 
 ```text
 setIndex >= 0 可能是普通关卡
@@ -58,7 +60,7 @@ currentSet 不为空时又覆盖 catalog
 
 ### 2.3 App、Hint 和 Renderer 直接读取 `GameRunner` 可变内部字段
 
-目前调用方会直接读取：
+审阅基线中的调用方会直接读取：
 
 ```text
 selectedLine / selectedCells / selectedSegments
@@ -72,7 +74,7 @@ portalByCell / portals
 
 ### 2.4 Portal schema 在 Runner 与 Validator 中重复实现
 
-`core/game-runner.js` 和 `core/portal-validation.js` 都在读取：
+审阅基线中的 `core/game-runner.js` 和 `core/portal-validation.js` 都各自读取：
 
 - `Mechanic/mechanic`；
 - `PortalRulesVersion/portalRulesVersion`；
@@ -82,9 +84,9 @@ portalByCell / portals
 
 Validator 应保持严格诊断，Runner 应保持防御性降级，但两者应共享同一套**无副作用的读取与规范化函数**，避免某一边升级后另一边仍按旧规则解释题面。
 
-### 2.5 `HintService` 和 `CanvasRenderer` 已再次成为中心文件
+### 2.5 `HintService` 和 `CanvasRenderer` 在审阅基线中再次成为中心文件
 
-Portal 加入后：
+Portal 初次接入后：
 
 - `HintService` 同时处理普通解、每日解、分段 portal 解、反向解、路径可用性和 BFS；
 - `CanvasRenderer` 同时处理场景、棋盘、门格、提示、清除动画、素材缓存和命中区域；
@@ -119,7 +121,9 @@ game.js
             ├─ src/gameplay/board-input-controller.js
             ├─ src/gameplay/completion-policies.js
             ├─ src/services/hint-service.js        兼容门面
-            │    └─ src/services/hints/*-provider.js
+            │    ├─ src/services/hints/ordinary-hint-provider.js
+            │    └─ src/services/hints/portal-hint-provider.js
+            │         └─ core/portal-solution.js
             └─ src/ui/canvas-renderer.js           场景渲染门面
                  └─ src/ui/board/*
 
@@ -128,8 +132,7 @@ core/game-runner.js
   └─ 纯规则、快照和结构化结果
 
 core/portal-validation.js
-  ├─ core/portal-schema.js
-  └─ core/portal-solution.js
+  └─ core/portal-schema.js
 ```
 
 依赖只能向下：
@@ -475,6 +478,8 @@ src/ui/board/interaction-map.js
 
 ## 7. 分阶段实施步骤
 
+> 实施记录（2026-09-01）：阶段 0—6 已按下述边界落地。以下步骤继续作为回归、审阅和后续拆分的验收契约；阶段 7 仍须满足其触发条件后另案实施。
+
 每一阶段独立提交；禁止把后续阶段的空目录或空抽象提前加入。
 
 ### 阶段 0：冻结基线与自动化安全线
@@ -781,7 +786,7 @@ git diff --check
 
 ## 10. 完成标准
 
-当阶段 1—6 完成后，应达到：
+阶段 1—6 已完成，当前实现达到：
 
 - 新玩法试玩不再要求修改 App 的普通进度分支；
 - 正式 portal 普通关可以写普通进度，试玩 portal 仍不写，二者只由 run source 区分；
@@ -792,3 +797,18 @@ git diff --check
 - 未引入框架、构建系统、任意脚本插件或无真实调用者的抽象。
 
 这套边界既支持继续打磨传送门，也为第二种棋盘玩法留下清晰施工面，同时保留当前项目最重要的轻量、可直接导入和可回归验证特性。
+
+## 11. 实际落地记录
+
+| 阶段 | 已落地文件与契约 |
+| --- | --- |
+| 0 | `.github/workflows/test.yml` 固定 Node 版本并运行全量测试；`tests/architecture-boundaries.test.js` 锁定 core 依赖方向与运行时调用边界。 |
+| 1 | `core/portal-schema.js` 成为 Runner、Validator 和发布校验共享的字段读取、规范化与索引来源；Validator 的公开 alias 和稳定错误码保持兼容。 |
+| 2 | `src/gameplay/run-context.js` 与 `completion-policies.js` 分离来源、进度域和机制；App 不再使用负索引或 `currentSet/currentLevel` 双轨状态。 |
+| 3 | `GameRunner` 提供结构化 GestureResult、完整 commit、只读 board/selection/mechanic/view 查询；旧 touch API 保持布尔兼容。 |
+| 4 | `BoardInputController` 接管棋盘 pointer、逐格采样和 Portal 锁定早停；`InteractionMap` 接管命中与棋盘定位，App 只消费输入事件。 |
+| 5 | `HintService` 缩为兼容门面；普通与 Portal provider 只消费纯 HintContext；`core/portal-solution.js` 承担分段解规范化、反转和展平。 |
+| 6 | App 构建纯棋盘 ViewModel；普通与每日场景共用 `BoardRenderer`，Portal 图标、锁定/等待态和资源回退由 `PortalOverlay` 最后绘制。 |
+| 7 | 未实施。当前仍只有 Portal v1，没有第二种真实棋盘机制、Portal v2 或远程 allowlist 需求。 |
+
+自动化继续以 `node tests/run.js` 和 `git diff --check` 为本地完成门槛。微信开发者工具编译/预览、iOS 与 Android 真机触摸、安全区、高 DPR 和图片加载失败仍属于发布前人工验收，不能由 Node 测试替代。

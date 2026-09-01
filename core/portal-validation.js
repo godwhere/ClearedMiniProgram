@@ -11,6 +11,22 @@
  * JSON or older tooling.
  */
 
+const portalSchema = require('./portal-schema.js');
+
+const {
+  isRecord,
+  own,
+  field,
+  first,
+  dimensions,
+  rawPortals,
+  rawMechanic,
+  rawRulesVersion,
+  readPortal,
+  normalizePortals,
+  buildPortalIndex
+} = portalSchema;
+
 const CODES = Object.freeze({
   MECHANIC_INVALID: 'portal-mechanic-invalid',
   REQUIRED_ARRAY: 'portals-required-array',
@@ -50,59 +66,8 @@ const CODES = Object.freeze({
   SOLUTION_NOT_OBJECT: 'solution-segment-not-object'
 });
 
-function isRecord(value) {
-  return !!value && typeof value === 'object' && !Array.isArray(value);
-}
-
-function own(value, key) {
-  return isRecord(value) && Object.prototype.hasOwnProperty.call(value, key);
-}
-
-function field(value, upper, lower) {
-  if (!isRecord(value)) return undefined;
-  if (value[upper] !== undefined) return value[upper];
-  return lower ? value[lower] : undefined;
-}
-
-function first(value, keys) {
-  if (!isRecord(value)) return undefined;
-  for (let i = 0; i < keys.length; i += 1) {
-    const key = keys[i];
-    if (value[key] !== undefined) return value[key];
-  }
-  return undefined;
-}
-
 function add(errors, code) {
   if (errors.indexOf(code) < 0) errors.push(code);
-}
-
-function dimensions(level) {
-  const width = field(level, 'Width', 'width');
-  const height = field(level, 'Height', 'height');
-  const valid = Number.isInteger(width) && width > 0 &&
-    Number.isInteger(height) && height > 0;
-  return {
-    width,
-    height,
-    total: valid ? width * height : 0,
-    valid
-  };
-}
-
-function rawPortals(level) {
-  if (!isRecord(level)) return { present: false, value: undefined };
-  if (own(level, 'Portals')) return { present: true, value: level.Portals };
-  if (own(level, 'portals')) return { present: true, value: level.portals };
-  return { present: false, value: undefined };
-}
-
-function rawMechanic(level) {
-  return field(level, 'Mechanic', 'mechanic');
-}
-
-function rawRulesVersion(level) {
-  return field(level, 'PortalRulesVersion', 'portalRulesVersion');
 }
 
 function inspectBlocked(level, board) {
@@ -155,88 +120,6 @@ function endpointSet(level) {
 
 function blockedSet(level, board) {
   return inspectBlocked(level, board || dimensions(level)).valid;
-}
-
-/**
- * Read a portal descriptor without mutating its source.  Besides canonical
- * A/B fields, `Cells: [a, b]` is accepted as a compact import form.  The
- * returned object always uses canonical `id`, `A`, and `B` fields.
- */
-function readPortal(raw, sourceIndex) {
-  if (!isRecord(raw)) return null;
-  const cells = first(raw, ['Cells', 'cells']);
-  const a = first(raw, ['A', 'a']) !== undefined
-    ? first(raw, ['A', 'a'])
-    : (Array.isArray(cells) ? cells[0] : undefined);
-  const b = first(raw, ['B', 'b']) !== undefined
-    ? first(raw, ['B', 'b'])
-    : (Array.isArray(cells) ? cells[1] : undefined);
-  const id = first(raw, ['Id', 'id']);
-  return { id, A: a, B: b, sourceIndex };
-}
-
-/**
- * Return structurally readable portal descriptors.  Invalid descriptors are
- * omitted from the returned array; callers should use validatePortals() when
- * they need diagnostics.  This function is intentionally forgiving for the
- * runtime runner's defensive lookup path.
- */
-function normalizePortals(level) {
-  const source = rawPortals(level).value;
-  if (!Array.isArray(source)) return [];
-  return source.map((raw, index) => readPortal(raw, index)).filter(portal => (
-    portal && typeof portal.id === 'string' && portal.id.trim().length > 0 &&
-    Number.isInteger(portal.A) && Number.isInteger(portal.B)
-  )).map(portal => ({
-    id: portal.id,
-    Id: portal.id,
-    A: portal.A,
-    B: portal.B,
-    a: portal.A,
-    b: portal.B,
-    sourceIndex: portal.sourceIndex
-  }));
-}
-
-/**
- * Build read-only-style lookup maps from normalized descriptors.  The maps
- * use null prototypes so an author-controlled id such as "constructor" does
- * not alter lookup semantics.
- */
-function buildPortalIndex(levelOrPortals) {
-  const portals = Array.isArray(levelOrPortals)
-    ? levelOrPortals
-    : normalizePortals(levelOrPortals);
-  const portalByCell = Object.create(null);
-  const portalById = Object.create(null);
-  portals.forEach(portal => {
-    const descriptor = {
-      id: portal.id || portal.Id,
-      pairId: portal.id || portal.Id,
-      A: portal.A,
-      B: portal.B,
-      a: portal.A,
-      b: portal.B
-    };
-    portalById[descriptor.id] = descriptor;
-    portalByCell[descriptor.A] = {
-      id: descriptor.id,
-      pairId: descriptor.id,
-      entry: descriptor.A,
-      exit: descriptor.B,
-      A: descriptor.A,
-      B: descriptor.B
-    };
-    portalByCell[descriptor.B] = {
-      id: descriptor.id,
-      pairId: descriptor.id,
-      entry: descriptor.B,
-      exit: descriptor.A,
-      A: descriptor.A,
-      B: descriptor.B
-    };
-  });
-  return { portals, portalByCell, portalById };
 }
 
 function structuralResult(errors, level, portals, rulesVersion) {

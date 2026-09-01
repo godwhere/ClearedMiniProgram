@@ -2,7 +2,7 @@
 
 > 设计记录：2026-09-01  
 > 需求状态：v1 试玩契约已冻结并实现。
-> 实现状态：规则机、双向分段提示、触摸取消、Canvas 渲染、5 个试玩关与发布校验已接入；微信开发者工具及真机仍需发布前验收。
+> 实现状态：规则机、双向分段提示、触摸取消、5 个试玩关与发布校验已接入；玩法拓展架构阶段 0—6 已完成，微信开发者工具及真机仍需发布前验收。
 > 运行时：微信小游戏单 Canvas 链路 `game.js → src/bootstrap.js → src/app.js → core/game-runner.js / src/ui/canvas-renderer.js`
 
 ## 1. 目的与核心判断
@@ -456,12 +456,12 @@ solution-portal-order
 
 **负责：**
 
-- 读取并规范化 `level.Portals`；
-- 建立只读 `portalByCell`、`portalPairs` 查询；
+- 通过共享 `core/portal-schema.js` 读取并规范化 `level.Portals`；
+- 建立内部 Portal 索引，并通过 `portalAt()` 与 `getMechanicState().portals` 提供只读查询；
 - 判断 A/B 是否可用、是否已被当前线路使用；
 - 管理 `READY / DRAWING / PORTAL_LOCKED / PORTAL_WAIT / PORTAL_CONTINUE / SOLVED` 的规则状态；
 - 维护当前线路的连续段、传送跳跃元数据、入口前快照和门使用记录；
-- 在 `touchStart/touchMove/touchEnd` 中执行所有合法性判断；
+- 在结构化 gesture 命令中执行所有合法性判断，并保留旧 touch API 兼容包装；
 - 处理 `snapshot/restore/undo/reset/abortSelection/cancelSelection` 的 portal 状态；
 - 让两个 portal 格参与 `owner`、`filledCount()`、`isBoardComplete()`。
 
@@ -474,9 +474,20 @@ solution-portal-order
 - 不直接绘制路径；
 - 不自行调用 HintService 或求解器。
 
-**已接入的只读查询/状态接口：**
+**已接入的命令与只读查询接口：**
 
 ```js
+startGesture(cell) -> GestureResult
+moveGesture(cell) -> GestureResult
+endGesture(cell) -> GestureResult // 完成时直接携带完整 commit
+cancelGesture('pointer-cancel' | 'navigation' | 'reset') -> GestureResult
+
+getBoardState()
+getSelectionState()
+getMechanicState()
+getCompletedLine(lineIndex)
+getViewState()
+
 portalAt(index) -> { id, entry: index, exit } | null
 portalExit(index) -> number | -1
 isPortalCell(index) -> boolean
@@ -484,11 +495,10 @@ portalStatus() -> null | {
   phase, lineIndex, pairId, entry, exit,
   entryCells, usedPairIds
 }
-cancelPortalContinuation() -> boolean
-handlePointerCancel() -> boolean
+touchStart/touchMove/touchEnd/handlePointerCancel -> boolean // 兼容 API
 ```
 
-接口名称可调整，但应用层必须能获得上述语义，不得读取 runner 私有数组后自行推断规则。
+所有复合查询都返回新对象和数组。App、Hint 与 Renderer 不得读取 runner 私有数组后自行推断规则。
 
 **兼容约束：**
 
@@ -501,17 +511,14 @@ handlePointerCancel() -> boolean
 
 ### 8.2 `src/app.js`：输入与场景编排
 
-**负责修改的入口：**
+**负责：**
 
-- `onPointerStart()`：区分普通起笔、正确 B 起笔和错误等待态按下；保存 pointer id；错误按下触发 runner 的回滚接口，但不启动新线；
-- `onPointerMove()` / `traceBoard()`：继续负责坐标插值和逐格转发；一旦 runner 报告进入 `PORTAL_LOCKED`，立即停止本次插值；
-- `onPointerEnd()`：把释放交给 runner；对 `PORTAL_WAIT` 不播放普通线路失败音效、不触发完成结算；
-- `onPathCompleted()`：只在整条线路提交后读取 runner outcome；`won` 沿用现有完成结算，
-  `failed` 只显示未填满弹窗，不写进度、广告或胜利音；
-- `onPointerCancel()`：根据 runner 状态执行普通手势回滚、portal pending 回滚或 B 段局部回滚；
+- 用 `RunContext` 明确普通 catalog 或 Portal 试玩来源；结算只读取 `progressionScope`，不从 mechanic ID 推断是否写进度；
+- 将棋盘 pointer 交给 `BoardInputController`，只消费 `selection-started/step/portal-wait/path-completed/invalid-selection/cancelled` 等纯事件；
+- `onPathCompleted()` 直接使用 GestureResult 的完整 commit 创建清除动画；`failed` 只显示未填满弹窗，不写进度、广告或胜利音；
 - `onHide()` / `onShow()`：清除旧 pointer token、暂停/恢复计时和音频，按第 5 节清理临时状态；
 - `performAction('play:reset'/'play:undo'/'daily:reset'/'daily:undo')`：调用 runner 的统一 portal 清理/撤销接口；
-- `buildModel()`：向 renderer 提供 data-only 的 `portals`、`portalState`、`portalInstruction`、分段路径和 `expectedExit`；
+- `buildBoardViewModel()`：从 `getViewState()` 构建 data-only 的 board cell、selection、hint、clearAnimation 和 `mechanic.portal`；
 - `openLevel()` 与每日 runner 构造：把关卡的 `Mechanic`/`Portals` 传给 runner，但不在 app 中重复做门合法性判断。
 - 首页可见 action 为 `home:portalTrial`；旧 `corridor:portalTrial` 只作为不可见的兼容别名，回廊不注册传送门卡片或 hit。
 - 试玩结果页显示“试玩完成 / 试玩不记录最佳”，返回 action 回首页，不宣称已写入普通选关进度。
@@ -525,24 +532,24 @@ handlePointerCancel() -> boolean
 - 不在 app 中实现 BFS、解答校验或 Canvas 绘制；
 - 不把 portal 逻辑复制成普通关卡和每日关卡两套分支；两者共用同一 runner 协议。
 
-### 8.3 `src/ui/canvas-renderer.js`：只读视觉表现
+### 8.3 `src/ui/canvas-renderer.js` 与 `src/ui/board/*`：只读视觉表现
 
 **负责：**
 
-- 在 `drawPlay()` 和 `drawDaily()` 使用同一个 portal 绘制适配器；
-- 加载并缓存 `assets/icons/portal.png`；
+- `drawPlay()` 和 `drawDaily()` 共用同一个 `BoardRenderer`；
+- `PortalOverlay` 加载并缓存 `assets/icons/portal.png`；
 - 按棋盘 cell 几何绘制传送门图标、配对标记、环形高亮和等待脉冲；
-- 绘制 A 段、B 段和普通线路；传送跳跃只绘制断开的提示线、弧线、箭头或配对光效；
+- 固定按“棋盘格 → 清除动画 → 提示 → Portal overlay”绘制；传送跳跃不画跨门直线；
 - 门格只绘制空格底板、传送门、编号与状态光圈；主题棋子、提示棋子和清除棋子均不叠加在门格；线路清除期间空格底板和门图标保留到动画结束；
 - 普通 play 与 daily 使用同一阻挡格视觉语义，`Blocked` 不得绘成可走空格；
 - 在 `PORTAL_WAIT` 高亮 `expectedExit` 并显示提示文案；
 - 对资源加载失败提供纯色/矢量回退，不阻塞关卡输入；
-- 保持 `cellAt()`、`boardLayout` 和现有安全区布局语义。
+- `InteractionMap` 保持 `cellAt()`、board layout、hitTest 和现有安全区布局语义。
 
 **不得负责：**
 
 - 不调用 `touchStart/touchMove/touchEnd`；
-- 不修改 runner、owner、pending 或进度；
+- 不持有或读取 Runner，只消费 App 构建的纯 ViewModel；
 - 不自行推断哪扇门是配对出口；
 - 不注册独立的 portal UI hit；传送门仍是棋盘格，由 app/runner 处理触摸；
 - 不把两个非相邻门格交给普通 `drawPath()` 画成一条直线；
@@ -554,22 +561,23 @@ handlePointerCancel() -> boolean
 资源：assets/icons/portal.png
 格式：PNG / RGBA / 512×512 / 透明背景
 用途：棋盘传送门主体图标
-配对信息：由 model.portalState 或 portal descriptor 提供
+配对信息：由 `model.mechanic.portal` 的纯 ViewModel 提供
 禁止：运行时修改原图、把配对编号永久烘焙进共享图标
 ```
 
-### 8.4 `src/services/hint-service.js`：提示与求解适配
+### 8.4 `src/services/hint-service.js` 与 `src/services/hints/*`：提示与求解适配
 
 **负责：**
 
-- 识别普通解答与 portal 分段解答；
-- 以四邻接 + portal edge 构造搜索图；
-- 校验路径段、跳跃顺序、占用冲突和 pending 出口；
+- `HintService` 保持旧构造和查找 API，并按只读 `mechanic.id` 路由 provider；
+- ordinary provider 处理普通/每日存储解和四邻接搜索；
+- portal provider 处理分段解、等待态和 portal-aware 搜索；
+- `core/portal-solution.js` 负责分段解规范化、反转和展平纯函数；
 - 向 app 返回只读提示对象。
 
 **不得负责：**
 
-- 不修改 runner 状态；
+- 不持有或修改 runner，只消费 `getViewState()` 的深拷贝 HintContext；
 - 不决定玩家按错后的回滚；
 - 不绘制提示；
 - 不兼容性地把 portal 关卡降级成普通 BFS。
@@ -640,6 +648,8 @@ handlePointerCancel() -> boolean
 - 跨行相邻判断不会把边界两格误判为相邻；
 - 多指和过期 pointer 不改变状态。
 
+`tests/game-runner-contract.test.js` 另外锁定结构化 GestureResult、完整 commit、只读查询防回写和旧布尔 API 兼容。
+
 ### 10.2 输入编排层
 
 `tests/app-portal.test.js` 覆盖：
@@ -655,11 +665,13 @@ handlePointerCancel() -> boolean
 - 试玩结果不写入普通关卡完成、最佳时间、`lastPlayed` 和广告计数；
 - 传送线路清除动画快照包含入口段和出口段。
 
+`tests/board-input-controller.test.js` 独立覆盖 pointer ID 隔离、0.32 格宽逐格采样、Portal 锁定早停、未移动释放和取消事件。
+
 ### 10.3 数据、提示与渲染层
 
 - `tests/portal-validation.test.js`：字段类型、规则版本、ID/格重复、越界 Blocked、端点/阻挡冲突、pair 数量和稳定错误码；
-- `tests/hint-service-portal.test.js`：正反向分段解答、强制 portal edge BFS、入口段避让、pending 剩余段与无解返回 null；
-- `tests/renderer-portal.test.js`：图标加载/回退、配对高亮、等待文案、门格不叠加主题/提示棋子、普通 play 阻挡格与无门回归；
+- `tests/hint-service-portal.test.js`：正反向分段解答、强制 portal edge BFS、入口段避让、pending 剩余段、无解和提示前后 Runner 状态不变；
+- `tests/renderer-portal.test.js`：纯 ViewModel、共享 BoardRenderer、固定绘制顺序、图标加载/回退、WAIT/LOCKED 高亮、门格不叠加主题/提示/清除棋子；
 - `tests/portal-publishing.test.js`：5 个真实试玩题面/解答校验、逐段 `GameRunner` 重放和全板覆盖；
 - `node tests/run.js` 在接入代码后必须全量通过，现有 122 关数据测试不得新增回归。
 
@@ -680,6 +692,7 @@ handlePointerCancel() -> boolean
 - 已完成：正反向存储解、强制传送边 BFS、分段提示与完整路径清除动画。
 - 已完成：独立玩法拓展定义、首页试玩入口、普通进度隔离、门格专属渲染与 Blocked 视觉。
 - 已完成：5 关真实数据发布校验和 `GameRunner` 逐段重放。
+- 已完成：RunContext、结构化 Runner 契约、BoardInputController、Hint providers、BoardRenderer 与 PortalOverlay 架构拆分。
 - 待发布前执行：微信开发者工具编译/预览、安全区与真机触摸验收。
 
 ## 12. 兼容与发布门槛
