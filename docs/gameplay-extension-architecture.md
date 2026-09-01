@@ -16,7 +16,7 @@
 - 试玩关卡从普通 catalog、普通进度、最佳时间和广告计数中隔离；
 - 门格拥有独立视觉语义，不显示内部 ID，也不再叠加主题棋子、提示棋子和清除棋子；
 - 到门和松手提示只在对应 phase 出现在棋盘上方；Portal 阶段不震动，完整线路消除震动保留；
-- `portal-publishing.test.js` 会校验并逐段重放 5 个真实试玩关卡，形成了可靠的内容发布门槛；
+- `portal-publishing.test.js` 会校验并逐段重放 5 个真实试玩关卡及 30 个普通 Portal 关卡，形成了可靠的内容发布门槛；
 - 每日挑战仍明确拒绝传送门题面，避免在尚无分段存档契约时错误兼容。
 
 这些行为是当前回归基线，不能为了拆文件而改变。
@@ -105,8 +105,8 @@ Portal 初次接入后：
 3. `src/platform/wechat.js` 继续作为唯一微信 API 边界。
 4. `src/mechanics/*.js` 保持 data-only manifest，不允许注入任意回调、平台对象或存档对象。
 5. 主题和清除特效仍是纯视觉能力，不能改变棋盘拓扑。
-6. `home:portalTrial`、`corridor:portalTrial` 兼容别名、`portal` manifest ID、关卡 ID、存档 key 和已发布 action ID 不重命名。
-7. 普通 catalog 只包含连续编号 1—92、最大 8×8 的关卡，内部 `setIndex/levelIndex` 仍作为稳定身份；普通关、每日挑战和传送门试玩的进度域继续隔离，8×10 只由独立的高难／每日内容来源提供。
+6. `home:portalTrial`、`corridor:portalTrial` 兼容别名、`portal` manifest ID、关卡 ID、存档 key 和已发布 action ID 不重命名；试玩 action 可保持隐藏，不等于主页必须显示入口。
+7. 普通 catalog 只包含连续编号 1—92、最大 8×8 的关卡，其中 63—92 为普通 Portal 章节；内部 `setIndex/levelIndex` 仍作为稳定身份，普通关、每日挑战和传送门试玩的进度域继续隔离，8×10 只由独立的高难／每日内容来源提供。
 8. `pages/` 与根目录旧小程序页面不进入新架构。
 9. 每个重构提交都必须先通过 `node tests/run.js`，再进入下一阶段。
 10. 不在同一提交中同时进行大规模搬文件、改玩法规则和改视觉表现。
@@ -523,7 +523,7 @@ docs/gameplay-extension-architecture.md    本文
 **验收**：
 
 - 全量 Node 测试通过；
-- 92 个普通关卡和 5 个 Portal 试玩解答均能重放；
+- 62 个无 Portal 普通关卡、30 个普通 Portal 关卡和 5 个 Portal 试玩解答均能重放；
 - 微信开发者工具与真机验收仍单独记录，Node 测试不宣称覆盖设备行为。
 
 **建议提交**：`test: freeze gameplay extension architecture contracts`

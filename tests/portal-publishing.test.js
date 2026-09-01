@@ -3,8 +3,10 @@
 const assert = require('assert');
 const GameRunner = require('../core/game-runner.js');
 const portalValidation = require('../core/portal-validation.js');
+const HintService = require('../src/services/hint-service.js');
 const portalDemo = require('../data/portal-demo.js');
 const portalSolutions = require('../data/portal-solutions.js');
+const catalog = require('../data/catalog-v2.js');
 
 function replay(level, answer, palette) {
   const runner = new GameRunner(level, palette || ['#f00']);
@@ -80,6 +82,52 @@ function run() {
     assert.strictEqual(runner.remainingCellCount(), 0,
       `${game.Id} must leave no required cells unfilled`);
     assert.strictEqual(runner.isGameOver, true, `${game.Id} must replay to completion`);
+  });
+
+  // The authored 8x8 Portal chapter is part of the ordinary catalog while
+  // keeping its segmented answers in the ID-indexed Portal table.  Keep this
+  // gate independent from the demo trial so a catalog append cannot silently
+  // ship without a validator/replayable answer.
+  const ordinarySet8 = catalog.sets[4];
+  assert(ordinarySet8, 'ordinary 8x8 catalog set is required');
+  const hints = new HintService();
+  const ordinaryPortalGames = (ordinarySet8.Games || []).filter(game =>
+    game && (game.Mechanic === 'portal' || game.mechanic === 'portal'));
+  assert.strictEqual(ordinaryPortalGames.length, 30,
+    'the ordinary 8x8 Portal chapter must contain 30 levels');
+  ordinaryPortalGames.forEach((game, index) => {
+    const expectedId = `portal-8x8-${String(index + 1).padStart(2, '0')}`;
+    assert.strictEqual(game.Id, expectedId,
+      `${expectedId} must retain its stable level ID`);
+    assert.strictEqual(game.PortalRulesVersion, 2,
+      `${game.Id} must publish with Portal rules v2`);
+    const validation = portalValidation.validatePortalLevel(game, {
+      solution: portalSolutions,
+      requireSolution: true
+    });
+    assert.strictEqual(validation.ok, true,
+      `${game.Id} publishing validation failed: ${validation.errors.join(',')}`);
+    const answer = portalSolutions.ByLevelId[game.Id];
+    assert(Array.isArray(answer), `${game.Id} answer missing`);
+    const hint = hints.find(new GameRunner(game, ordinarySet8.Palette), 4, 30 + index);
+    assert(hint && hint.source === 'solution',
+      `${game.Id} must expose its keyed Portal hint`);
+    answer.forEach(lineAnswer => {
+      (lineAnswer.Segments || []).forEach(segment => {
+        if (!segment.Exit) return;
+        assert.strictEqual(segment.Exit.PortalId, 'P1');
+        assert.strictEqual(segment.Exit.PairId, undefined,
+          `${game.Id} v2 answers must not publish legacy PairId`);
+      });
+    });
+    const runner = replay(game, answer, ordinarySet8.Palette);
+    const owner = runner.getBoardState().owner;
+    assert(requiredCells(game).every(cell => owner[cell] >= 0),
+      `${game.Id} must cover every required non-portal cell`);
+    assert.strictEqual(runner.remainingCellCount(), 0,
+      `${game.Id} must leave no required cells unfilled`);
+    assert.strictEqual(runner.isGameOver, true,
+      `${game.Id} must replay to completion`);
   });
 
   // Published v2 content may expose more than two exits in one neutral

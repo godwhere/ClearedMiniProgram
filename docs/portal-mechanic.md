@@ -5,6 +5,9 @@
 > 实现状态：单网络任选出口、分段提示、触摸取消、5 个试玩关与发布校验已接入；微信开发者工具及真机仍需发布前验收。
 > 运行时：微信小游戏单 Canvas 链路 `game.js → src/bootstrap.js → src/app.js → core/game-runner.js / src/ui/canvas-renderer.js`
 
+试玩 action `home:portalTrial` / `corridor:portalTrial` 仍保留用于兼容调用和测试，
+但当前不在主页注册可见命中；普通 Portal 关卡通过连续选关进入。
+
 ## 1. 目的与当前规则
 
 传送门把“从同色端点连续拖到另一端点”的局部连线扩展成“入口段 → 松手 → 出口段”的跨区域连线。它改变棋盘拓扑，不属于主题、清除特效、广告或进度结算。
@@ -268,15 +271,15 @@ v1 只允许一个固定双向门对，解答可继续使用 `PairId`，且两�
 - `tests/hint-service-portal.test.js`：分段解、多出口搜索、等待态和无解；
 - `tests/app-portal.test.js`：两段提示、无 Portal 阶段震动、试玩结算隔离；
 - `tests/renderer-portal.test.js`：提示位置/呼吸、棋盘不跳位、LOCKED 入口居中放大/选中高亮、无 P1、多出口高亮和资源回退；
-- `tests/portal-publishing.test.js`：5 个 v2 试玩、三门未用门 fixture、v1 兼容 fixture 和逐段回放；
+- `tests/portal-publishing.test.js`：5 个 v2 试玩、30 个普通 Portal 关、三门未用门 fixture、v1 兼容 fixture 和逐段回放；
 - `node tests/run.js` 必须全量通过，现有普通关行为不得回归。
-- `Portals` 缺省或空数组时，现有连续编号 1—92 的普通关卡必须保持原有规则、输入、计时、撤销与完成判定语义。
+- `Portals` 缺省或空数组时，现有无 Portal 普通关卡必须保持原有规则、输入、计时、撤销与完成判定语义；新增普通 Portal 关卡使用独立的 v2 分段解答。
 
 微信开发者工具和真机仍须检查：安全区、窄屏文案、提示出现时机、棋盘稳定、入口门放大后不遮挡相邻格、选中高亮可辨识、快速滑动、touchcancel、候选出口命中、图片回退、到门无震动、完成消除仍震动，以及等待态退出后不持续无意义重绘。
 
 ## 10. 发布门槛
 
-1. 连续编号 1—92 的普通关和 Portal v1 兼容 fixture 零回归；
+1. 连续编号 1—92 的普通关（含 30 个普通 Portal 关）和 Portal v1 兼容 fixture 零回归；
 2. Portal v2 题面、PortalId 解答和 required coverage 全部通过离线校验；
 3. 真实触摸完成“入口 → 松手 → 任一候选出口 → 普通终点”；
 4. 提示只在 LOCKED/WAIT 出现，位于棋盘上方并有轻微呼吸，棋盘不跳位；

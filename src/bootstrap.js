@@ -13,11 +13,17 @@ const mechanics = require('./mechanics/index.js');
 
 function start() {
   const platform = new WechatPlatform();
+  const runtimeProgressionConfig = Object.assign({}, progressionConfig, {
+    // Only the Developer Tools simulator receives the temporary all-levels
+    // override. Real devices and uploaded builds keep the normal gate.
+    unlockAllLevelsInDevTools: typeof platform.isDevTools === 'function' &&
+      platform.isDevTools() === true
+  });
   const app = new ClearedApp(platform, {
     skins,
     effects,
     adConfig,
-    progressionConfig,
+    progressionConfig: runtimeProgressionConfig,
     audioConfig,
     solutionCatalog,
     dailyManifest,

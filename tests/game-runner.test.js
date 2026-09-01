@@ -178,7 +178,7 @@ function run() {
       });
     });
   });
-  assert.deepStrictEqual(catalog.sets.map(set => (set.Games || []).length), [2, 10, 20, 30, 30]);
+  assert.deepStrictEqual(catalog.sets.map(set => (set.Games || []).length), [2, 5, 10, 15, 60]);
   assert.strictEqual(levels, 92);
 }
 

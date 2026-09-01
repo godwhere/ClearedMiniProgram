@@ -163,8 +163,8 @@ function run() {
     totalLevels: 92, pressedId: null
   }, Date.now());
   assert.strictEqual(renderer.hits.filter(hit => hit.id.indexOf('level:') === 0).length, 17);
-  assert(renderer.hits.some(hit => hit.id === 'level:4:13'));
-  assert(renderer.hits.some(hit => hit.id === 'level:4:29'));
+  assert(renderer.hits.some(hit => hit.id === 'level:4:43'));
+  assert(renderer.hits.some(hit => hit.id === 'level:4:59'));
   assert(renderer.hits.some(hit => hit.id === 'levels:prev'));
   assert.strictEqual(renderer.hits.some(hit => hit.id === 'levels:next'), false);
 
