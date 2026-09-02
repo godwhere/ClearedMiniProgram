@@ -1498,7 +1498,7 @@ class CanvasRenderer {
     }
   }
 
-  drawLevels(model) {
+  drawLevels(model, now) {
     const skin = this.skinService.current();
     const { width, safeTop, safeBottom } = this.platform.metrics;
     const legacyGames = model && model.set && Array.isArray(model.set.Games)
@@ -1509,7 +1509,8 @@ class CanvasRenderer {
         action: `level:${levelIndex}`,
         displayNumber: levelIndex + 1,
         completed: model.isCompleted ? model.isCompleted(levelIndex) : false,
-        unlocked: model.isUnlocked ? model.isUnlocked(levelIndex) : true
+        unlocked: model.isUnlocked ? model.isUnlocked(levelIndex) : true,
+        mechanicId: (game && (game.Mechanic || game.mechanic)) || null
       }));
     const pageCount = Math.max(1,
       Number(model && model.levelPageCount) || Number(model && model.setCount) || 1);
@@ -1591,6 +1592,29 @@ class CanvasRenderer {
       } else if (completed) {
         this.text('✓', rect.x + rect.w - 9, rect.y + 10, 11, { alpha: 0.75, weight: 500 });
       }
+      if (item.mechanicId === 'portal') {
+        const indicatorSize = clamp(cell * 0.22, 9, 14);
+        const ix = rect.x + 5;
+        const iy = rect.y + 5;
+        const portalIcon = (model.portalTrial && model.portalTrial.icon) || 'assets/icons/portal.png';
+        const image = this.portalOverlay ? this.portalOverlay.ensureImage(portalIcon) : null;
+        if (image) {
+          ctx.save();
+          ctx.globalAlpha = unlocked ? 0.9 : 0.4;
+          this.drawImageContain(image, {
+            x: ix,
+            y: iy,
+            w: indicatorSize,
+            h: indicatorSize
+          }, { fit: 'contain' });
+          ctx.restore();
+        } else if (this.portalOverlay && typeof this.portalOverlay.drawFallback === 'function') {
+          ctx.save();
+          ctx.globalAlpha = unlocked ? 0.9 : 0.4;
+          this.portalOverlay.drawFallback(ix, iy, indicatorSize, now || 0);
+          ctx.restore();
+        }
+      }
       this.addHit(action, rect, unlocked);
     });
 
@@ -1636,6 +1660,7 @@ class CanvasRenderer {
       : [];
     const portalStatus = model.portalStatus && typeof model.portalStatus === 'object'
       ? model.portalStatus : null;
+    const portalPhase = portalStatus && portalStatus.phase || 'READY';
     const expectedExits = Array.isArray(model.expectedExits)
       ? model.expectedExits.filter(Number.isInteger)
       : (portalStatus && Array.isArray(portalStatus.expectedExits)
@@ -1647,13 +1672,17 @@ class CanvasRenderer {
         icon: model.portalTrial && model.portalTrial.icon,
         rulesVersion,
         portals: normalizedDefinitions,
-        phase: portalStatus && portalStatus.phase || 'READY',
+        phase: portalPhase,
         expectedExits,
         expectedExit: rulesVersion === 1 && expectedExits.length === 1
           ? expectedExits[0] : null,
         instruction: portalStatus && typeof portalStatus.instruction === 'string'
           ? portalStatus.instruction
-          : (typeof model.portalInstruction === 'string' ? model.portalInstruction : null),
+          : (typeof model.portalInstruction === 'string'
+            ? model.portalInstruction
+            : (portalPhase === 'READY'
+              ? ((level && (level.Instructions || level.instructions)) || null)
+              : null)),
         lockedEntry: portalStatus && Number.isInteger(portalStatus.lockedEntry)
           ? portalStatus.lockedEntry : null
       }
@@ -1768,8 +1797,22 @@ class CanvasRenderer {
     const instructionTitle = game.Instructions && hasOrdinaryNumber
       ? `${ordinaryNumber} · ${game.Instructions}`
       : game.Instructions;
-    const title = portal ? (game.Name || numberedTitle) : (instructionTitle || numberedTitle);
-    const hasNamedTitle = portal ? !!game.Name : !!game.Instructions;
+    let title;
+    let hasNamedTitle;
+    if (portal) {
+      if (game.Name) {
+        title = hasOrdinaryNumber && !model.isPortalTrial
+          ? `${ordinaryNumber} · ${game.Name}`
+          : game.Name;
+        hasNamedTitle = true;
+      } else {
+        title = numberedTitle;
+        hasNamedTitle = false;
+      }
+    } else {
+      title = instructionTitle || numberedTitle;
+      hasNamedTitle = !!game.Instructions;
+    }
     this.text(title, width / 2, topUi + 27, hasNamedTitle ? 18 : 24, {
       weight: 300,
       maxWidth: width - 220

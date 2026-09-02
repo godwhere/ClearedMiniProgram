@@ -7,6 +7,6 @@
     {"Width":5,"Height":5,"Name":"2","Lines":[{"Start":0,"End":21},{"Start":2,"End":16},{"Start":4,"End":18},{"Start":7,"End":22},{"Start":9,"End":23}]},
     {"Width":5,"Height":5,"Name":"3","Lines":[{"Start":4,"End":21},{"Start":1,"End":20},{"Start":6,"End":12},{"Start":0,"End":11}]},
     {"Width":5,"Height":5,"Name":"4","Lines":[{"Start":1,"End":9},{"Start":0,"End":14},{"Start":12,"End":18},{"Start":10,"End":16},{"Start":19,"End":15}]},
-    {"Width":5,"Height":5,"Name":"5","Lines":[{"Start":20,"End":3},{"Start":4,"End":23},{"Start":24,"End":13},{"Start":12,"End":18}]}
+    {"Id":"portal-main-5x5-01","Name":"传送初识","Mechanic":"portal","PortalRulesVersion":2,"Width":5,"Height":5,"Lines":[{"Start":0,"End":24}],"Portals":[{"Id":"P1","Cells":[21,2]}],"Instructions":"到达传送门后松手，再从另一扇门继续。"}
   ]
 }

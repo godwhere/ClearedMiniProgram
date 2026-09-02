@@ -126,6 +126,14 @@ function run() {
   }, demoLevel);
   assert.deepStrictEqual(fallbackState.mechanic.portal.portals[0].cells, [21, 2],
     'raw Portal v2 Cells are normalized for the renderer compatibility path');
+  assert.strictEqual(fallbackState.mechanic.portal.instruction, demoLevel.Instructions,
+    'renderer compatibility path shows static instructions in READY');
+  const continuingFallbackState = renderer.fallbackBoardViewModel({
+    portalStatus: { phase: 'PORTAL_CONTINUE' },
+    portalTrial: { icon: 'assets/icons/portal.png' }
+  }, demoLevel);
+  assert.strictEqual(continuingFallbackState.mechanic.portal.instruction, null,
+    'renderer compatibility path hides static instructions after portal continuation starts');
 
   // 1. Initial play scene rendering
   const initialState = renderState(runner);
@@ -545,6 +553,57 @@ function run() {
     'the locked entry receives a filled cyan selection halo');
   assert(overlayContext.calls.some(call => call.method === 'stroke'),
     'the locked entry receives a visible selection outline');
+
+  // 9. Ordinary portal levels display global level number + semantic name in title
+  const ordinaryPortalModel = {
+    scene: 'play',
+    set: { Name: '8 x 8', Palette: ['#f00'] },
+    level: { Name: '门廊试步', Mechanic: 'portal', Width: 8, Height: 8, Lines: [] },
+    levelIndex: 30,
+    ordinaryLevelNumber: 63,
+    ordinaryLevelCount: 92,
+    isPortalTrial: false,
+    mechanic: { portal: readyPortal },
+    board: { width: 8, height: 8, cells: [] }
+  };
+  textDraws.length = 0;
+  renderer.render(ordinaryPortalModel, Date.now());
+  assert(textDraws.some(call => call.value === '63 · 门廊试步'),
+    'ordinary portal level must display global number + semantic name');
+  assert.strictEqual(textDraws.some(call => /^\d+\.\s/.test(call.value)), false,
+    'must not display legacy 1.-30. numeric prefix in title');
+
+  // Milestone level 7 title
+  const milestone7Model = {
+    scene: 'play',
+    set: { Name: '5 x 5', Palette: ['#f00'] },
+    level: { Name: '传送初识', Mechanic: 'portal', Width: 5, Height: 5, Lines: [] },
+    levelIndex: 4,
+    ordinaryLevelNumber: 7,
+    ordinaryLevelCount: 92,
+    isPortalTrial: false,
+    mechanic: { portal: readyPortal },
+    board: { width: 5, height: 5, cells: [] }
+  };
+  textDraws.length = 0;
+  renderer.render(milestone7Model, Date.now());
+  assert(textDraws.some(call => call.value === '7 · 传送初识'),
+    'milestone level 7 must display 7 · 传送初识 in title');
+
+  // 10. Level select renders portal indicator for portal levels
+  const levelSelectModel = {
+    scene: 'levels',
+    levelPageIndex: 0,
+    levelPageCount: 4,
+    levelItems: [
+      { action: 'level:0:0', displayNumber: 1, unlocked: true, completed: false, mechanicId: null },
+      { action: 'level:1:4', displayNumber: 7, unlocked: true, completed: false, mechanicId: 'portal' }
+    ]
+  };
+  ctx.calls.length = 0;
+  renderer.render(levelSelectModel, Date.now());
+  assert(ctx.calls.some(c => c.method === 'drawImage'),
+    'portal level cell must draw portal indicator icon in level select');
 }
 
 module.exports = run;

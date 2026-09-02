@@ -61,7 +61,7 @@ Portal v1 的 `{ Id, A, B }` 固定门对、`PairId` 解答和“两个门格均
 1. 关卡必须显式声明 `Mechanic: 'portal'`、已支持的 `PortalRulesVersion` 和合法 `Portals`。
 2. 门格只绘制 [`assets/icons/portal.png`](../assets/icons/portal.png) 或安全矢量回退，不叠加主题棋子。
 3. 棋盘不显示 `P1` 或任何内部网络编号；当前单网络无需配对标签。
-4. 初始 `READY` 和普通 `DRAWING` 阶段不显示 Portal 教学提示。
+4. 初始 `READY` 阶段在固定提示带展示关卡静态 `Instructions`；进入 `PORTAL_LOCKED` 或 `PORTAL_WAIT` 阶段时动态提示优先；连线走出传送门后提示隐藏。
 5. 玩家只能从普通同色端点起笔；门格不是起笔端点。
 
 ### 3.2 到达入口：`PORTAL_LOCKED`
@@ -242,8 +242,9 @@ v1 只允许一个固定双向门对，解答可继续使用 `PairId`，且两�
 
 - `BoardRenderer` 固定按“棋盘格 → 清除动画 → 路径提示 → Portal overlay”绘制；
 - `PortalOverlay` 只绘门图、资源回退、LOCKED 入口放大/选中高亮和状态光圈，不绘 `P1` 或其他内部 ID；
-- `CanvasRenderer` 在棋盘上方固定提示带绘制阶段文案，顶部标题显示关卡名；
-- `PORTAL_LOCKED` 显示“松开手指”，`PORTAL_WAIT` 显示“从任意其他传送门继续连线”，其余阶段隐藏；
+- `CanvasRenderer` 在棋盘上方固定提示带绘制阶段文案：READY 阶段显示静态 `Instructions`，`PORTAL_LOCKED` 显示“松开手指”，`PORTAL_WAIT` 显示“从任意其他传送门继续连线”，走出传送门后隐藏；
+- 普通 Portal 关在游玩界面标题展示“全局序号 · 关卡名”（如 `63 · 门廊试步`、`7 · 传送初识`），试玩关保持试玩名称；
+- 选关页数字格在 `mechanicId === 'portal'` 时绘制小型 Portal 徽标或安全矢量圆环回退；
 - 提示使用轻微呼吸效果，出现和切换时不得改变棋盘布局；
 - Renderer 只消费纯 ViewModel，不自行推断规则或注册独立 Portal hit；
 - 图片加载失败必须保留可操作的矢量回退。
@@ -269,9 +270,9 @@ v1 只允许一个固定双向门对，解答可继续使用 `PairId`，且两�
 - `tests/game-runner-contract.test.js`：结构化结果与只读候选出口数组；
 - `tests/board-input-controller.test.js`：逐格采样、锁定早停、pointer 隔离和取消；
 - `tests/hint-service-portal.test.js`：分段解、多出口搜索、等待态和无解；
-- `tests/app-portal.test.js`：两段提示、无 Portal 阶段震动、试玩结算隔离；
-- `tests/renderer-portal.test.js`：提示位置/呼吸、棋盘不跳位、LOCKED 入口居中放大/选中高亮、无 P1、多出口高亮和资源回退；
-- `tests/portal-publishing.test.js`：5 个 v2 试玩、30 个普通 Portal 关、三门未用门 fixture、v1 兼容 fixture 和逐段回放；
+- `tests/app-portal.test.js`：READY 静态提示与动态状态提示、无 Portal 阶段震动、选关页 Portal 标识、试玩结算隔离；
+- `tests/renderer-portal.test.js`：提示位置/呼吸、棋盘不跳位、全局序号标题格式、选关 Portal 徽标、LOCKED 入口居中放大/选中高亮、无 P1、多出口高亮和资源回退；
+- `tests/portal-publishing.test.js`：5 个 v2 试玩、34 个普通 Portal 关（4 个前期里程碑教学关 + 30 个 8×8 专章关）、三门未用门 fixture、v1 兼容 fixture 和逐段回放；
 - `node tests/run.js` 必须全量通过，现有普通关行为不得回归。
 - `Portals` 缺省或空数组时，现有无 Portal 普通关卡必须保持原有规则、输入、计时、撤销与完成判定语义；新增普通 Portal 关卡使用独立的 v2 分段解答。
 
@@ -279,10 +280,10 @@ v1 只允许一个固定双向门对，解答可继续使用 `PairId`，且两�
 
 ## 10. 发布门槛
 
-1. 连续编号 1—92 的普通关（含 30 个普通 Portal 关）和 Portal v1 兼容 fixture 零回归；
+1. 连续编号 1—92 的普通关（含 34 个普通 Portal 关）和 Portal v1 兼容 fixture 零回归；
 2. Portal v2 题面、PortalId 解答和 required coverage 全部通过离线校验；
 3. 真实触摸完成“入口 → 松手 → 任一候选出口 → 普通终点”；
-4. 提示只在 LOCKED/WAIT 出现，位于棋盘上方并有轻微呼吸，棋盘不跳位；
+4. 提示在 READY 显示 Instructions，在 LOCKED/WAIT 动态切换，位于棋盘上方并有轻微呼吸，棋盘不跳位；
 5. 棋盘不显示 P1，LOCKED 入口放大和选中高亮清楚，候选出口光圈仍清楚；
 6. Portal 阶段不震动，完整线路消除震动保留；
 7. 错误选择、撤销、重置、后台和切关不留下 pending；

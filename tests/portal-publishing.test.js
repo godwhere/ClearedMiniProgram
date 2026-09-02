@@ -84,21 +84,57 @@ function run() {
     assert.strictEqual(runner.isGameOver, true, `${game.Id} must replay to completion`);
   });
 
-  // The authored 8x8 Portal chapter is part of the ordinary catalog while
-  // keeping its segmented answers in the ID-indexed Portal table.  Keep this
-  // gate independent from the demo trial so a catalog append cannot silently
-  // ship without a validator/replayable answer.
-  const ordinarySet8 = catalog.sets[4];
-  assert(ordinarySet8, 'ordinary 8x8 catalog set is required');
-  const hints = new HintService();
-  const ordinaryPortalGames = (ordinarySet8.Games || []).filter(game =>
-    game && (game.Mechanic === 'portal' || game.mechanic === 'portal'));
-  assert.strictEqual(ordinaryPortalGames.length, 30,
-    'the ordinary 8x8 Portal chapter must contain 30 levels');
-  ordinaryPortalGames.forEach((game, index) => {
+  // The ordinary catalog contains 34 Portal levels: 4 progressive teaching
+  // milestone levels (levels 7, 17, 32, 47) and the 30-level 8x8 Portal chapter
+  // (levels 63-92). Keep their answers in the ID-indexed Portal table.
+  const hints = new HintService({ portalSolutions });
+  const allPortalLevels = [];
+  const seenPortalIds = new Set();
+
+  games.forEach(game => {
+    assert(!seenPortalIds.has(game.Id), `Duplicate portal level ID: ${game.Id}`);
+    seenPortalIds.add(game.Id);
+  });
+
+  const milestoneSpecs = [
+    { setIndex: 1, levelIndex: 4, expectedId: 'portal-main-5x5-01' },
+    { setIndex: 2, levelIndex: 9, expectedId: 'portal-main-6x6-01' },
+    { setIndex: 3, levelIndex: 14, expectedId: 'portal-main-7x7-01' },
+    { setIndex: 4, levelIndex: 14, expectedId: 'portal-main-8x8-01' }
+  ];
+
+  milestoneSpecs.forEach(spec => {
+    const set = catalog.sets[spec.setIndex];
+    const game = set && set.Games && set.Games[spec.levelIndex];
+    assert(game, `milestone level ${spec.expectedId} must exist at set ${spec.setIndex} level ${spec.levelIndex}`);
+    assert.strictEqual(game.Id, spec.expectedId);
+    assert.strictEqual(game.Mechanic, 'portal');
+    assert.strictEqual(game.PortalRulesVersion, 2);
+  });
+
+  const chapterGames = (catalog.sets[4].Games || []).slice(30);
+  assert.strictEqual(chapterGames.length, 30,
+    'the 8x8 Portal chapter must retain exactly 30 levels at positions 63-92');
+  chapterGames.forEach((game, index) => {
     const expectedId = `portal-8x8-${String(index + 1).padStart(2, '0')}`;
     assert.strictEqual(game.Id, expectedId,
-      `${expectedId} must retain its stable level ID`);
+      `${expectedId} must retain its stable chapter position and ID`);
+  });
+
+  catalog.sets.forEach((set, setIndex) => {
+    (set.Games || []).forEach((game, levelIndex) => {
+      if (!game || (game.Mechanic !== 'portal' && game.mechanic !== 'portal')) return;
+      allPortalLevels.push({ set, setIndex, game, levelIndex });
+    });
+  });
+
+  assert.strictEqual(allPortalLevels.length, 34,
+    'the ordinary catalog must contain exactly 34 Portal levels (4 milestones + 30 8x8 chapter levels)');
+
+  allPortalLevels.forEach(({ set, setIndex, game, levelIndex }) => {
+    assert(!seenPortalIds.has(game.Id), `Duplicate portal level ID in ordinary catalog: ${game.Id}`);
+    seenPortalIds.add(game.Id);
+
     assert.strictEqual(game.PortalRulesVersion, 2,
       `${game.Id} must publish with Portal rules v2`);
     const validation = portalValidation.validatePortalLevel(game, {
@@ -107,11 +143,19 @@ function run() {
     });
     assert.strictEqual(validation.ok, true,
       `${game.Id} publishing validation failed: ${validation.errors.join(',')}`);
+
     const answer = portalSolutions.ByLevelId[game.Id];
-    assert(Array.isArray(answer), `${game.Id} answer missing`);
-    const hint = hints.find(new GameRunner(game, ordinarySet8.Palette), 4, 30 + index);
+    assert(Array.isArray(answer), `${game.Id} answer missing in portal-solutions.js`);
+    if (game.Id === 'portal-main-8x8-01') {
+      const lineLengths = answer.map(lineAnswer => (lineAnswer.Segments || [])
+        .reduce((total, segment) => total + (segment.Cells || []).length, 0));
+      assert(lineLengths.every(length => length >= 10 && length <= 24),
+        `${game.Id} must keep four substantial, balanced paths: ${lineLengths.join(',')}`);
+    }
+    const hint = hints.find(new GameRunner(game, set.Palette), setIndex, levelIndex);
     assert(hint && hint.source === 'solution',
-      `${game.Id} must expose its keyed Portal hint`);
+      `${game.Id} at ${setIndex}:${levelIndex} must expose its keyed Portal hint`);
+
     answer.forEach(lineAnswer => {
       (lineAnswer.Segments || []).forEach(segment => {
         if (!segment.Exit) return;
@@ -120,7 +164,8 @@ function run() {
           `${game.Id} v2 answers must not publish legacy PairId`);
       });
     });
-    const runner = replay(game, answer, ordinarySet8.Palette);
+
+    const runner = replay(game, answer, set.Palette);
     const owner = runner.getBoardState().owner;
     assert(requiredCells(game).every(cell => owner[cell] >= 0),
       `${game.Id} must cover every required non-portal cell`);

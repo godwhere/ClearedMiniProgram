@@ -17,6 +17,6 @@
     {"Width":7,"Height":7,"Name":"12","Lines":[{"Start":44,"End":23},{"Start":8,"End":37},{"Start":12,"End":34},{"Start":3,"End":25},{"Start":30,"End":6},{"Start":40,"End":45},{"Start":46,"End":41}]},
     {"Width":7,"Height":7,"Name":"13","Lines":[{"Start":0,"End":3},{"Start":46,"End":5},{"Start":4,"End":7},{"Start":36,"End":8},{"Start":24,"End":16},{"Start":15,"End":29}]},
     {"Width":7,"Height":7,"Name":"14","Lines":[{"Start":22,"End":3},{"Start":29,"End":46},{"Start":8,"End":6},{"Start":12,"End":27},{"Start":15,"End":48},{"Start":47,"End":24},{"Start":23,"End":31},{"Start":38,"End":36}]},
-    {"Width":7,"Height":7,"Name":"15","Lines":[{"Start":35,"End":43},{"Start":36,"End":15},{"Start":40,"End":8},{"Start":28,"End":18},{"Start":29,"End":25},{"Start":32,"End":38}]}
+    {"Id":"portal-main-7x7-01","Name":"出口选择","Mechanic":"portal","PortalRulesVersion":2,"Width":7,"Height":7,"Lines":[{"Start":1,"End":16},{"Start":29,"End":36},{"Start":45,"End":48}],"Portals":[{"Id":"P1","Cells":[44,17,0]}],"Instructions":"选择正确出口，未使用的门可以留空。"}
   ]
 }

@@ -13,7 +13,15 @@ function run() {
   assert.strictEqual(solutions.sets.length, catalog.sets.length);
   assert.deepStrictEqual(solutions.sets.map(set => set.length), [2, 5, 10, 15, 30]);
   assert.strictEqual(solutions.sets.reduce((total, set) => total + set.length, 0), 62,
-    'the flat solution table remains reserved for the 62 non-Portal levels');
+    'the flat solution table reserves 62 ordinary-set slots');
+  assert.strictEqual(solutions.sets[1][4], null, 'level 7 slot must be null');
+  assert.strictEqual(solutions.sets[2][9], null, 'level 17 slot must be null');
+  assert.strictEqual(solutions.sets[3][14], null, 'level 32 slot must be null');
+  assert.strictEqual(solutions.sets[4][14], null, 'level 47 slot must be null');
+  const nonNullCount = solutions.sets.reduce((total, set) =>
+    total + set.filter(sol => sol !== null).length, 0);
+  assert.strictEqual(nonNullCount, 58,
+    'the flat solution table contains exactly 58 non-Portal level solutions');
 
   catalog.sets.forEach((set, setIndex) => {
     const setSolutions = solutions.sets[setIndex];

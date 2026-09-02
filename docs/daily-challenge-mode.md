@@ -518,7 +518,7 @@ onDailyCompleted({
 8. **隔离**：每日不改变普通完成数、lastPlayed、totalClears 或普通广告计数。
 9. **失败与重试**：第 0/1 关留空失败都不写完成；第 1 关失败保留第 0 关结果；重试当前关
    不改变 entriesUsed/entriesRemaining；弹窗延迟期和显示期都无底层点击穿透。
-10. **回归**：实现阶段运行 node tests/run.js，所有既有普通连线、92 个普通关卡（含 30 个 Portal 章节）、主题和音频测试通过。
+10. **回归**：实现阶段运行 node tests/run.js，所有既有普通连线、92 个普通关卡（含 4 个 Portal 里程碑教学关和 30 个 Portal 章节关）、主题和音频测试通过。
 
 ## 14. 实施顺序
 

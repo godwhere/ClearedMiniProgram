@@ -895,7 +895,7 @@ class ClearedApp {
     return false;
   }
 
-  buildBoardViewModel(runner, clearAnimation) {
+  buildBoardViewModel(runner, clearAnimation, levelSource) {
     if (!runner || typeof runner.getViewState !== 'function') return null;
     let viewState;
     try {
@@ -958,6 +958,10 @@ class ClearedApp {
     const pending = mechanicState.pending;
     const locked = mechanicState.locked;
     const expectedExits = portalExpectedExits(pending);
+    const dynamicInstruction = portalInstructionForPhase(mechanicState.phase);
+    const level = levelSource || (this.runContext && this.runContext.level) || this.level || null;
+    const staticInstruction = (level && (level.Instructions || level.instructions)) || null;
+    const portalInstruction = dynamicInstruction || (mechanicState.phase === 'READY' ? staticInstruction : null);
     const portal = mechanicState.id === 'portal' ? {
       icon: this.portalMechanic && this.portalMechanic.icon,
       rulesVersion: mechanicState.rulesVersion,
@@ -966,7 +970,7 @@ class ClearedApp {
       expectedExits,
       expectedExit: mechanicState.rulesVersion === 1 && expectedExits.length === 1
         ? expectedExits[0] : null,
-      instruction: portalInstructionForPhase(mechanicState.phase),
+      instruction: portalInstruction,
       lockedEntry: locked && Number.isInteger(locked.entry) ? locked.entry : null
     } : null;
     return {
@@ -1055,7 +1059,8 @@ class ClearedApp {
 
     if (activeDaily) {
       const completed = this.dailyCompletionState(dailyResolution);
-      const boardView = this.buildBoardViewModel(activeDaily.runner, activeDaily.clearAnimation);
+      const activeDailyLevel = activeDaily.challenge || (activeDaily.levels && activeDaily.levels[activeDaily.levelIndex]);
+      const boardView = this.buildBoardViewModel(activeDaily.runner, activeDaily.clearAnimation, activeDailyLevel);
       const portalStatus = boardView && boardView.mechanic.portal;
       return Object.assign(base, {
         dailyAvailable: !!activeDaily.challenge,
@@ -1113,14 +1118,21 @@ class ClearedApp {
       const pageStart = this.levelPageIndex * LEVEL_PAGE_SIZE;
       const levelItems = catalog.levels
         .slice(pageStart, pageStart + LEVEL_PAGE_SIZE)
-        .map((entry, offset) => ({
-          action: `level:${entry.setIndex}:${entry.levelIndex}`,
-          displayNumber: pageStart + offset + 1,
-          setIndex: entry.setIndex,
-          levelIndex: entry.levelIndex,
-          completed: this.progress.isCompleted(entry.setIndex, entry.levelIndex),
-          unlocked: this.progression.isUnlocked(entry.setIndex, entry.levelIndex)
-        }));
+        .map((entry, offset) => {
+          const game = entry.game || {};
+          const mechanicId = game.Mechanic === undefined
+            ? (game.mechanic === undefined ? null : game.mechanic)
+            : game.Mechanic;
+          return {
+            action: `level:${entry.setIndex}:${entry.levelIndex}`,
+            displayNumber: pageStart + offset + 1,
+            setIndex: entry.setIndex,
+            levelIndex: entry.levelIndex,
+            completed: this.progress.isCompleted(entry.setIndex, entry.levelIndex),
+            unlocked: this.progression.isUnlocked(entry.setIndex, entry.levelIndex),
+            mechanicId: typeof mechanicId === 'string' && mechanicId ? mechanicId : null
+          };
+        });
       return Object.assign(base, {
         levelItems,
         levelPageIndex: this.levelPageIndex,
@@ -1200,7 +1212,7 @@ class ClearedApp {
       const ordinaryPosition = !trial && context
         ? this.catalogLevelPosition(context.setIndex, activeLevelIndex)
         : -1;
-      const boardView = this.buildBoardViewModel(this.runner, this.clearAnimation);
+      const boardView = this.buildBoardViewModel(this.runner, this.clearAnimation, level);
       const portalStatus = boardView && boardView.mechanic.portal;
       return Object.assign(base, {
         set,

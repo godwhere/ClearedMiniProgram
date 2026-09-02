@@ -16,7 +16,7 @@
 - 试玩关卡从普通 catalog、普通进度、最佳时间和广告计数中隔离；
 - 门格拥有独立视觉语义，不显示内部 ID，也不再叠加主题棋子、提示棋子和清除棋子；
 - 到门和松手提示只在对应 phase 出现在棋盘上方；Portal 阶段不震动，完整线路消除震动保留；
-- `portal-publishing.test.js` 会校验并逐段重放 5 个真实试玩关卡及 30 个普通 Portal 关卡，形成了可靠的内容发布门槛；
+- `portal-publishing.test.js` 会校验并逐段重放 5 个真实试玩关卡及 34 个普通 Portal 关卡（4 个前期里程碑教学关 + 30 个 8×8 专章关），形成了可靠的内容发布门槛；
 - 每日挑战仍明确拒绝传送门题面，避免在尚无分段存档契约时错误兼容。
 
 这些行为是当前回归基线，不能为了拆文件而改变。
@@ -523,7 +523,7 @@ docs/gameplay-extension-architecture.md    本文
 **验收**：
 
 - 全量 Node 测试通过；
-- 62 个无 Portal 普通关卡、30 个普通 Portal 关卡和 5 个 Portal 试玩解答均能重放；
+- 58 个无 Portal 普通关卡、34 个普通 Portal 关卡和 5 个 Portal 试玩解答均能重放；
 - 微信开发者工具与真机验收仍单独记录，Node 测试不宣称覆盖设备行为。
 
 **建议提交**：`test: freeze gameplay extension architecture contracts`

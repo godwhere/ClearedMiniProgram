@@ -109,8 +109,8 @@ function run() {
 
   const layout = app.renderer.boardLayout;
   assert(layout, 'board layout must be initialized');
-  assert.strictEqual(app.buildModel().portalInstruction, null,
-    'portal instructions stay hidden before a portal is reached');
+  assert.strictEqual(app.buildModel().portalInstruction, level1.Instructions,
+    'portal instructions display static instructions in READY phase before reaching a portal');
 
   const cellPoint = (index, id) => {
     const col = index % layout.cols;
@@ -183,7 +183,8 @@ function run() {
   assert.strictEqual(app.runner.portalPhase, 'READY');
   assert.strictEqual(app.runner.selectedLine, -1);
   assert.strictEqual(app.pointer, null, 'wrong tap must not create active board pointer');
-  assert.strictEqual(app.buildModel().portalInstruction, null);
+  assert.strictEqual(app.buildModel().portalInstruction, level1.Instructions,
+    'resetting to READY restores the level static instruction');
 
   // 5. Correct full sequence: 0 -> A(21) -> release -> B(2) -> 24
   assert.strictEqual(app.setClearEffect('fade'), true,
@@ -328,6 +329,24 @@ function run() {
   });
   assert.strictEqual(invalidDefinitionApp.portalTrialDescriptor(), null);
   assert.strictEqual(invalidDefinitionApp.openPortalTrial(0), false);
+
+  // Level select ViewModel exposes mechanicId: 'portal' for portal levels and null for ordinary levels.
+  app.scene = 'levels';
+  app.levelPageIndex = 0;
+  const levelItemsPage0 = app.buildModel().levelItems;
+  assert.strictEqual(levelItemsPage0[6].mechanicId, 'portal', 'Level 7 must expose portal mechanicId');
+  assert.strictEqual(levelItemsPage0[16].mechanicId, 'portal', 'Level 17 must expose portal mechanicId');
+  assert.strictEqual(levelItemsPage0[0].mechanicId, null);
+  assert.strictEqual(levelItemsPage0[5].mechanicId, null);
+  assert.strictEqual(levelItemsPage0[7].mechanicId, null);
+
+  app.levelPageIndex = 1;
+  const levelItemsPage1 = app.buildModel().levelItems;
+  assert.strictEqual(levelItemsPage1[6].displayNumber, 32);
+  assert.strictEqual(levelItemsPage1[6].mechanicId, 'portal', 'Level 32 must expose portal mechanicId');
+  assert.strictEqual(levelItemsPage1[21].displayNumber, 47);
+  assert.strictEqual(levelItemsPage1[21].mechanicId, 'portal', 'Level 47 must expose portal mechanicId');
+  assert.strictEqual(levelItemsPage1[0].mechanicId, null);
 }
 
 module.exports = run;
