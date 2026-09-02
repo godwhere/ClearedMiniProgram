@@ -15,10 +15,14 @@ class SyncStore {
       schemaVersion: 1,
       installId: valid ? saved.installId : opaqueId('ins'),
       migrationId: valid ? saved.migrationId : opaqueId('mig'),
-      boundUserId: valid && validId(saved.boundUserId) ? saved.boundUserId : null,
+      // Corrupt installation metadata must not erase an existing account
+      // binding and silently upload that account's save to someone else.
+      boundUserId: saved && saved.boundUserId
+        ? (validId(saved.boundUserId) ? saved.boundUserId : '__invalid_binding__') : null,
       serverRevision: valid && Number.isSafeInteger(saved.serverRevision) && saved.serverRevision >= 0 ? saved.serverRevision : 0,
-      nextOperationSequence: valid && Number.isSafeInteger(saved.nextOperationSequence) && saved.nextOperationSequence > 0 ? saved.nextOperationSequence : 1,
-      pendingOperations: [], snapshotRequired: !valid || saved.snapshotRequired === true,
+      nextOperationSequence: valid
+        ? (Number.isSafeInteger(saved.nextOperationSequence) && saved.nextOperationSequence > 0 ? saved.nextOperationSequence : Number.MAX_SAFE_INTEGER) : 1,
+      pendingOperations: [], snapshotRequired: valid ? saved.snapshotRequired === true : !!saved,
       lastSyncAt: valid && Number.isFinite(saved.lastSyncAt) ? saved.lastSyncAt : 0,
       lastError: null
     };
@@ -27,7 +31,7 @@ class SyncStore {
         const p = item && item.payload;
         if (!item || !validId(item.operationId) || item.type !== 'level_completed' ||
             !p || typeof p.levelKey !== 'string' || !/^\d+:\d+$/.test(p.levelKey) ||
-            !Number.isSafeInteger(p.elapsedMs) || p.elapsedMs <= 0 ||
+            (p.elapsedMs !== undefined && (!Number.isFinite(p.elapsedMs) || p.elapsedMs <= 0)) ||
             !Number.isSafeInteger(p.completedAtClient) || p.completedAtClient < 0) {
           this.state.snapshotRequired = true;
           return;
@@ -55,6 +59,9 @@ class SyncStore {
   }
 
   enqueue(payload) {
+    if (!payload || typeof payload.levelKey !== 'string' || !/^(0|[1-9]\d*):(0|[1-9]\d*)$/.test(payload.levelKey) ||
+        !Number.isSafeInteger(payload.completedAtClient) || payload.completedAtClient < 0 ||
+        (payload.elapsedMs !== undefined && (!Number.isFinite(payload.elapsedMs) || payload.elapsedMs <= 0))) return false;
     const id = this.nextId('');
     if (!id || this.state.pendingOperations.length >= MAX_OPERATIONS) {
       this.state.snapshotRequired = true;

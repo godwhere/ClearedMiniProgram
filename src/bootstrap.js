@@ -38,6 +38,12 @@ function start() {
   const progressSync = new ProgressSyncService(api, progress, syncStore, auth, engagementConfig.progressSync, behavior);
   const ads = new AdsService(platform, adConfig);
   const engagement = new EngagementService({ ads, behavior, config: adConfig.rules });
+  auth.onSessionChanged((session, state) => {
+    if (session) behavior.identify(session.userId);
+    else behavior.clearUser();
+    const event = { authenticating: 'auth_started', authenticated: 'auth_succeeded', offline: 'auth_failed', error: 'auth_failed' }[state];
+    if (event) behavior.track(event, { reason: state });
+  });
   const runtimeProgressionConfig = Object.assign({}, progressionConfig, {
     // Only the Developer Tools simulator receives the temporary all-levels
     // override. Real devices and uploaded builds keep the normal gate.
@@ -68,11 +74,8 @@ function start() {
   });
   app.start();
   // Local boot is synchronous. Online work is always scheduled afterwards.
-  Promise.resolve().then(() => auth.ensureSession()).then(result => {
-    if (!result.ok) return;
-    behavior.identify(result.user.id);
-    return progressSync.bootstrap(auth.current());
-  }).then(() => behavior.flush('launch')).catch(function () {});
+  behavior.track('app_launch', { scene: 'home' });
+  Promise.resolve().then(() => app.resumeOnline()).then(() => behavior.flush('launch')).catch(function () {});
   return app;
 }
 

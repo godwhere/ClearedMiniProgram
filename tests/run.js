@@ -1,4 +1,6 @@
 const tests = [
+  ['account offline bootstrap', require('./account-bootstrap.test.js')],
+  ['progress sync conflicts', require('./progress-sync-conflict.test.js')],
   ['session store', require('./session-store.test.js')],
   ['sync store', require('./sync-store.test.js')],
   ['api client', require('./api-client.test.js')],

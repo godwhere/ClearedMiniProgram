@@ -12,36 +12,38 @@ class AuthService {
     this.status = sessions.current() ? 'authenticated' : 'anonymous';
     this.inFlight = null;
     this.listeners = [];
+    this.generation = 0;
   }
 
   current() { return this.sessions.current(); }
-  state() { return this.status; }
+  state() { return this.status === 'authenticated' && !this.current() ? 'anonymous' : this.status; }
   onSessionChanged(listener) {
     if (typeof listener !== 'function') return function () {};
     this.listeners.push(listener);
     return () => { this.listeners = this.listeners.filter(item => item !== listener); };
   }
   notify() { this.listeners.slice().forEach(fn => { try { fn(this.current(), this.status); } catch (error) {} }); }
-  clear(reason) { this.sessions.clear(); this.status = reason === 'offline' ? 'offline' : 'anonymous'; this.notify(); }
+  clear(reason) { this.generation++; this.sessions.clear(); this.status = reason === 'offline' ? 'offline' : 'anonymous'; this.notify(); }
 
   ensureSession(options) {
+    if (this.inFlight) return this.inFlight;
     const cached = this.current();
     if (cached && !(options && options.force)) return Promise.resolve(this.success(cached));
     if (this.config.enabled !== true || !this.api.isConfigured()) {
       return Promise.resolve({ ok: false, status: 'offline', reason: 'not-configured' });
     }
-    if (this.inFlight) return this.inFlight;
     this.status = 'authenticating'; this.notify();
-    this.inFlight = this.authenticate().finally(() => { this.inFlight = null; });
+    this.inFlight = this.authenticate(this.generation).catch(() => this.fail('network')).finally(() => { this.inFlight = null; });
     return this.inFlight;
   }
 
-  async authenticate() {
+  async authenticate(generation) {
     let login;
     try { login = await this.platform.login(); } catch (error) {
       return this.fail(error && error.reason === 'timeout' ? 'timeout' : 'wechat-login-failed');
     }
     if (!login || typeof login.code !== 'string' || !login.code) return this.fail('wechat-login-failed');
+    if (generation !== this.generation) return { ok: false, status: 'anonymous', reason: 'cancelled' };
     const response = await this.api.request({ method: 'POST', path: ApiClient.PATHS.auth, body: {
       code: login.code, installId: this.syncStore.state.installId,
       clientVersion: this.config.clientVersion || '1.0.0'
@@ -50,6 +52,7 @@ class AuthService {
     if (!response.ok) return this.fail(response.error.code === 'network' ? 'network' :
       (response.error.code === 'timeout' ? 'timeout' : 'backend-rejected'));
     const data = response.data;
+    if (generation !== this.generation) return { ok: false, status: 'anonymous', reason: 'cancelled' };
     const user = data.user;
     const session = data.session && { schemaVersion: 1, userId: user && user.id,
       accessToken: data.session.accessToken, issuedAt: data.session.issuedAt,

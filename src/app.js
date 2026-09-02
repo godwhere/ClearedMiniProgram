@@ -1406,6 +1406,14 @@ class ClearedApp {
     this.resultVisibleAt = now + this.skins.current().animation.resultDelayMs;
     this.scene = 'result';
     // Optional engagement starts only after the result and local completion.
+    // The legacy local store retains in-memory progress on a write failure.
+    // Confirm persistence before enqueueing anything for cloud delivery.
+    try { completion.persisted = this.progress.save() === true; } catch (error) { completion.persisted = false; }
+    if (completion.persisted && this.progressSync) {
+      try { this.progressSync.enqueueCompletion({ setIndex: this.setIndex, levelIndex: this.levelIndex,
+        elapsedMs: completion.elapsedMs, completedAtClient: now,
+        firstClear: completion.firstClear, newBest: completion.newBest }); } catch (error) {}
+    }
     try {
       const task = this.engagement.onOrdinaryCompleted({
         levelKey: `${this.setIndex}:${this.levelIndex}`,
@@ -2488,6 +2496,16 @@ class ClearedApp {
     }
     this.audio.pauseAll();
     this.progress.save();
+    if (this.progressSync) this.progressSync.flush().catch(function () {});
+    if (this.behavior) this.behavior.flush('hide').catch(function () {});
+  }
+
+  resumeOnline() {
+    if (!this.auth) return Promise.resolve({ ok: false, reason: 'not-configured' });
+    return this.auth.ensureSession().then(result => {
+      if (!result.ok) return result;
+      return this.progressSync ? this.progressSync.bootstrap(this.auth.current()) : result;
+    }).then(result => { this.invalidate(); return result; }).catch(() => ({ ok: false, reason: 'network' }));
   }
 
   onShow() {
@@ -2497,6 +2515,8 @@ class ClearedApp {
     this.renderer.ctx = this.platform.context;
     this.invalidate();
     this.startLoop();
+    this.resumeOnline();
+    if (this.behavior) this.behavior.flush('show').catch(function () {});
   }
 }
 
