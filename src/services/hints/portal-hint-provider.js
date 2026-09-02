@@ -55,6 +55,49 @@ class PortalHintProvider {
     return this.findAvailablePortalPath(context);
   }
 
+  findComplete(context, storedPaths) {
+    if (!context || (context.outcome && context.outcome !== 'playing')) return null;
+    if (!Array.isArray(storedPaths)) return null;
+    const lines = linesOf(context);
+    if (!lines.length || storedPaths.length !== lines.length) return null;
+
+    const used = new Set();
+    const paths = [];
+    for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+      const line = lines[lineIndex];
+      const stored = normalizeStoredPortalLine(storedPaths[lineIndex]);
+      if (!stored) return null;
+      const start = endpoint(line, 'Start', 'start');
+      const end = endpoint(line, 'End', 'end');
+      const reversed = reverseStoredPortalLine(stored);
+      const directions = reversed ? [stored, reversed] : [stored];
+      const direction = directions.find(candidate => (
+        candidate.start === start && candidate.end === end
+      ));
+      if (!direction || !this.isStoredPortalPathUsable(context, lineIndex, direction, {
+        ignoreOwner: true
+      })) return null;
+      if (direction.path.some(cell => used.has(cell))) return null;
+      direction.path.forEach(cell => used.add(cell));
+      paths.push({
+        lineIndex,
+        segments: direction.segments.map(segment => segment.slice()),
+        teleports: direction.teleports.map(teleport => cloneTeleportForContext(context, teleport)),
+        path: direction.path.slice(),
+        source: 'solution'
+      });
+    }
+
+    const board = boardOf(context);
+    const total = Number(board.width) * Number(board.height);
+    for (let index = 0; index < total; index++) {
+      if (!this.ordinary.isPlayable(context, index)) continue;
+      if (isPortalV2(context) && this.portalAt(context, index)) continue;
+      if (!used.has(index)) return null;
+    }
+    return { paths, source: 'solution' };
+  }
+
   selectedContains(context, index) {
     const selection = context && context.selection;
     if (!selection || typeof selection !== 'object') return false;
@@ -227,7 +270,7 @@ class PortalHintProvider {
         if (!this.ordinary.isPlayable(context, cell) || forbidden.has(cell) || seenCells.has(cell)) return false;
         const cellOwner = Number.isInteger(owner[cell]) ? owner[cell] : -1;
         const cellFixedLine = Number.isInteger(fixedLine[cell]) ? fixedLine[cell] : -1;
-        if (cellOwner >= 0 && cellOwner !== lineIndex) return false;
+        if (!options.ignoreOwner && cellOwner >= 0 && cellOwner !== lineIndex) return false;
         if (cellFixedLine >= 0 && cellFixedLine !== lineIndex) return false;
         if (cellIndex > 0) {
           const previous = segment[cellIndex - 1];
@@ -255,7 +298,7 @@ class PortalHintProvider {
         const exits = portal && Array.isArray(portal.exits) ? portal.exits : [];
         if (!portal || exits.indexOf(to) < 0) return false;
         const teleportId = teleportPortalId(teleport);
-        if (teleportId && portal.id !== teleportId) return false;
+        if (!teleportId || portal.id !== teleportId) return false;
         if (isPortalV2(context)) {
           if (portalUseCount >= 1) return false;
           portalUseCount += 1;

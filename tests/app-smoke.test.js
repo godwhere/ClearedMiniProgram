@@ -75,6 +75,13 @@ function createWxMock() {
   };
 }
 
+function runnerGameplayState(runner) {
+  const state = runner.getViewState();
+  delete state.elapsedMs;
+  delete state.timeText;
+  return state;
+}
+
 function run() {
   const api = createWxMock();
   const platform = new WechatPlatform(api);
@@ -362,6 +369,151 @@ function run() {
   assert.strictEqual(portalApp.scene, 'result');
   assert.strictEqual(portalApp.progress.isCompleted(4, 30), true,
     'ordinary catalog Portal completion writes the ordinary progress key');
+
+  // Complete hints are read-only initial-board previews. They must preserve a
+  // partially played Runner (including selection/undo) across toggle and
+  // timeout, and must suppress every board/reset/undo input while visible.
+  const previewApp = new ClearedApp(new WechatPlatform(createWxMock()), {
+    solutionCatalog: solutions,
+    portalSolutions
+  });
+  previewApp.progress.state.completed['0:0'] = true;
+  assert.strictEqual(previewApp.openLevel(0, 1), true);
+  const previewSolution = solutions.sets[0][1];
+  previewApp.runner.touchStart(previewSolution[0][0]);
+  previewSolution[0].slice(1).forEach(cell => previewApp.runner.touchMove(cell));
+  assert.strictEqual(previewApp.runner.touchEnd(previewSolution[0].slice(-1)[0]), true);
+  assert.strictEqual(previewApp.runner.touchStart(previewSolution[1][0]), true);
+  const liveBeforePreview = runnerGameplayState(previewApp.runner);
+  const progressBeforePreview = JSON.stringify(previewApp.progress.state);
+  let resetCalls = 0;
+  let undoCalls = 0;
+  let pauseCalls = 0;
+  let resumeCalls = 0;
+  const liveReset = previewApp.runner.reset.bind(previewApp.runner);
+  const liveUndo = previewApp.runner.undo.bind(previewApp.runner);
+  const livePause = previewApp.runner.pause.bind(previewApp.runner);
+  const liveResume = previewApp.runner.resume.bind(previewApp.runner);
+  previewApp.runner.reset = () => { resetCalls++; return liveReset(); };
+  previewApp.runner.undo = () => { undoCalls++; return liveUndo(); };
+  previewApp.runner.pause = () => { pauseCalls++; return livePause(); };
+  previewApp.runner.resume = () => { resumeCalls++; return liveResume(); };
+
+  assert.strictEqual(previewApp.showHint(), true);
+  assert.strictEqual(previewApp.hint.paths.length, previewApp.runner.level.Lines.length);
+  const previewModel = previewApp.buildModel();
+  const previewView = previewModel.hintPreview.viewModel;
+  assert(previewView.board.cells.every(cell => cell.owner === -1 && cell.selected === false));
+  assert(previewView.board.completedPaths.every(path => path === null));
+  assert.strictEqual(previewView.board.cells.filter(cell => cell.fixedLine >= 0).length, 4,
+    'initial preview preserves every endpoint');
+  assert.deepStrictEqual(previewView.board.hint.paths.map(item => item.path), previewSolution);
+  assert.deepStrictEqual(runnerGameplayState(previewApp.runner), liveBeforePreview);
+  assert.strictEqual(JSON.stringify(previewApp.progress.state), progressBeforePreview);
+  assert.strictEqual(previewApp.performAction('play:reset'), false);
+  assert.strictEqual(previewApp.performAction('play:undo'), false);
+  assert.deepStrictEqual([resetCalls, undoCalls], [0, 0]);
+
+  previewApp.tick(Date.now());
+  assert.strictEqual(previewApp.renderer.hits.some(hit => hit.id === 'play:reset'), false);
+  assert.strictEqual(previewApp.renderer.hits.some(hit => hit.id === 'play:undo'), false);
+  assert.strictEqual(previewApp.renderer.hits.some(hit => hit.id === 'play:hint'), true,
+    'the hint button remains available as the hide-preview toggle');
+  const previewLayout = previewApp.renderer.getBoardLayout();
+  previewApp.onPointerStart({
+    x: previewLayout.x + previewLayout.cell / 2,
+    y: previewLayout.y + previewLayout.cell / 2,
+    id: 70
+  });
+  assert.strictEqual(previewApp.boardInput.isActive(), false,
+    'board input is isolated while the initial-board preview is visible');
+  assert.deepStrictEqual(runnerGameplayState(previewApp.runner), liveBeforePreview);
+
+  assert.strictEqual(previewApp.showHint(), true, 'a second hint tap closes immediately');
+  assert.strictEqual(previewApp.hintPreview, null);
+  assert.deepStrictEqual(runnerGameplayState(previewApp.runner), liveBeforePreview);
+
+  assert.strictEqual(previewApp.showHint(), true);
+  const previewUntil = previewApp.hintPreview.until;
+  const renderedModels = [];
+  const renderPreviewFrame = previewApp.renderer.render.bind(previewApp.renderer);
+  previewApp.renderer.render = (model, now) => {
+    renderedModels.push(model);
+    return renderPreviewFrame(model, now);
+  };
+  previewApp.tick(previewUntil - 1);
+  previewApp.tick(previewUntil + 1);
+  assert.strictEqual(previewApp.hintPreview, null);
+  assert.strictEqual(renderedModels[renderedModels.length - 1].hintPreview, null,
+    'timeout draws a final frame using the real board');
+  assert.strictEqual(previewApp.renderer.hits.some(hit => hit.id === 'play:reset'), true);
+  assert.strictEqual(previewApp.renderer.hits.some(hit => hit.id === 'play:undo'), true,
+    'reset and undo hits return on the final restored frame');
+  assert.deepStrictEqual(runnerGameplayState(previewApp.runner), liveBeforePreview);
+  assert.strictEqual(JSON.stringify(previewApp.progress.state), progressBeforePreview);
+  assert.deepStrictEqual([resetCalls, undoCalls], [0, 0],
+    'the entire hint lifecycle never resets or undoes the live Runner');
+  assert.deepStrictEqual([pauseCalls, resumeCalls], [0, 0],
+    'hint preview keeps the existing timer policy without pausing the Runner');
+
+  previewApp.runner.cancelGesture('test-resume');
+  previewApp.tick(previewUntil + 2);
+  const restoredLayout = previewApp.renderer.getBoardLayout();
+  previewApp.onPointerStart({
+    x: restoredLayout.x + (8 % 5 + 0.5) * restoredLayout.cell,
+    y: restoredLayout.y + (Math.floor(8 / 5) + 0.5) * restoredLayout.cell,
+    id: 71
+  });
+  assert.strictEqual(previewApp.boardInput.isActive(), true,
+    'board input resumes after the preview closes');
+  previewApp.onPointerCancel({ id: 71 });
+
+  const dailyLevel = {
+    Id: 'daily-preview-test',
+    Width: 3,
+    Height: 2,
+    Blocked: [1],
+    Lines: [{ Start: 0, End: 2 }]
+  };
+  const dailySolutions = { ByChallengeId: { 'daily-preview-test': [[0, 3, 4, 5, 2]] } };
+  const dailyPreviewApp = new ClearedApp(new WechatPlatform(createWxMock()), {
+    dailySolutions
+  });
+  dailyPreviewApp.daily = Object.assign(dailyPreviewApp.emptyDailyState(), {
+    challenge: dailyLevel,
+    challengeId: dailyLevel.Id,
+    levels: [dailyLevel],
+    runner: new GameRunner(dailyLevel, ['#f00'])
+  });
+  dailyPreviewApp.boardInput.setRunner(dailyPreviewApp.daily.runner);
+  dailyPreviewApp.scene = 'daily';
+  const dailyStateBefore = runnerGameplayState(dailyPreviewApp.daily.runner);
+  assert.strictEqual(dailyPreviewApp.showDailyHint(), true);
+  assert.deepStrictEqual(dailyPreviewApp.hint.paths[0].path, [0, 3, 4, 5, 2]);
+  assert.strictEqual(dailyPreviewApp.hintPreview.viewModel.board.cells[1].blocked, true);
+  assert.deepStrictEqual(runnerGameplayState(dailyPreviewApp.daily.runner), dailyStateBefore);
+
+  const trialPreviewApp = new ClearedApp(new WechatPlatform(createWxMock()), {
+    portalSolutions
+  });
+  assert.strictEqual(trialPreviewApp.openPortalTrial(0), true);
+  const trialEntry = [0, 1, 6, 5, 10, 11, 16, 15, 20, 21];
+  trialPreviewApp.runner.touchStart(trialEntry[0]);
+  trialEntry.slice(1).forEach(cell => trialPreviewApp.runner.touchMove(cell));
+  trialPreviewApp.runner.touchEnd(-1);
+  const portalPendingBefore = runnerGameplayState(trialPreviewApp.runner);
+  assert.strictEqual(trialPreviewApp.showHint(), true);
+  assert.strictEqual(trialPreviewApp.hint.paths[0].segments.length, 2,
+    'Portal preview shows the full preset rather than only the pending exit segment');
+  assert.strictEqual(trialPreviewApp.hint.paths[0].teleports.length, 1);
+  assert.strictEqual(trialPreviewApp.hintPreview.viewModel.mechanic.portal.phase, 'READY');
+  assert.strictEqual(
+    trialPreviewApp.hintPreview.viewModel.mechanic.portal.portals.length > 0,
+    true,
+    'initial preview retains Portal definitions'
+  );
+  assert.deepStrictEqual(runnerGameplayState(trialPreviewApp.runner), portalPendingBefore,
+    'Portal pending, selection and canUndo remain untouched');
 }
 
 module.exports = run;

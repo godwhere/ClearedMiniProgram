@@ -111,7 +111,7 @@ function run() {
   const originalText = renderer.text.bind(renderer);
   renderer.drawTile = (lineIndex, x, y, size, options) => {
     const cellIndex = renderer.cellAt(x + size / 2, y + size / 2);
-    tileDraws.push({ lineIndex, cellIndex });
+    tileDraws.push({ lineIndex, cellIndex, color: options && options.color });
     return originalDrawTile(lineIndex, x, y, size, options);
   };
   renderer.text = (value, x, y, size, options) => {
@@ -273,6 +273,75 @@ function run() {
   assert.strictEqual(tileDraws.length, 23, 'hint draws every non-portal path cell');
   assert.strictEqual(tileDraws.some(call => call.cellIndex === 2 || call.cellIndex === 21), false,
     'hint never draws a themed tile on either portal cell');
+
+  const vectorStrokes = [];
+  const vectorContext = createMockContext();
+  vectorContext.stroke = function () {
+    vectorStrokes.push({ color: this.strokeStyle, width: this.lineWidth });
+    this.calls.push({ method: 'stroke', args: [] });
+  };
+  const vectorTiles = [];
+  const vectorBoard = new BoardRenderer({
+    getSkin() { return classic; },
+    getContext() { return vectorContext; },
+    drawTile(lineIndex, x, y, size, options) {
+      vectorTiles.push({ lineIndex, color: options.color });
+    }
+  });
+  const completeHint = {
+    paths: [
+      segmentedHint,
+      { lineIndex: 1, path: [5, 6, 7] }
+    ]
+  };
+  vectorBoard.drawHintPaths(
+    completeHint,
+    ['#f00', '#0f0'],
+    100,
+    { x: 0, y: 0, cell: 40, cols: 5, rows: 5 },
+    new Set([2, 21])
+  );
+  assert(vectorTiles.some(tile => tile.lineIndex === 0 && tile.color === '#f00'));
+  assert(vectorTiles.some(tile => tile.lineIndex === 1 && tile.color === '#0f0'),
+    'every complete-solution route uses its matching palette color');
+  assert.strictEqual(vectorStrokes.filter(stroke => stroke.color === '#f00').length, 4,
+    'two Portal segments draw two independent center lines and two arrows');
+  assert.strictEqual(vectorStrokes.filter(stroke => stroke.color === '#0f0').length, 2,
+    'an ordinary route draws its center line and direction arrow');
+  assert.strictEqual(vectorContext.calls.some((call, index, calls) => (
+    call.method === 'moveTo' && call.args[0] === 60 && call.args[1] === 180 &&
+    calls[index + 1] && calls[index + 1].method === 'lineTo'
+  )), true, 'the entry-segment arrow is anchored at and points into the entry portal');
+  assert.strictEqual(vectorContext.calls.some((call, index, calls) => (
+    call.method === 'lineTo' && call.args[0] === 140 && call.args[1] === 20 &&
+    index > 0 && calls[index - 1].method === 'moveTo' &&
+    calls[index - 1].args[0] === 100 && calls[index - 1].args[1] === 20
+  )), true, 'the exit segment begins at the exit portal and points outward');
+  assert.strictEqual(vectorContext.calls.some((call, index, calls) => (
+    call.method === 'lineTo' && call.args[0] === 100 && call.args[1] === 20 &&
+    index > 0 && calls[index - 1].method === 'moveTo' &&
+    calls[index - 1].args[0] === 60 && calls[index - 1].args[1] === 180
+  )), false, 'no continuous line is drawn between teleport endpoints');
+
+  vectorStrokes.length = 0;
+  vectorBoard.drawHintPath(
+    { lineIndex: 0, path: [0, 1] },
+    ['#f00'],
+    100,
+    { x: 0, y: 0, cell: 20, cols: 2, rows: 1 },
+    new Set()
+  );
+  const narrowWidth = vectorStrokes[0].width;
+  vectorStrokes.length = 0;
+  vectorBoard.drawHintPath(
+    { lineIndex: 0, path: [0, 1] },
+    ['#f00'],
+    100,
+    { x: 0, y: 0, cell: 70, cols: 2, rows: 1 },
+    new Set()
+  );
+  assert(vectorStrokes[0].width > narrowWidth,
+    'hint line and arrow width scale with the board cell size');
 
   // 4. During full-path clearing, owned portal cells keep the portal icon and
   // never substitute a themed clear-effect tile.
@@ -558,7 +627,7 @@ function run() {
   const ordinaryPortalModel = {
     scene: 'play',
     set: { Name: '8 x 8', Palette: ['#f00'] },
-    level: { Name: '门廊试步', Mechanic: 'portal', Width: 8, Height: 8, Lines: [] },
+    level: { Name: '双岸交织', Mechanic: 'portal', Width: 8, Height: 8, Lines: [] },
     levelIndex: 30,
     ordinaryLevelNumber: 63,
     ordinaryLevelCount: 92,
@@ -568,7 +637,7 @@ function run() {
   };
   textDraws.length = 0;
   renderer.render(ordinaryPortalModel, Date.now());
-  assert(textDraws.some(call => call.value === '63 · 门廊试步'),
+  assert(textDraws.some(call => call.value === '63 · 双岸交织'),
     'ordinary portal level must display global number + semantic name');
   assert.strictEqual(textDraws.some(call => /^\d+\.\s/.test(call.value)), false,
     'must not display legacy 1.-30. numeric prefix in title');

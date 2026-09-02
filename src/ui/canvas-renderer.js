@@ -74,6 +74,7 @@ class CanvasRenderer {
     });
     this.boardRenderer = new BoardRenderer({
       getSkin: () => this.skinService.current(),
+      getContext: () => this.ctx,
       clearEffects: this.clearEffects,
       drawTile: (...args) => this.drawTile(...args),
       drawBlockedCell: (...args) => this.drawBlockedCell(...args),
@@ -1701,7 +1702,12 @@ class CanvasRenderer {
     };
   }
 
-  renderBoardViewModel(model, level) {
+  renderBoardViewModel(model, level, now) {
+    const preview = model && model.hintPreview;
+    const previewUntil = preview && Number(preview.until);
+    if (preview && preview.viewModel && Number(now) < previewUntil) {
+      return preview.viewModel;
+    }
     if (model && model.board) return model;
     const fallback = this.fallbackBoardViewModel(model || {}, level);
     return fallback ? {
@@ -1735,7 +1741,7 @@ class CanvasRenderer {
     const { width, safeTop, safeBottom } = this.platform.metrics;
     const setStyle = this.skinService.setStyle(model.set);
     const game = model.level;
-    const renderModel = this.renderBoardViewModel(model, game);
+    const renderModel = this.renderBoardViewModel(model, game, now);
     const board = renderModel && renderModel.board;
     const portal = renderModel && renderModel.mechanic && renderModel.mechanic.portal;
     this.begin(setStyle.background);
@@ -1762,7 +1768,8 @@ class CanvasRenderer {
     this.iconButton('play:back', { x: 8, y: topUi + 12, w: 44, h: 44 }, 'back', true, model.pressedId);
     this.iconButton('play:sound', { x: soundX, y: topUi + 12, w: controlSize, h: 44 },
       model.soundEnabled ? 'sound' : 'mute', true, model.pressedId);
-    this.iconButton('play:reset', { x: resetX, y: topUi + 12, w: controlSize, h: 44 }, 'reset', model.scene !== 'result', model.pressedId);
+    const hintPreviewActive = !!(model.hintPreview && now < model.hintPreview.until);
+    this.iconButton('play:reset', { x: resetX, y: topUi + 12, w: controlSize, h: 44 }, 'reset', model.scene !== 'result' && !hintPreviewActive, model.pressedId);
 
     const ordinaryNumber = Number(model.ordinaryLevelNumber);
     const ordinaryCount = Number(model.ordinaryLevelCount);
@@ -1852,7 +1859,9 @@ class CanvasRenderer {
     const buttonWidth = (width - margin * 2 - gap) / 2;
     const rectY = actionTop + 12;
     const rectH = 50;
-    this.button('play:hint', { x: margin, y: rectY, w: buttonWidth, h: rectH }, '提示', {
+    const hintPreviewActive = !!(model.hintPreview && now < model.hintPreview.until);
+    this.button('play:hint', { x: margin, y: rectY, w: buttonWidth, h: rectH },
+      hintPreviewActive ? '隐藏提示' : '提示', {
       fontSize: 17,
       icon: 'hint',
       enabled: model.hintAvailable !== false,
@@ -1867,12 +1876,12 @@ class CanvasRenderer {
     }, '回撤', {
       fontSize: 17,
       icon: 'undo',
-      enabled: model.canUndo === true,
+      enabled: model.canUndo === true && !hintPreviewActive,
       fill: skin.colors.secondaryButton,
       stroke: skin.colors.primaryButtonStroke
     }, model.pressedId);
-    if (model.hint && now < model.hintUntil) {
-      this.text('参考路径', width / 2, actionTop - 19, 12, { alpha: 0.76 });
+    if (hintPreviewActive) {
+      this.text('完整通关路径', width / 2, actionTop - 19, 12, { alpha: 0.76 });
     }
   }
 
@@ -1924,7 +1933,7 @@ class CanvasRenderer {
     const safeTop = metrics.safeTop || 0;
     const safeBottom = metrics.safeBottom || metrics.height;
     const challenge = this.dailyChallenge(model);
-    const renderModel = this.renderBoardViewModel(model, challenge);
+    const renderModel = this.renderBoardViewModel(model, challenge, now);
     const board = renderModel && renderModel.board;
     const cols = board && Number(board.width) > 0
       ? Number(board.width) : this.dailyDimension(challenge, 'Width', 'width', 8);
@@ -1961,8 +1970,9 @@ class CanvasRenderer {
     this.iconButton(backAction, { x: 8, y: topUi + 12, w: 44, h: 44 }, 'back', true, model && model.pressedId);
     this.iconButton(soundAction, { x: soundX, y: topUi + 12, w: controlSize, h: 44 },
       model && model.soundEnabled === false ? 'mute' : 'sound', true, model && model.pressedId);
+    const hintPreviewActive = !!(model && model.hintPreview && now < model.hintPreview.until);
     this.iconButton('daily:reset', { x: resetX, y: topUi + 12, w: controlSize, h: 44 },
-      'reset', !isResult && !!board, model && model.pressedId);
+      'reset', !isResult && !!board && !hintPreviewActive, model && model.pressedId);
 
     const levelIndex = Math.max(0, Number(model && (
       model.dailyLevelIndex === undefined ? model.levelIndex : model.dailyLevelIndex
@@ -2030,7 +2040,9 @@ class CanvasRenderer {
     const buttonWidth = (width - margin * 2 - gap) / 2;
     const rectY = actionTop + 12;
     const rectH = 50;
-    this.button('daily:hint', { x: margin, y: rectY, w: buttonWidth, h: rectH }, '提示', {
+    const hintPreviewActive = !!(model.hintPreview && now < model.hintPreview.until);
+    this.button('daily:hint', { x: margin, y: rectY, w: buttonWidth, h: rectH },
+      hintPreviewActive ? '隐藏提示' : '提示', {
       fontSize: 17,
       icon: 'hint',
       enabled: model.hintAvailable !== false,
@@ -2045,12 +2057,12 @@ class CanvasRenderer {
     }, '回撤', {
       fontSize: 17,
       icon: 'undo',
-      enabled: model.canUndo === true,
+      enabled: model.canUndo === true && !hintPreviewActive,
       fill: skin.colors.secondaryButton,
       stroke: skin.colors.primaryButtonStroke
     }, model.pressedId);
-    if (model.hint && now < model.hintUntil) {
-      this.text('参考路径', width / 2, actionTop - 19, 12, { alpha: 0.76 });
+    if (hintPreviewActive) {
+      this.text('完整通关路径', width / 2, actionTop - 19, 12, { alpha: 0.76 });
     }
   }
 

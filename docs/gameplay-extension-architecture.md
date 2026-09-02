@@ -3,7 +3,7 @@
 > 记录日期：2026-09-01  
 > 审阅基线：`main@4a3c34aab0f4034b886cdbf2a5cbaf14b1d038cc`  
 > 文档状态：阶段 0—7 已实施并进入回归基线
-> 关联文档：[`portal-mechanic.md`](portal-mechanic.md)、[`daily-challenge-mode.md`](daily-challenge-mode.md)、[`../AGENTS.md`](../AGENTS.md)
+> 关联文档：[`portal-mechanic.md`](portal-mechanic.md)、[`portal-level-design-guide.md`](portal-level-design-guide.md)、[`daily-challenge-mode.md`](daily-challenge-mode.md)、[`../AGENTS.md`](../AGENTS.md)
 
 ## 1. 审阅结论
 
@@ -16,7 +16,7 @@
 - 试玩关卡从普通 catalog、普通进度、最佳时间和广告计数中隔离；
 - 门格拥有独立视觉语义，不显示内部 ID，也不再叠加主题棋子、提示棋子和清除棋子；
 - 到门和松手提示只在对应 phase 出现在棋盘上方；Portal 阶段不震动，完整线路消除震动保留；
-- `portal-publishing.test.js` 会校验并逐段重放 5 个真实试玩关卡及 34 个普通 Portal 关卡（4 个前期里程碑教学关 + 30 个 8×8 专章关），形成了可靠的内容发布门槛；
+- `portal-publishing.test.js` 会校验并逐段重放 5 个真实试玩关卡及 34 个普通 Portal 关卡（4 个前期里程碑教学关 + 30 个 8×8 专章关），形成技术发布门槛；63–67 另有门数、颜色数、线路均衡和高成本无门解的首批内容质量门槛；
 - 每日挑战仍明确拒绝传送门题面，避免在尚无分段存档契约时错误兼容。
 
 这些行为是当前回归基线，不能为了拆文件而改变。
@@ -373,9 +373,9 @@ src/services/hints/portal-hint-provider.js
 
 | 模块 | 负责 | 不负责 |
 | --- | --- | --- |
-| `HintService` | 根据只读 mechanic state 选择 provider；保持 `find/findDaily` 兼容 API | BFS 细节、Canvas、音效 |
-| ordinary provider | 普通/每日平面路径、已有解答选择 | portal 分段与门状态 |
-| portal provider | 分段解规范化、正反向、等待态剩余段、portal-aware 搜索 | 修改 Runner、结算、资源加载 |
+| `HintService` | 根据只读 mechanic state 选择 provider；保持 `find/findDaily` 兼容 API，并提供完整预设解查询 | BFS 细节、Canvas、音效 |
+| ordinary provider | 普通/每日平面路径、完整预设解收集与整体验证 | portal 分段与门状态 |
+| portal provider | 分段解规范化、正反向、完整预设解验证、等待态剩余段、portal-aware 搜索 | 修改 Runner、结算、资源加载 |
 | `core/portal-solution.js` | 分段解纯数据规范化与反转 | 查询棋盘占用、播放提示 |
 
 Portal provider 只接受只读 `HintContext`：
@@ -400,6 +400,11 @@ Portal provider 只接受只读 `HintContext`：
 ```
 
 不再直接持有并读取可变 Runner 实例。
+
+完整路径预览由 App 单独维护 `hintPreview` 生命周期：它从只读状态创建初始棋盘纯 ViewModel，
+不替换、重置或恢复真实 Runner。CanvasRenderer 只在 10 秒有效期内选择该 ViewModel，
+BoardRenderer 绘制全部线路后再绘 Portal overlay。预览期间输入在 App 边界隔离，
+重置和回撤 action 同时禁用；计时规则不变，也不调用 Runner 的 `pause()/resume()`。
 
 ### 5.6 完成策略：按进度域结算
 
@@ -798,6 +803,7 @@ git diff --check
 - 棋盘不显示内部 Portal ID，Portal 阶段不震动，完整线路消除震动保留；
 - 试玩通关不写普通进度和广告计数；
 - 5 个 v2 真实题面/解答、三门未用门 fixture 与 v1 fixture 逐段重放。
+- 63–67 使用两门、5–6 色均衡题面，并实际重放第 64 关的高成本无门解。
 
 设备验收：
 

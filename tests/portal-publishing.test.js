@@ -8,6 +8,32 @@ const portalDemo = require('../data/portal-demo.js');
 const portalSolutions = require('../data/portal-solutions.js');
 const catalog = require('../data/catalog-v2.js');
 
+const PORTAL_8X8_PILOT = [
+  { id: 'portal-8x8-01', name: '双岸交织', lineCount: 5, portalLineIndex: 2 },
+  { id: 'portal-8x8-02', name: '回环抉择', lineCount: 5, portalLineIndex: 0 },
+  { id: 'portal-8x8-03', name: '中轴换位', lineCount: 5, portalLineIndex: 4 },
+  { id: 'portal-8x8-04', name: '夹层穿梭', lineCount: 6, portalLineIndex: 3 },
+  { id: 'portal-8x8-05', name: '边界折返', lineCount: 6, portalLineIndex: 1 }
+];
+
+const PORTAL_8X8_OPTIONAL_ROUTE = [
+  { Segments: [{ Cells: [26, 18, 19, 11, 3, 4, 5, 13, 21, 29, 37, 45] }] },
+  { Segments: [{ Cells: [17, 25, 24, 16, 8, 9, 10, 2, 1, 0] }] },
+  { Segments: [{ Cells: [12, 20, 28, 27, 35, 36, 44, 43, 42, 34, 33, 32, 40, 41] }] },
+  { Segments: [{ Cells: [56, 57, 49, 50, 51, 52, 53, 54, 46, 38] }] },
+  { Segments: [{ Cells: [58, 59, 60, 61, 62, 63, 55, 47, 39, 31, 23, 15, 7, 6, 14, 22] }] }
+];
+
+function solutionLineLengths(answer) {
+  return answer.map(lineAnswer => (lineAnswer.Segments || [])
+    .reduce((total, segment) => total + (segment.Cells || []).length, 0));
+}
+
+function flattenedLine(lineAnswer) {
+  return (lineAnswer.Segments || []).reduce((cells, segment) =>
+    cells.concat(segment.Cells || []), []);
+}
+
 function replay(level, answer, palette) {
   const runner = new GameRunner(level, palette || ['#f00']);
   answer.forEach((lineAnswer, lineIndex) => {
@@ -120,6 +146,61 @@ function run() {
     assert.strictEqual(game.Id, expectedId,
       `${expectedId} must retain its stable chapter position and ID`);
   });
+
+  // Levels 63-67 are the first content-redesign pilot. Unlike the remaining
+  // legacy candidates, they use two portals and balanced 5/6-color routes,
+  // and rely on the earlier milestone levels for basic interaction teaching.
+  PORTAL_8X8_PILOT.forEach((spec, index) => {
+    const game = chapterGames[index];
+    const answer = portalSolutions.ByLevelId[spec.id];
+    assert.strictEqual(game.Id, spec.id);
+    assert.strictEqual(game.Name, spec.name);
+    assert.strictEqual(game.Lines.length, spec.lineCount,
+      `${spec.id} must retain its reviewed color count`);
+    assert.strictEqual(game.Instructions, undefined,
+      `${spec.id} must not repeat basic Portal teaching in the 8x8 chapter`);
+    assert.strictEqual(game.instructions, undefined,
+      `${spec.id} must not publish a lowercase instruction alias`);
+    assert.strictEqual(game.Portals.length, 1);
+    assert.strictEqual(game.Portals[0].Cells.length, 2,
+      `${spec.id} must keep exactly two portal cells before the later four-door chapter`);
+
+    const lengths = solutionLineLengths(answer);
+    assert.strictEqual(lengths.length, spec.lineCount);
+    assert(lengths.every(length => length >= 8 && length <= 16),
+      `${spec.id} must keep substantial balanced paths: ${lengths.join(',')}`);
+    const total = lengths.reduce((sum, length) => sum + length, 0);
+    assert.strictEqual(total, 64, `${spec.id} stored solution must cover all 64 cells`);
+    assert(Math.max.apply(null, lengths) / total <= 0.25,
+      `${spec.id} must not regress to a dominant Hamilton-style route: ${lengths.join(',')}`);
+
+    const portalLines = answer.reduce((indices, lineAnswer, lineIndex) => {
+      if ((lineAnswer.Segments || []).some(segment => !!segment.Exit)) indices.push(lineIndex);
+      return indices;
+    }, []);
+    assert.deepStrictEqual(portalLines, [spec.portalLineIndex],
+      `${spec.id} must retain its reviewed Portal color`);
+  });
+
+  // Level 64 intentionally supports a second, no-Portal solution. All five
+  // colors must reroute, keeping the alternate discovery substantial rather
+  // than allowing the Portal color to reconnect through a cheap local gap.
+  const optionalGame = chapterGames[1];
+  const optionalRunner = replay(optionalGame, PORTAL_8X8_OPTIONAL_ROUTE,
+    catalog.sets[4].Palette);
+  const optionalOwner = optionalRunner.getBoardState().owner;
+  assert(Array.from(portalCells(optionalGame)).every(cell => optionalOwner[cell] === -1),
+    `${optionalGame.Id} no-Portal route must leave both portal cells unused`);
+  assert.strictEqual(optionalRunner.remainingCellCount(), 0);
+  assert.strictEqual(optionalRunner.outcome, GameRunner.OUTCOME.WON);
+  const optionalLengths = solutionLineLengths(PORTAL_8X8_OPTIONAL_ROUTE);
+  assert(optionalLengths.every(length => length >= 10 && length <= 16));
+  const storedOptional = portalSolutions.ByLevelId[optionalGame.Id];
+  const changedLineCount = PORTAL_8X8_OPTIONAL_ROUTE.reduce((count, lineAnswer, lineIndex) =>
+    count + (JSON.stringify(flattenedLine(lineAnswer)) !==
+      JSON.stringify(flattenedLine(storedOptional[lineIndex])) ? 1 : 0), 0);
+  assert.strictEqual(changedLineCount, optionalGame.Lines.length,
+    `${optionalGame.Id} no-Portal route must require every color to change course`);
 
   catalog.sets.forEach((set, setIndex) => {
     (set.Games || []).forEach((game, levelIndex) => {

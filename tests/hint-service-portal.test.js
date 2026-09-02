@@ -75,12 +75,30 @@ function run() {
   assert.strictEqual(hint1.teleports[0].from, 21);
   assert.strictEqual(hint1.teleports[0].to, 2);
 
+  const completeHint1 = hints.findPortalComplete(runner1);
+  assert(completeHint1, 'Portal complete hint is available from preset data');
+  assert.strictEqual(completeHint1.paths.length, level1.Lines.length);
+  assert.deepStrictEqual(completeHint1.paths[0].segments, hint1.segments);
+  assert.deepStrictEqual(completeHint1.paths[0].teleports, hint1.teleports);
+  assert.strictEqual(completeHint1.paths[0].path[0], level1.Lines[0].Start);
+  assert.strictEqual(
+    completeHint1.paths[0].path[completeHint1.paths[0].path.length - 1],
+    level1.Lines[0].End
+  );
+
   // 2. In PORTAL_WAIT: hint should only return remaining segment after exit B
   runner1.touchStart(0);
   [1, 6, 5, 10, 11, 16, 15, 20, 21].forEach(c => runner1.touchMove(c));
   assert.strictEqual(runner1.portalPhase, 'PORTAL_LOCKED');
   runner1.touchEnd(-1);
   assert.strictEqual(runner1.portalPhase, 'PORTAL_WAIT');
+
+  const waitStateBeforeComplete = runner1.getViewState();
+  const waitComplete = hints.findComplete(runner1);
+  assert.deepStrictEqual(waitComplete.paths[0].segments, completeHint1.paths[0].segments,
+    'complete Portal preview uses the full preset rather than the pending remainder');
+  assert.deepStrictEqual(runner1.getViewState(), waitStateBeforeComplete,
+    'complete Portal lookup preserves pending state and selection');
 
   const waitHint = hints.find(runner1);
   assert(waitHint, 'hint should be available in PORTAL_WAIT');

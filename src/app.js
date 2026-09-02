@@ -78,6 +78,7 @@ const EFFECT_PAGE_SIZE = 6;
 const EFFECT_MIN_DURATION_MS = 80;
 const EFFECT_MAX_DURATION_MS = 500;
 const FAILURE_DIALOG_ENTER_MS = 180;
+const HINT_PREVIEW_DURATION_MS = 10000;
 const OUTCOME = GameRunner.OUTCOME || {
   PLAYING: 'playing',
   WON: 'won',
@@ -348,6 +349,7 @@ class ClearedApp {
     this.dailyEntryNonce = 0;
     this.hint = null;
     this.hintUntil = 0;
+    this.hintPreview = null;
     this.dirty = true;
     this.wasAnimating = false;
     this.lastClockSecond = -1;
@@ -833,6 +835,10 @@ class ClearedApp {
 
   tick(now) {
     const timestamp = Number.isFinite(Number(now)) ? Number(now) : Date.now();
+    if (this.hintPreview && timestamp >= this.hintPreview.until) {
+      this.clearHintPreview(false);
+      this.dirty = true;
+    }
     const runner = this.activeRunner();
     if (runner && (this.scene === 'play' || this.scene === 'result' ||
                    this.scene === 'daily' || this.scene === 'dailyResult')) {
@@ -877,7 +883,7 @@ class ClearedApp {
       const start = Number.isFinite(startedAt) ? startedAt : timestamp;
       if (timestamp < start + duration + 80) return true;
     }
-    if (this.hint && timestamp < this.hintUntil) return true;
+    if (this.hintPreview && timestamp < this.hintPreview.until) return true;
     if (this.scene === 'play' && this.runner &&
         this.runner.getSelectionState().lineIndex >= 0) return true;
     if (this.scene === 'daily' && this.daily.runner &&
@@ -982,8 +988,8 @@ class ClearedApp {
         completedPaths: cloneData(viewState.completedPaths || []),
         selection: cloneData(selection),
         clearAnimation: cloneData(clearAnimation),
-        hint: cloneData(this.hint),
-        hintUntil: this.hintUntil
+        hint: null,
+        hintUntil: 0
       },
       mechanic: { portal },
       elapsedText: typeof viewState.timeText === 'string' ? viewState.timeText : '0:00',
@@ -1041,6 +1047,7 @@ class ClearedApp {
       soundEnabled: this.audio.isEnabled(),
       hint: this.hint,
       hintUntil: this.hintUntil,
+      hintPreview: this.hintPreview,
       dailyAvailable: !!(homeDaily && homeDaily.status === 'available'),
       dailyEntryAvailable: !!homeDailyEntry.allowed,
       dailyCanEnter: !!homeDailyEntry.allowed,
@@ -1276,10 +1283,13 @@ class ClearedApp {
       return;
     }
 
+    if (this.isHintPreviewActive()) return;
+
     if ((this.scene === 'play' && this.runner) ||
         (this.scene === 'daily' && this.daily.runner)) {
       this.hint = null;
       this.hintUntil = 0;
+      this.hintPreview = null;
       const runner = this.activeRunner();
       if (this.boardInput.runner !== runner) this.boardInput.setRunner(runner);
       this.handleBoardInputEvents(this.boardInput.start(point));
@@ -1366,6 +1376,7 @@ class ClearedApp {
     if (!runner) return;
     this.hint = null;
     this.hintUntil = 0;
+    this.hintPreview = null;
     const skin = this.skins.current();
     const effect = this.resolveClearEffect(this.currentEffectId());
     const effectType = effect.type === 'none' ? 'none' : 'fade';
@@ -1580,6 +1591,7 @@ class ClearedApp {
       daily.clearAnimation = null;
       this.hint = null;
       this.hintUntil = 0;
+      this.hintPreview = null;
       this.lastClockSecond = -1;
       this.invalidate();
       return true;
@@ -1666,6 +1678,7 @@ class ClearedApp {
     this.resultVisibleAt = 0;
     this.hint = null;
     this.hintUntil = 0;
+    this.hintPreview = null;
     this.pointer = null;
     this.pressedId = null;
     if (this.renderer) this.renderer.clearInteractionHits();
@@ -1686,6 +1699,7 @@ class ClearedApp {
     this.lastClockSecond = -1;
     this.hint = null;
     this.hintUntil = 0;
+    this.hintPreview = null;
     this.pointer = null;
     this.pressedId = null;
     if (this.renderer) this.renderer.clearInteractionHits();
@@ -1695,6 +1709,13 @@ class ClearedApp {
 
   performAction(action) {
     if (typeof action !== 'string' || !action) return false;
+    const previewActive = this.isHintPreviewActive();
+    if (previewActive && (action === 'play:reset' || action === 'play:undo' ||
+        action === 'daily:reset' || action === 'daily:undo')) return false;
+    if (previewActive && action !== 'play:hint' && action !== 'daily:hint' &&
+        action !== 'play:sound' && action !== 'daily:sound') {
+      this.clearHintPreview(false);
+    }
     const ordinaryFailure = this.scene === 'result' && this.result &&
       this.result.outcome === OUTCOME.FAILED;
     if (ordinaryFailure && action !== 'failure:retry' && action !== 'result:levels') {
@@ -1827,6 +1848,7 @@ class ClearedApp {
       this.boardInput.setRunner(null);
       this.hint = null;
       this.hintUntil = 0;
+      this.hintPreview = null;
       this.pointer = null;
     } else if (action === 'daily:reset') {
       if (this.daily.runner && this.scene === 'daily') {
@@ -1837,6 +1859,7 @@ class ClearedApp {
         if (this.daily.runner.undo()) this.daily.clearAnimation = null;
         this.hint = null;
         this.hintUntil = 0;
+        this.hintPreview = null;
       }
     } else if (action === 'daily:hint') {
       this.showDailyHint();
@@ -1852,6 +1875,7 @@ class ClearedApp {
       this.pointer = null;
       this.hint = null;
       this.hintUntil = 0;
+      this.hintPreview = null;
     } else if (action === 'dailyResult:replay') {
       this.replayDaily();
     } else if (action === 'dailyFailure:retry') {
@@ -1875,6 +1899,7 @@ class ClearedApp {
       if (this.runner && this.runner.undo()) this.clearAnimation = null;
       this.hint = null;
       this.hintUntil = 0;
+      this.hintPreview = null;
     } else if (action === 'play:hint') {
       this.showHint();
     } else if (action === 'result:replay') {
@@ -2195,6 +2220,7 @@ class ClearedApp {
     this.pressedId = null;
     this.hint = null;
     this.hintUntil = 0;
+    this.hintPreview = null;
     this.lastClockSecond = -1;
     this.invalidate();
     return true;
@@ -2271,6 +2297,7 @@ class ClearedApp {
     this.pressedId = null;
     this.hint = null;
     this.hintUntil = 0;
+    this.hintPreview = null;
     this.lastClockSecond = -1;
     this.invalidate();
     return true;
@@ -2298,6 +2325,7 @@ class ClearedApp {
     this.clearAnimation = null;
     this.hint = null;
     this.hintUntil = 0;
+    this.hintPreview = null;
     this.result = null;
     this.resultVisibleAt = 0;
     this.invalidate();
@@ -2326,61 +2354,148 @@ class ClearedApp {
     this.clearAnimation = null;
     this.hint = null;
     this.hintUntil = 0;
+    this.hintPreview = null;
     this.result = null;
     this.resultVisibleAt = 0;
     this.invalidate();
     return true;
   }
 
+  isHintPreviewActive(now) {
+    const timestamp = Number.isFinite(Number(now)) ? Number(now) : Date.now();
+    return !!(this.hintPreview && timestamp < this.hintPreview.until);
+  }
+
+  clearHintPreview(shouldInvalidate) {
+    const existed = !!this.hintPreview || !!this.hint || this.hintUntil > 0;
+    this.hintPreview = null;
+    this.hint = null;
+    this.hintUntil = 0;
+    if (existed && shouldInvalidate !== false) this.invalidate();
+    return existed;
+  }
+
+  createHintPreview(runner, hint, level, until) {
+    if (!hint || !Array.isArray(hint.paths) || !hint.paths.length) return null;
+    const viewModel = this.buildBoardViewModel(runner, null, level);
+    if (!viewModel || !viewModel.board) return null;
+    const lines = Array.isArray(viewModel.board.lines) ? viewModel.board.lines : [];
+    if (hint.paths.length !== lines.length) return null;
+
+    viewModel.board.cells = viewModel.board.cells.map(cell => Object.assign({}, cell, {
+      owner: -1,
+      selected: false
+    }));
+    viewModel.board.completedPaths = new Array(lines.length).fill(null);
+    viewModel.board.selection = {
+      lineIndex: -1,
+      cells: [],
+      segments: [],
+      teleports: []
+    };
+    viewModel.board.clearAnimation = null;
+    viewModel.board.hint = cloneData(hint);
+    viewModel.board.hintUntil = until;
+    viewModel.canUndo = false;
+    viewModel.terminal = false;
+
+    const portal = viewModel.mechanic && viewModel.mechanic.portal;
+    if (portal) {
+      portal.phase = 'READY';
+      portal.expectedExits = [];
+      portal.expectedExit = null;
+      portal.lockedEntry = null;
+      portal.instruction = level && (level.Instructions || level.instructions) || null;
+    }
+    return { until, viewModel };
+  }
+
   showHint() {
-    if (this.scene !== 'play' || !this.runner || this.runnerTerminal(this.runner)) return false;
+    if (this.scene !== 'play' || !this.runner || this.runnerTerminal(this.runner) ||
+        this.boardInput.isActive()) return false;
+    if (this.isHintPreviewActive()) {
+      this.clearHintPreview();
+      return true;
+    }
     const context = this.runContext;
-    const hint = this.hints.find(
-      this.runner,
-      context ? context.setIndex : null,
-      context ? context.levelIndex : this.levelIndex
-    );
+    let hint = null;
+    try {
+      if (this.hints && typeof this.hints.findComplete === 'function') {
+        hint = this.hints.findComplete(
+          this.runner,
+          context ? context.setIndex : null,
+          context ? context.levelIndex : this.levelIndex
+        );
+      }
+    } catch (error) {
+      hint = null;
+    }
     if (!hint) {
-      this.hint = null;
-      this.hintUntil = 0;
+      this.clearHintPreview(false);
+      this.audio.playSfx('error');
+      this.invalidate();
+      return false;
+    }
+    const until = Date.now() + HINT_PREVIEW_DURATION_MS;
+    const preview = this.createHintPreview(
+      this.runner,
+      hint,
+      context && context.level,
+      until
+    );
+    if (!preview) {
+      this.clearHintPreview(false);
       this.audio.playSfx('error');
       this.invalidate();
       return false;
     }
     this.hint = hint;
-    this.hintUntil = Date.now() + 4200;
+    this.hintUntil = until;
+    this.hintPreview = preview;
     this.audio.playSfx('complete');
     this.invalidate();
     return true;
   }
 
   showDailyHint() {
-    if (this.scene !== 'daily' || !this.daily.runner || this.runnerTerminal(this.daily.runner)) return false;
+    if (this.scene !== 'daily' || !this.daily.runner || this.runnerTerminal(this.daily.runner) ||
+        this.boardInput.isActive()) return false;
+    if (this.isHintPreviewActive()) {
+      this.clearHintPreview();
+      return true;
+    }
     const runner = this.daily.runner;
     const challengeId = this.daily.challengeId;
     let hint = null;
     try {
-      if (this.hints && typeof this.hints.findDaily === 'function') {
-        hint = this.hints.findDaily(runner, challengeId, this.dailySolutions);
-      } else if (this.hints && typeof this.hints.findAvailablePath === 'function') {
-        // Older HintService builds do not know the daily catalog, but their
-        // runner-aware search still provides a valid fallback (and the newer
-        // runner skips blocked cells).
-        const stored = this.dailyStoredHint(challengeId);
-        hint = stored || this.hints.findAvailablePath(runner);
+      if (this.hints && typeof this.hints.findDailyComplete === 'function') {
+        hint = this.hints.findDailyComplete(runner, challengeId, this.dailySolutions);
       }
     } catch (error) {
       hint = null;
     }
     if (!hint) {
-      this.hint = null;
-      this.hintUntil = 0;
+      this.clearHintPreview(false);
+      this.audio.playSfx('error');
+      this.invalidate();
+      return false;
+    }
+    const until = Date.now() + HINT_PREVIEW_DURATION_MS;
+    const preview = this.createHintPreview(
+      runner,
+      hint,
+      this.daily.challenge || (this.daily.levels && this.daily.levels[this.daily.levelIndex]),
+      until
+    );
+    if (!preview) {
+      this.clearHintPreview(false);
       this.audio.playSfx('error');
       this.invalidate();
       return false;
     }
     this.hint = hint;
-    this.hintUntil = Date.now() + 4200;
+    this.hintUntil = until;
+    this.hintPreview = preview;
     this.audio.playSfx('complete');
     this.invalidate();
     return true;

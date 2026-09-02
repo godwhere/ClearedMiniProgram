@@ -27,6 +27,13 @@ function run() {
   assert(second);
   assert.strictEqual(second.lineIndex, 1);
 
+  const stateBeforeCompleteHint = runner.getViewState();
+  const complete = hints.findComplete(runner, 0, 1);
+  assert(complete, 'complete hint remains available after a line is completed');
+  assert.deepStrictEqual(complete.paths.map(item => item.path), solutions.sets[0][1]);
+  assert.deepStrictEqual(runner.getViewState(), stateBeforeCompleteHint,
+    'complete hint lookup cannot mutate the live Runner');
+
   const fallback = new HintService();
   const searched = fallback.find(new GameRunner(game, catalog.sets[0].Palette), 0, 1);
   assert(searched);
@@ -57,6 +64,31 @@ function run() {
   assert.strictEqual(dailyHint.path.indexOf(1), -1);
   assert.strictEqual(new HintService(dailySolutions)
     .dailySolutionFor('daily-test-v1')[0][1], 1);
+  assert.strictEqual(
+    new HintService().findDailyComplete(dailyRunner, 'daily-test-v1', dailySolutions),
+    null,
+    'an illegal stored daily path fails as a whole without BFS fallback'
+  );
+
+  const dailyCompleteSolutions = {
+    ByChallengeId: { 'daily-complete-v1': [[0, 3, 4, 5, 2]] }
+  };
+  const dailyComplete = new HintService().findDailyComplete(
+    dailyRunner,
+    'daily-complete-v1',
+    dailyCompleteSolutions
+  );
+  assert.deepStrictEqual(dailyComplete.paths[0].path, [0, 3, 4, 5, 2]);
+
+  assert.strictEqual(
+    new HintService({ sets: [[[[0, 3, 4, 5]]]] }).findComplete(
+      new GameRunner({ Width: 3, Height: 2, Lines: [{ Start: 0, End: 5 }] }, ['#f00']),
+      0,
+      0
+    ),
+    null,
+    'a preset that does not cover the initial board is not a complete hint'
+  );
 
   const pureContext = deepFreeze({
     outcome: 'playing',

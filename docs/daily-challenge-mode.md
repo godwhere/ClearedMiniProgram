@@ -344,9 +344,13 @@ new GameRunner(level, palette, onChange, {
 
 - 普通 find(runner, setIndex, levelIndex) 保持兼容。
 - 每日使用 findDaily(runner, levelId, dailySolutions)，按 level ID 查询。
+- 完整预览使用 findDailyComplete(runner, levelId, dailySolutions)：只接受并整体验证预设解法，
+  任一路线缺失、非法或未覆盖全部非 Blocked 格时返回 null，不使用 BFS 拼接答案。
 - HintService 只从 `runner.getViewState()` 创建深拷贝 HintContext，再交给 ordinary provider。
 - 存储路径和 BFS 都根据 HintContext 的 `blocked/blockedMask` 跳过镂空格。
 - 提示不读日期、不写存档、不发奖励。
+- App 以独立 `hintPreview` 显示初始棋盘 ViewModel 和全部路线；预览持续 10 秒，再次点击提示立即关闭。
+  预览期间计时继续，棋盘输入、重置和回撤禁用，真实 Runner、每日进度和撤销栈均不变。
 
 ### 9.2 Renderer
 
@@ -357,6 +361,7 @@ new GameRunner(level, palette, onChange, {
 - 动态按当前 level 的 Width/Height 布局：第一关渲染 3×3，第二关渲染 8×10。
 - 标题至少显示“每日挑战”和 1 / 2 或 2 / 2；棋盘规格显示为 3 × 3 或 8 × 10。
 - 每个 Blocked 格显示为不可走镂空，不绘制 tile、端点、提示或清除动画，也不产生棋盘 UI hit。
+- 完整提示路径按线路颜色绘制经过格、中心连线和缩放方向箭头；预览仍复用当前安全区与动态棋盘布局。
 - 主题只负责 tile、背景和按钮，不判断 Blocked。
 - 结果页只显示每日完成、总用时和次数状态，不显示虚构货币数量。
 - 未填满失败使用同一 Canvas 结果层，显示剩余空格数、“返回主页”和“重试本关”；面板出现后

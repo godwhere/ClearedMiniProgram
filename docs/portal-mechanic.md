@@ -14,6 +14,9 @@
 
 Portal v2 的目标是让传送门保持中性、无需编号：同一关只声明一个传送网络，玩家进入其中一扇门后，可以从任意另一扇当前可用的门继续。
 
+本文定义运行时规则；8×8 题面的颜色数、门数、旁路难度和内容验收另见
+[`portal-level-design-guide.md`](portal-level-design-guide.md)。
+
 | 项目 | Portal v2 规则 |
 | --- | --- |
 | 网络 | 每关恰好一个中性网络，包含至少两个门格 |
@@ -61,7 +64,7 @@ Portal v1 的 `{ Id, A, B }` 固定门对、`PairId` 解答和“两个门格均
 1. 关卡必须显式声明 `Mechanic: 'portal'`、已支持的 `PortalRulesVersion` 和合法 `Portals`。
 2. 门格只绘制 [`assets/icons/portal.png`](../assets/icons/portal.png) 或安全矢量回退，不叠加主题棋子。
 3. 棋盘不显示 `P1` 或任何内部网络编号；当前单网络无需配对标签。
-4. 初始 `READY` 阶段在固定提示带展示关卡静态 `Instructions`；进入 `PORTAL_LOCKED` 或 `PORTAL_WAIT` 阶段时动态提示优先；连线走出传送门后提示隐藏。
+4. 若关卡声明静态 `Instructions`，初始 `READY` 阶段在固定提示带展示；8×8 专章可省略基础教学文案。进入 `PORTAL_LOCKED` 或 `PORTAL_WAIT` 阶段时动态提示优先；连线走出传送门后提示隐藏。
 5. 玩家只能从普通同色端点起笔；门格不是起笔端点。
 
 ### 3.2 到达入口：`PORTAL_LOCKED`
@@ -105,7 +108,7 @@ Portal v1 的 `{ Id, A, B }` 固定门对、`PairId` 解答和“两个门格均
 - 不存在 `PORTAL_LOCKED / PORTAL_WAIT / PORTAL_CONTINUE` 或 pending；
 - 所有非 `Blocked`、非传送门格均被合法线路覆盖。
 
-实际使用的入口和出口仍写入路径及 owner；未使用的门允许保持 `owner === -1`，且不计入 v2 的 `remainingCellCount()`。正式解答整体必须至少包含一次传送；这是内容发布约束，不新增 `portal-unused` 终局，出题时仍须让完整覆盖路线实际需要传送门。
+实际使用的入口和出口仍写入路径及 owner；未使用的门允许保持 `owner === -1`，且不计入 v2 的 `remainingCellCount()`。正式提示解整体必须至少包含一次传送，以验证并展示 Portal 流程；题面可以存在经过内容审查的高成本无门解，不新增 `portal-unused` 终局，也不把“是否使用 Portal”作为胜负条件。
 
 ## 4. 状态机与生命周期
 
@@ -213,10 +216,16 @@ v1 只允许一个固定双向门对，解答可继续使用 `PairId`，且两�
 ### 6.2 HintService
 
 - 普通关仍返回旧 `{ lineIndex, path, source }`；Portal 返回分段 `segments/teleports`；
+- 完整预览入口返回所有线路，只读取按 level ID 发布的预设分段解；任一路线缺失或非法时整包失败，
+  不用逐线搜索拼出完整答案。每条结果统一为 `Line.Start → Line.End`，并保留 `segments/teleports`；
 - 存储解优先，运行时搜索把每个候选出口作为一条传送分支；
 - 进入门格后必须通过传送边，不能从入口继续普通相邻移动；
 - `PORTAL_WAIT` 只提示可执行的候选出口和剩余段；
 - 提示不得将非相邻门格画成直线，不得修改 Runner、进度、音频或震动；
+- 完整预览在只读初始棋盘 ViewModel 上绘制：入口段箭头指向入口门，出口段从出口门向外，
+  两门之间不绘制普通连续实线，Portal overlay 始终最后绘制；
+- 预览持续 10 秒并可再次点击立即关闭；期间计时继续，但棋盘输入、重置和回撤禁用，
+  真实 Runner 的已完成线路、selection、Portal pending 和撤销状态保持不变；
 - 无可执行 Portal 解时返回 `null`，不能降级成错误的普通路径。
 
 ## 7. 代码边界
@@ -242,8 +251,8 @@ v1 只允许一个固定双向门对，解答可继续使用 `PairId`，且两�
 
 - `BoardRenderer` 固定按“棋盘格 → 清除动画 → 路径提示 → Portal overlay”绘制；
 - `PortalOverlay` 只绘门图、资源回退、LOCKED 入口放大/选中高亮和状态光圈，不绘 `P1` 或其他内部 ID；
-- `CanvasRenderer` 在棋盘上方固定提示带绘制阶段文案：READY 阶段显示静态 `Instructions`，`PORTAL_LOCKED` 显示“松开手指”，`PORTAL_WAIT` 显示“从任意其他传送门继续连线”，走出传送门后隐藏；
-- 普通 Portal 关在游玩界面标题展示“全局序号 · 关卡名”（如 `63 · 门廊试步`、`7 · 传送初识`），试玩关保持试玩名称；
+- `CanvasRenderer` 在棋盘上方固定提示带绘制阶段文案：READY 阶段只在题面声明时显示静态 `Instructions`，`PORTAL_LOCKED` 显示“松开手指”，`PORTAL_WAIT` 显示“从任意其他传送门继续连线”，走出传送门后隐藏；
+- 普通 Portal 关在游玩界面标题展示“全局序号 · 关卡名”（如 `63 · 双岸交织`、`7 · 传送初识`），试玩关保持试玩名称；
 - 选关页只显示连续关卡数字，不在 Portal 关卡数字格上叠加机制徽标；
 - 提示使用轻微呼吸效果，出现和切换时不得改变棋盘布局；
 - Renderer 只消费纯 ViewModel，不自行推断规则或注册独立 Portal hit；
@@ -272,7 +281,7 @@ v1 只允许一个固定双向门对，解答可继续使用 `PairId`，且两�
 - `tests/hint-service-portal.test.js`：分段解、多出口搜索、等待态和无解；
 - `tests/app-portal.test.js`：READY 静态提示与动态状态提示、无 Portal 阶段震动、选关 ViewModel 机制标识、试玩结算隔离；
 - `tests/renderer-portal.test.js`：提示位置/呼吸、棋盘不跳位、全局序号标题格式、选关页不叠加 Portal 徽标、LOCKED 入口居中放大/选中高亮、无 P1、多出口高亮和资源回退；
-- `tests/portal-publishing.test.js`：5 个 v2 试玩、34 个普通 Portal 关（4 个前期里程碑教学关 + 30 个 8×8 专章关）、三门未用门 fixture、v1 兼容 fixture 和逐段回放；
+- `tests/portal-publishing.test.js`：5 个 v2 试玩、34 个普通 Portal 关（4 个前期里程碑教学关 + 30 个 8×8 专章关）、63–67 内容质量门槛、高成本无门解、三门未用门 fixture、v1 兼容 fixture 和逐段回放；
 - `node tests/run.js` 必须全量通过，现有普通关行为不得回归。
 - `Portals` 缺省或空数组时，现有无 Portal 普通关卡必须保持原有规则、输入、计时、撤销与完成判定语义；新增普通 Portal 关卡使用独立的 v2 分段解答。
 
@@ -283,7 +292,7 @@ v1 只允许一个固定双向门对，解答可继续使用 `PairId`，且两�
 1. 连续编号 1—92 的普通关（含 34 个普通 Portal 关）和 Portal v1 兼容 fixture 零回归；
 2. Portal v2 题面、PortalId 解答和 required coverage 全部通过离线校验；
 3. 真实触摸完成“入口 → 松手 → 任一候选出口 → 普通终点”；
-4. 提示在 READY 显示 Instructions，在 LOCKED/WAIT 动态切换，位于棋盘上方并有轻微呼吸，棋盘不跳位；
+4. READY 只在题面声明时显示 Instructions；LOCKED/WAIT 动态提示位于棋盘上方并有轻微呼吸，棋盘不跳位；
 5. 棋盘不显示 P1，LOCKED 入口放大和选中高亮清楚，候选出口光圈仍清楚；
 6. Portal 阶段不震动，完整线路消除震动保留；
 7. 错误选择、撤销、重置、后台和切关不留下 pending；
