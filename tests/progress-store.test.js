@@ -96,6 +96,20 @@ function run() {
   assert.strictEqual(recovered.getSetting('clearEffectId'), 'fade',
     'an existing corrupt settings record keeps the compatibility fallback');
   assert.strictEqual(recovered.state.lastPlayed, null);
+
+  const before = JSON.stringify({ settings: store.state.settings, stats: store.state.stats, lastPlayed: store.state.lastPlayed });
+  const hostile = JSON.parse('{"schemaVersion":1,"levels":{"__proto__":{"completed":true},"999:0":{"completed":true},"0:0":{"completed":true,"bestMs":100},"1:2":{"completed":false,"bestMs":9000}}}');
+  assert(store.mergeCloudSnapshot(hostile).ok);
+  assert.strictEqual(store.isCompleted(1, 2), true);
+  assert.strictEqual(store.bestTime(1, 2), 6000);
+  assert.strictEqual(store.bestTime(0, 0), 100);
+  assert.strictEqual(store.state.completed['999:0'], undefined);
+  assert.strictEqual(JSON.stringify({ settings: store.state.settings, stats: store.state.stats, lastPlayed: store.state.lastPlayed }), before);
+  assert.deepStrictEqual(Object.keys(store.exportCloudSnapshot()), ['schemaVersion', 'levels']);
+  assert.strictEqual(store.mergeCloudSnapshot({ schemaVersion: 9, levels: {} }).ok, false);
+  const retained = store.state; platform.setStorage = () => false;
+  assert.strictEqual(store.mergeCloudSnapshot({ schemaVersion: 1, levels: { '0:1': { completed: true } } }).reason, 'persist-failed');
+  assert.strictEqual(store.state, retained);
 }
 
 module.exports = run;

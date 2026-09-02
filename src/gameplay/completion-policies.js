@@ -12,20 +12,6 @@ function settleOrdinary(context, services) {
     elapsedMs
   );
   if (!completion) return null;
-  if (deps.ads && typeof deps.ads.onLevelCompleted === 'function') {
-    const clears = deps.progress.state && deps.progress.state.stats
-      ? deps.progress.state.stats.totalClears
-      : 0;
-    try {
-      const notification = deps.ads.onLevelCompleted(clears);
-      if (notification && typeof notification.catch === 'function') {
-        notification.catch(function () {});
-      }
-    } catch (error) {
-      // Completion persistence and result navigation are authoritative;
-      // optional ad failures must never strand a won board in the play scene.
-    }
-  }
   return Object.assign({ elapsedMs, persisted: true }, completion);
 }
 

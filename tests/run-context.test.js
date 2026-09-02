@@ -48,7 +48,7 @@ function run() {
     elapsedMs: 25
   });
   assert.deepStrictEqual(recorded, { setIndex: 0, levelIndex: 1, elapsedMs: 25 });
-  assert.strictEqual(adClears, 7);
+  assert.strictEqual(adClears, null, 'progression settlement never invokes advertising');
   assert.strictEqual(ordinaryResult.persisted, true);
 
   const completionAfterAdFailure = completionPolicies.settle(catalogPortal, {

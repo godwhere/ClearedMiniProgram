@@ -3,6 +3,7 @@ const GameRunner = require('../core/game-runner.js');
 const ProgressStore = require('./services/progress-store.js');
 const SkinService = require('./services/skin-service.js');
 const AdsService = require('./services/ads-service.js');
+const EngagementService = require('./services/engagement-service.js');
 const ProgressionService = require('./services/progression-service.js');
 const AudioService = require('./services/audio-service.js');
 const HintService = require('./services/hint-service.js');
@@ -202,7 +203,10 @@ class ClearedApp {
     this.homeMigration = explicitHomeMigration !== undefined
       ? (explicitHomeMigration === true || explicitHomeMigration === 'true')
       : (typeof process !== 'undefined' && process.env && process.env.HOME_MIGRATION === 'true');
-    this.progress = new ProgressStore(platform);
+    this.progress = opts.progress || new ProgressStore(platform);
+    this.auth = opts.auth || null;
+    this.progressSync = opts.progressSync || null;
+    this.behavior = opts.behavior || null;
     this.progression = new ProgressionService(
       this.progress,
       catalog.sets,
@@ -229,7 +233,8 @@ class ClearedApp {
     if (!this.clearEffects || typeof this.clearEffects.current !== 'function') {
       this.clearEffects = fallbackClearEffects(this.progress);
     }
-    this.ads = new AdsService(platform, opts.adConfig || adConfig);
+    this.ads = opts.ads || new AdsService(platform, opts.adConfig || adConfig);
+    this.engagement = opts.engagement || new EngagementService({ ads: this.ads });
     this.audio = new AudioService(platform, this.progress, opts.audioConfig || audioConfig);
     // Daily mode owns a separate service/store pair.  They are deliberately
     // injectable so tests and future remote manifests can control the clock
@@ -1394,13 +1399,22 @@ class ClearedApp {
     }
     const completion = completionPolicies.settle(this.runContext, {
       progress: this.progress,
-      ads: this.ads,
       elapsedMs: runner.elapsedMs()
     });
     if (!completion) return;
     this.result = completion;
     this.resultVisibleAt = now + this.skins.current().animation.resultDelayMs;
     this.scene = 'result';
+    // Optional engagement starts only after the result and local completion.
+    try {
+      const task = this.engagement.onOrdinaryCompleted({
+        levelKey: `${this.setIndex}:${this.levelIndex}`,
+        totalClears: this.progress.state.stats.totalClears,
+        firstClear: completion.firstClear, newBest: completion.newBest,
+        resultVisibleAt: this.resultVisibleAt
+      });
+      if (task && task.catch) task.catch(function () {});
+    } catch (error) {}
   }
 
   dailyCompletionCall(level, levelIndex, elapsedMs) {

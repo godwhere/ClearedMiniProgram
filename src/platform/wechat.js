@@ -94,6 +94,33 @@ class WechatPlatform {
     }
   }
 
+  login(timeoutMs) {
+    if (!this.api || typeof this.api.login !== 'function') return Promise.reject({ reason: 'not-supported' });
+    return new Promise((resolve, reject) => {
+      let finished = false;
+      const timer = setTimeout(() => { if (!finished) { finished = true; reject({ reason: 'timeout' }); } }, timeoutMs || 8000);
+      const done = (callback, value) => { if (finished) return; finished = true; clearTimeout(timer); callback(value); };
+      try {
+        this.api.login({ success: result => done(resolve, { code: result && result.code }),
+          fail: () => done(reject, { reason: 'wechat-login-failed' }) });
+      } catch (error) { done(reject, { reason: 'wechat-login-failed' }); }
+    });
+  }
+
+  request(options) {
+    if (!this.api || typeof this.api.request !== 'function') return Promise.resolve({ ok: false, reason: 'not-supported' });
+    return new Promise(resolve => {
+      let finished = false;
+      const timer = setTimeout(() => { if (!finished) { finished = true; resolve({ ok: false, reason: 'timeout' }); } }, options.timeout || 8000);
+      const done = result => { if (finished) return; finished = true; clearTimeout(timer); resolve(result); };
+      try {
+        this.api.request({ url: options.url, method: options.method, data: options.data, header: options.header,
+          timeout: options.timeout, success: result => done({ ok: true, statusCode: result.statusCode, data: result.data, header: result.header || {} }),
+          fail: () => done({ ok: false, reason: 'network' }) });
+      } catch (error) { done({ ok: false, reason: 'network' }); }
+    });
+  }
+
   bindPointer(handlers) {
     const points = (event, ended) => {
       const list = ended ? event.changedTouches : event.touches;

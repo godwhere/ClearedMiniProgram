@@ -122,7 +122,11 @@ function run() {
   assert(app.renderer.hits.some(hit => hit.id === 'levels:home'));
   assert(app.renderer.hits.some(hit => hit.id === 'level:0:0'));
   assert.strictEqual(app.openLevel(0, 0), true);
-  app.ads.onLevelCompleted = () => { throw new Error('synchronous ad failure'); };
+  app.ads.onLevelCompleted = () => {
+    assert.strictEqual(app.scene, 'result', 'advertising runs after result navigation');
+    assert.strictEqual(api.storage['cleared:minigame:progress:v2'].completed['0:0'], true);
+    throw new Error('synchronous ad failure');
+  };
   app.tick(Date.now() + 1000);
   assert.strictEqual(app.showHint(), true);
   assert.strictEqual(app.hint.source, 'solution');

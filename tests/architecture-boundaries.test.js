@@ -61,6 +61,21 @@ function javascriptFiles(directory) {
 
 function run() {
   const files = javascriptFiles(CORE_DIR).sort();
+  const runtime = files.concat(javascriptFiles(SRC_DIR), path.join(SRC_DIR, '..', 'game.js'));
+  runtime.forEach(file => {
+    if (file === path.join(SRC_DIR, 'platform', 'wechat.js')) return;
+    const source = fs.readFileSync(file, 'utf8');
+    assert(!/\bwx\s*(?:\.|\[)|\b(?:globalThis|GameGlobal)\s*(?:\.\s*wx|\[\s*['"]wx['"]\s*\])/.test(source),
+      `${file} must use WechatPlatform`);
+    if (file !== path.join(SRC_DIR, 'services', 'api-client.js')) {
+      assert(!/['"]\/v1\/|\bAuthorization\b/.test(source), `${file} must consume named API contracts`);
+    }
+  });
+  ['gameplay', 'mechanics', 'ui/board'].forEach(dir => javascriptFiles(path.join(SRC_DIR, dir)).forEach(file => {
+    const source = fs.readFileSync(file, 'utf8');
+    assert(!/(?:auth|api-client|ads|engagement|behavior|reward|share|progress-sync)-service|\bdeps\.ads\b/.test(source),
+      `${file} must remain isolated from online engagement`);
+  }));
 
   assert(files.length > 0, 'core boundary test must inspect at least one JavaScript module');
 

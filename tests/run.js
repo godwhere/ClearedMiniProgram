@@ -1,4 +1,11 @@
 const tests = [
+  ['session store', require('./session-store.test.js')],
+  ['sync store', require('./sync-store.test.js')],
+  ['api client', require('./api-client.test.js')],
+  ['auth service', require('./auth-service.test.js')],
+  ['progress sync service', require('./progress-sync-service.test.js')],
+  ['behavior service', require('./behavior-service.test.js')],
+  ['engagement service', require('./engagement-service.test.js')],
   ['architecture boundaries', require('./architecture-boundaries.test.js')],
   ['game runner', require('./game-runner.test.js')],
   ['game runner contract', require('./game-runner-contract.test.js')],

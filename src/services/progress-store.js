@@ -1,5 +1,15 @@
 const STORAGE_KEY = 'cleared:minigame:progress:v2';
 const LEGACY_KEY = 'cleared:progress:v1';
+const cloudCatalog = require('../../data/catalog-v2.js');
+
+function validCloudKey(key) {
+  if (!/^(0|[1-9]\d*):(0|[1-9]\d*)$/.test(key)) return false;
+  const parts = key.split(':').map(Number);
+  const set = cloudCatalog.sets[parts[0]];
+  return !!(set && set.Games && set.Games[parts[1]]);
+}
+
+function validBest(value) { return typeof value === 'number' && Number.isFinite(value) && value > 0; }
 
 function isRecord(value) {
   return !!value && typeof value === 'object' && !Array.isArray(value);
@@ -89,6 +99,39 @@ class ProgressStore {
 
   save() {
     return this.platform.setStorage(STORAGE_KEY, this.state);
+  }
+
+  exportCloudSnapshot() {
+    const levels = {};
+    const keys = new Set(Object.keys(this.state.completed).concat(Object.keys(this.state.bestMs)));
+    keys.forEach(key => {
+      if (!validCloudKey(key)) return;
+      const completed = this.state.completed[key] === true;
+      const bestMs = this.state.bestMs[key];
+      if (completed || validBest(bestMs)) {
+        levels[key] = { completed };
+        if (validBest(bestMs)) levels[key].bestMs = bestMs;
+      }
+    });
+    return { schemaVersion: 1, levels };
+  }
+
+  mergeCloudSnapshot(snapshot) {
+    if (!snapshot || snapshot.schemaVersion !== 1 || !isRecord(snapshot.levels)) return { ok: false, reason: 'invalid-snapshot' };
+    const previous = this.state;
+    const completed = mergeRecord({}, previous.completed);
+    const bestMs = mergeRecord({}, previous.bestMs);
+    Object.keys(snapshot.levels).forEach(key => {
+      const value = snapshot.levels[key];
+      if (!validCloudKey(key) || !isRecord(value)) return;
+      if (value.completed === true) completed[key] = true;
+      if (validBest(value.bestMs) && (!validBest(bestMs[key]) || value.bestMs < bestMs[key])) bestMs[key] = value.bestMs;
+    });
+    this.state = Object.assign({}, previous, { completed, bestMs });
+    let saved = false;
+    try { saved = this.save() === true; } catch (error) {}
+    if (!saved) { this.state = previous; return { ok: false, reason: 'persist-failed' }; }
+    return { ok: true };
   }
 
   key(setIndex, levelIndex) {

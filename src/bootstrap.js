@@ -12,10 +12,32 @@ const dailyConfig = require('./config/daily.js');
 const mechanics = require('./mechanics/index.js');
 const SubpackageService = require('./services/subpackage-service.js');
 const subpackageConfig = require('./config/subpackages.js');
+const ProgressStore = require('./services/progress-store.js');
+const DailyProgressStore = require('./services/daily-progress-store.js');
+const SessionStore = require('./services/session-store.js');
+const SyncStore = require('./services/sync-store.js');
+const ApiClient = require('./services/api-client.js');
+const AuthService = require('./services/auth-service.js');
+const ProgressSyncService = require('./services/progress-sync-service.js');
+const BehaviorService = require('./services/behavior-service.js');
+const EngagementService = require('./services/engagement-service.js');
+const AdsService = require('./services/ads-service.js');
+const backendConfig = require('./config/backend.js');
+const engagementConfig = require('./config/engagement.js');
 
 function start() {
   const platform = new WechatPlatform();
   const subpackages = new SubpackageService(platform, subpackageConfig);
+  const progress = new ProgressStore(platform);
+  const dailyStore = new DailyProgressStore(platform, { debugUnlimited: dailyConfig.debugUnlimitedEntries === true });
+  const sessions = new SessionStore(platform);
+  const syncStore = new SyncStore(platform);
+  const api = new ApiClient(platform, sessions, backendConfig);
+  const auth = new AuthService(platform, api, sessions, syncStore, engagementConfig.auth);
+  const behavior = new BehaviorService(platform, api, syncStore, engagementConfig.behavior);
+  const progressSync = new ProgressSyncService(api, progress, syncStore, auth, engagementConfig.progressSync, behavior);
+  const ads = new AdsService(platform, adConfig);
+  const engagement = new EngagementService({ ads, behavior, config: adConfig.rules });
   const runtimeProgressionConfig = Object.assign({}, progressionConfig, {
     // Only the Developer Tools simulator receives the temporary all-levels
     // override. Real devices and uploaded builds keep the normal gate.
@@ -23,6 +45,7 @@ function start() {
       platform.isDevTools() === true
   });
   const app = new ClearedApp(platform, {
+    progress, dailyStore, auth, progressSync, behavior, ads, engagement,
     subpackages,
     skins,
     effects,
@@ -44,6 +67,12 @@ function start() {
     dailyDebugUnlimited: dailyConfig.debugUnlimitedEntries === true
   });
   app.start();
+  // Local boot is synchronous. Online work is always scheduled afterwards.
+  Promise.resolve().then(() => auth.ensureSession()).then(result => {
+    if (!result.ok) return;
+    behavior.identify(result.user.id);
+    return progressSync.bootstrap(auth.current());
+  }).then(() => behavior.flush('launch')).catch(function () {});
   return app;
 }
 
