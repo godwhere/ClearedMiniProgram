@@ -25,7 +25,7 @@
 - 新增主题画廊场景，可从回廊进入并按来源返回；旧 `home:themes` 直达流程仍兼容。
 - 画廊按注册顺序分页，每页 6 张卡片（2 列、3 行）；不足 6 张时保留空槽，空槽不可点击。
 - 支持左右横向滑动切页；在首尾页继续向外滑动不越界。
-- 点击主题后立即应用到游戏色块外观并持久化；重启小游戏后恢复上次选择。
+- 点击主题后，classic 或本进程已加载主题立即应用；未加载主题先下载对应普通分包，成功后才应用并持久化。重启后异步恢复上次选择。
 - 主题资源缺失、加载失败或主题 ID 失效时，仍能用经典色块正常游戏。
 - 在不改连线规则的前提下，为后续宝石、食物、植物、卡通等主题提供可扩展的声明式资源协议。
 
@@ -38,7 +38,7 @@
 - 主题功能本身不修改关卡规则；关卡数量调整属于独立的数据变更，`data/clearedset5/6` 与对应提示表必须保持同步，颜色身份和路径解法不变。
 - 不把主题判断、绘图回调或图片加载塞进规则层。
 - 不在本阶段重命名现有 `SkinService`、`src/skins` 或存档字段 `settings.skinId`，也不升存档 schema。
-- 不在本阶段引入主题解锁、付费、网络同步、主题编辑器、动态下载或新的广告/经济系统。
+- 不引入主题解锁、付费、网络存档同步、主题编辑器、CDN 或新的广告/经济系统；正式素材通过微信普通分包按需加载。
 - 不以修改旧 `pages/*` 为实现路径。
 
 ## 3. 术语与兼容策略
@@ -68,6 +68,7 @@
 - 进入时默认显示第 0 页；回廊来源返回命中 ID 为 `themes:corridor`，旧直达流程继续使用 `themes:home`。
 - 主题页返回/音效两个顶部 UI 按钮使用 `layout.themesTopUiOffset` 下移 16px；标题、页码和卡片网格位置不随之改变。
 - 每张有效卡片显示：主题的前 4 个元素按 2×2 排列（无 tile 素材时回退为 2×2 色块）、主题名（manifest 的 `name`）和当前选中态；不显示分类副标题。
+- 分包未加载时不读取精灵表，使用颜色回退；卡片状态为 `idle`“点击下载”、`loading`“下载 N%”、`failed`“加载失败，点击重试”。`loaded` 恢复正常预览/选中态。下载不会阻断分页、返回和游戏。
 - 主题页不再读取或绘制 manifest 的 `preview`/生成的 4:3 预览图；该字段仅保留给未来其他场景使用。
 - 卡片命中 ID：`theme:<id>`；空槽不注册命中区域。
 - 点击有效卡片后调用统一的主题选择入口，立即重绘并留在当前页；用户通过“返回”回到回廊或主页（取决于进入来源）。
@@ -187,19 +188,26 @@ tests/theme-assets.test.js                      # 10 套 manifest/正式图集�
 | `src/skins/*.js` | 仅存放主题 manifest 和资源映射 | 业务状态、规则、平台 API、绘图函数 |
 | `src/skins/index.js` | 汇总注册顺序 | 分页状态或页面跳转 |
 | `src/ui/canvas-renderer.js` | 绘制 home/themes/levels/play/result、卡片与命中区域；集中实现 `drawTile` 等外观适配 | 修改存档、切换场景、求解关卡 |
-| `src/app.js` | 增加 `themes` 场景、`themePageIndex`、action 路由、滑动判定，并调用 `setSkin` | 直接绘制主题素材、改变连线规则 |
+| `src/app.js` | `themes` 场景、分页/action；以 `pendingSkinId` 和 `skinLoadRequestId` 编排异步选择，成功后才调用 `SkinService.select` | 直接绘制主题素材、改变连线规则 |
+| `src/services/subpackage-service.js` | 进程内状态快照、进度、共享 Promise、并发去重、成功缓存与失败重试 | 选择主题、存档、Canvas、直接访问全局微信 API |
+| `src/config/subpackages.js` | 十个分包的 name/root/themeIds/assetPrefixes 唯一运行时配置 | 回调或业务状态 |
 | `src/services/progress-store.js` | 沿用 `settings.skinId`，读写和非法 ID 回退 | 新建重复的主题存档字段、升级 schema |
 | `core/game-runner.js` | 主题不介入；普通关卡继续只管理 line/owner/path/撤销/计时 | 读取主题 manifest 或判断主题（每日模式的通用 `blocked` 扩展见每日挑战文档） |
 | `data/*` | **保持不变**；继续提供关卡、palette、solutions | 存放主题资源或主题逻辑 |
-| `src/platform/wechat.js` | **原则上不变**；提供现有触摸、图片和生命周期能力 | 主题业务决策 |
+| `src/platform/wechat.js` | 触摸、图片、生命周期；唯一直接调用微信 `loadSubpackage` 的适配边界 | 主题业务决策 |
 | `pages/*` | **不改**；当前打包被排除 | 主题功能实现入口 |
 
 ## 8. 存档、回退与异常
 
 - 继续使用 `ProgressStore` 的 schema version 2 和 `settings.skinId`；旧存档无该字段时默认为 `classic`。
 - `SkinService` 读取到未注册/损坏 ID 时，当前主题立即回退 `classic`，不影响关卡进度；是否回写修正值由实现阶段测试决定，但不得丢失其他存档字段。
-- 选择成功后立即保存；应用关闭或切换场景不应丢失选择。
+- 分包成功后才选择并保存；失败保留当前主题和 `settings.skinId`，清除 pending 后可点击重试。
 - 主题资源异步加载沿用现有 generation 检查：旧主题晚到的图片不得覆盖新主题；加载失败使用 manifest/经典回退绘制。
+- 每次有效选择递增 `skinLoadRequestId`，仅最新请求允许提交；选择 classic 或已加载主题同样使旧请求过期。无需取消底层下载。
+- `setSkin()` 仍同步返回 boolean：有效 ID 已应用或开始加载为 true，非法 ID 未开始操作为 false；内部处理全部异步 rejection。
+- `bootstrap` 为 App/Renderer 注入同一个 `SubpackageService`。保存的非经典主题在启动时异步加载，不阻塞首帧，期间保留它的 palette；恢复失败不改存档、不阻断玩法。
+- 状态固定为 `idle/loading/loaded/failed`，只在当前 JS 进程内保存，绝不持久化“已下载”。宿主不支持分包时返回 `SUBPACKAGE_UNSUPPORTED`，保持失败状态和基础玩法。
+- Renderer 在所有主题图片加载前按完整路径检查 `isAssetReady`；未就绪资源不建立任何图片、失败或 source 缓存。主包 Logo 等继承资源仍可加载。成功提交后调用 `invalidateThemeAssets(themeId)` 并重新加载图片；解码失败仍绘制颜色回退。
 - 主题切换只影响视觉和语义 token；当前关卡的 `GameRunner` 状态、计时、撤销栈和提示数据必须保持不变。
 
 ## 9. 测试与验收清单
@@ -209,11 +217,14 @@ tests/theme-assets.test.js                      # 10 套 manifest/正式图集�
 1. **画廊分页**：0、1、6、7 个主题的页数、槽位映射、空槽无 hit；页索引正确 clamp。
 2. **滑动输入**：阈值、方向、垂直拖动、首尾边界；`levels` 场景不响应主题分页规则。
 3. **命中区域**：`home:corridor`、`themes:home`/`themes:corridor`、`theme:<id>`、可选箭头 ID；安全区和窄屏不重叠；旧 `home:themes` action 仍可调用但无 visible hit。
-4. **选择与存档**：点击后即时重绘，`settings.skinId` 写入；新实例启动后恢复；未知 ID 使用 classic。
+4. **选择与存档**：下载进度即时重绘，成功后才写 `settings.skinId`；失败不改旧主题/存档；新实例启动非阻塞恢复；未知 ID 使用 classic。
 5. **资源竞态与回退**：旧主题异步图片晚到时不覆盖当前主题；缺图时仍可渲染色块、提示和清除动画。
 6. **规则隔离**：切换主题前后 `GameRunner` 的路径、owner、计时和完成结果一致。
 7. **素材像素合同**：`tests/theme-assets.test.js` 必须覆盖全部 10 套非经典主题，确认正式资源为 `2000×800`、包含 10 个非空 `400×400` 槽位，且每槽四边的可见 alpha 距离均不小于 `24px`；任意尺寸错误、空槽或格线串边都应使测试失败。
 8. **回归**：运行 `node tests/run.js`，现有连线、关卡、进度、音频、Canvas 和主题素材测试全部通过。
+9. **分包与预算**：`subpackage-service`、`theme-system`、`project-config`、`package-budget` 测试覆盖并发去重、进度/重试、不支持宿主、原型键防护、快速切换、启动恢复、资源门控、十个配置/入口和预算。运行 `node scripts/check-package-budget.js`，源码预算为主包 3.2 MiB、各分包 3.5 MiB、总包 18 MiB，单包硬门禁严格小于 4 MiB。
+
+发布前仍需在“详情 -> 本地代码 -> 代码包分析”核实实际包体与主包依赖，确认十张正式 sprite sheet 均归入各自分包，并以微信后台当前上限校验总包。预算脚本只计算源码字节，支持当前 file/folder ignore；出现其他规则类型、非空 include 或发布符号链接时会失败，必须先补齐相应统计语义与测试。Android/iOS 还需验证断网、弱网、下载中切后台、失败重试、快速点击和清理微信缓存后重启。分包方案与 BGM 二级兜底边界见 [`package-splitting.md`](package-splitting.md)。
 
 离线视觉验收必须逐套检查 `contact-sheet-numbered.png`：编号与 manifest 色槽一致；主体完整且没有相邻图标碎片；细描边、透明孔洞、阴影和分离部件未丢失；视觉重心合理。在正式运行时还需展示每套主题全部 10 个色槽，并覆盖普通格、固定端点、选中路径、提示和清除淡出状态。
 

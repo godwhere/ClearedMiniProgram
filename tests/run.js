@@ -21,6 +21,8 @@ const tests = [
   ['hint service', require('./hint-service.test.js')],
   ['solutions', require('./solutions.test.js')],
   ['theme system', require('./theme-system.test.js')],
+  ['subpackage service', require('./subpackage-service.test.js')],
+  ['package budget', require('./package-budget.test.js')],
   ['theme assets', require('./theme-assets.test.js')],
   ['daily challenge service', require('./daily-challenge-service.test.js')],
   ['daily progress store', require('./daily-progress-store.test.js')],

@@ -21,7 +21,11 @@
 
 主题（内部仍称 skin）的画廊、分页、资源协议与代码边界记录在
 [`docs/theme-system.md`](docs/theme-system.md)。宝石、动物、水果、甜点、太空、海洋、春天、节日限定、音乐和交通工具十个非经典主题已接入运行时，后续主题按同一协议扩展。
-主题卡片预览直接使用各主题前四个 tile 按 2×2 排列，不依赖独立预览图。
+十套正式精灵表各自放在普通分包中。未下载的主题卡片显示 2×2 颜色块与“点击下载”，
+点击后保留原主题并显示下载进度；成功后才切换并保存，失败可再次点击重试。
+下载后的预览使用各主题前四个 tile 按 2×2 排列，不依赖独立预览图。
+经典主题冷启动不请求主题分包；恢复保存的非经典主题时先用颜色回退显示，下载不阻塞游玩。
+包划分、加载状态与验收边界见 [`docs/package-splitting.md`](docs/package-splitting.md)。
 节日限定当前先作为可选视觉主题接入，按日期自动上架/下架的运营规则后续另行实现。
 
 回廊功能入口、消除特效选择页、“无特效”/“逐渐消失”特效以及首页主题入口迁移契约，记录在
@@ -103,6 +107,8 @@ src/ui/board/portal-overlay.js  Portal 图标、状态光圈与资源回退
 src/services/progress-store.js  版本化本地存档
 src/services/progression-service.js 顺序解锁策略
 src/services/skin-service.js    皮肤注册与切换
+src/services/subpackage-service.js 进程内分包状态、进度、请求去重和失败重试
+src/config/subpackages.js       十个普通主题分包的名称、目录、主题和资源前缀映射
 src/services/clear-effect-service.js 消除特效注册、选择与回退
 src/services/ads-service.js     激励视频/插屏广告门面，默认无广告
 src/services/audio-service.js   BGM、连线和通关音效适配
@@ -160,6 +166,9 @@ tests/clear-effect-service.test.js、tests/clear-effect-system.test.js 特效服
 
 ```sh
 node tests/run.js
+node scripts/validate-theme-assets.js
+node scripts/check-package-budget.js
+git diff --check
 ```
 
 测试覆盖路径连接、回退、阻挡、跨行边界、重画、撤销、Portal v1/v2 与多出口回放、92 个普通关卡的数据完整性、
@@ -173,6 +182,13 @@ node tests/run.js
 
 如修改原始关卡 JSON，可运行 `node scripts/generate-level-modules.js` 更新提交到工程中的
 JS 数据模块；正常导入和运行小游戏不需要执行此命令。
+
+包体脚本按 `game.json.subpackages` 和 `project.config.json.packOptions.ignore` 统计源码字节，
+主包预算 ≤ 3.2 MiB、单分包 ≤ 3.5 MiB、总包 ≤ 18 MiB，主包和每个分包均须严格小于 4 MiB。
+它不代表最终微信包体；提交审核前须在开发者工具“详情 -> 本地代码 -> 代码包分析”复核实际包体、
+十张精灵表均不在主包依赖中，以及后台当前总包上限，并在 Android/iOS 验证弱网、失败重试和清缓存重启。
+BGM、短音效、Logo、Portal 图标和特效预览仍在主包；仅在主包超预算时再评估 BGM 分包兜底。
+主题素材校验不传参数时只检查正式精灵表并跳过 `drafts/`；显式传入 `assets/skins` 会同时检查已排除发布的历史草稿，当前动物旧稿会失败。
 
 声音系统使用原版 BGM 的压缩版本，以及 Echo of Genesis 提供的点击、连线、错误和通关
 音效；通关音采用约 2.3 秒的短版 shimmer。小游戏首次触摸后解锁音频，切到后台会暂停，

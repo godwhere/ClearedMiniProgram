@@ -184,6 +184,9 @@ class ClearedApp {
   constructor(platform, options) {
     const opts = options || {};
     this.platform = platform;
+    this.subpackages = opts.subpackages || null;
+    this.pendingSkinId = null;
+    this.skinLoadRequestId = 0;
     this.portalMechanic = opts.portalMechanic === undefined
       ? defaultPortalMechanic
       : opts.portalMechanic;
@@ -296,7 +299,7 @@ class ClearedApp {
         ? opts.onDailyReviveRequested
         : function () {});
 
-    this.renderer = new CanvasRenderer(platform, this.skins, this.clearEffects);
+    this.renderer = new CanvasRenderer(platform, this.skins, this.clearEffects, this.subpackages);
     this.renderer.setInvalidate(() => this.invalidate());
     this.boardInput = new BoardInputController(null, this.renderer);
 
@@ -357,6 +360,7 @@ class ClearedApp {
       audioInterruptEnd: () => this.audio.resumeAll()
     });
     this.startLoop();
+    this.prepareCurrentSkinAssets();
   }
 
   startLoop() {
@@ -1885,7 +1889,15 @@ class ClearedApp {
   themeDescriptors() {
     if (!this.skins || typeof this.skins.list !== 'function') return [];
     const themes = this.skins.list();
-    return Array.isArray(themes) ? themes : [];
+    return Array.isArray(themes) ? themes.map(theme => {
+      const name = this.subpackages && this.subpackages.packageForTheme(theme.id);
+      const state = name ? this.subpackages.getPackageState(name) : { status: 'loaded', progress: 100 };
+      return Object.assign({}, theme, {
+        assetState: state.status,
+        assetProgress: state.progress,
+        pending: theme.id === this.pendingSkinId
+      });
+    }) : [];
   }
 
   themePageCount(themes) {
@@ -2055,10 +2067,51 @@ class ClearedApp {
   }
 
   setSkin(skinId) {
-    if (!this.skins.select(skinId)) return false;
+    if (typeof skinId !== 'string' || !this.skins.get(skinId)) return false;
+    const requestId = ++this.skinLoadRequestId;
+    const name = this.subpackages && this.subpackages.packageForTheme(skinId);
+    if (name && !this.subpackages.isPackageReady(name)) {
+      this.loadSkinPackage(skinId, requestId, true);
+      return true;
+    }
+    this.pendingSkinId = null;
+    this.skins.select(skinId);
+    this.renderer.invalidateThemeAssets(skinId);
     this.renderer.loadSkinAssets();
     this.invalidate();
     return true;
+  }
+
+  prepareCurrentSkinAssets() {
+    if (!this.subpackages || this.pendingSkinId) return;
+    const skinId = this.skins.current().id;
+    const name = this.subpackages.packageForTheme(skinId);
+    if (name && !this.subpackages.isPackageReady(name)) {
+      // Keep the saved theme's palette for the first frame, without rewriting
+      // its setting or waiting for a download before starting gameplay.
+      this.loadSkinPackage(skinId, ++this.skinLoadRequestId, false);
+    }
+  }
+
+  loadSkinPackage(skinId, requestId, selectOnSuccess) {
+    this.pendingSkinId = skinId;
+    this.invalidate();
+    this.subpackages.ensureTheme(skinId, () => this.invalidate()).then(() => {
+      if (requestId !== this.skinLoadRequestId) {
+        this.invalidate();
+        return;
+      }
+      this.pendingSkinId = null;
+      if (selectOnSuccess) this.skins.select(skinId);
+      this.renderer.invalidateThemeAssets(skinId);
+      this.renderer.loadSkinAssets();
+      this.invalidate();
+    }).catch(() => {
+      // The service exposes a stable failed state. No saved setting changes
+      // on failure, and an older download cannot clear the newest pending ID.
+      if (requestId === this.skinLoadRequestId) this.pendingSkinId = null;
+      this.invalidate();
+    });
   }
 
   enterDaily(now) {

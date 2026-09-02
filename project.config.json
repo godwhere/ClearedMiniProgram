@@ -65,6 +65,30 @@
       {
         "value": "assets/skins/animals/drafts",
         "type": "folder"
+      },
+      {
+        "value": "docs",
+        "type": "folder"
+      },
+      {
+        "value": ".github",
+        "type": "folder"
+      },
+      {
+        "value": "AGENTS.md",
+        "type": "file"
+      },
+      {
+        "value": ".gitattributes",
+        "type": "file"
+      },
+      {
+        "value": ".gitignore",
+        "type": "file"
+      },
+      {
+        "value": "assets/icons/bomb.png",
+        "type": "file"
       }
     ],
     "include": []

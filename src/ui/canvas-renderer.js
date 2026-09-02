@@ -17,10 +17,11 @@ const PORTAL_PROMPT_CYCLE_MS = 1800;
 const CANVAS_FONT_FAMILY = '-apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif';
 
 class CanvasRenderer {
-  constructor(platform, skinService, clearEffects) {
+  constructor(platform, skinService, clearEffects, subpackages) {
     this.platform = platform;
     this.ctx = platform.context;
     this.skinService = skinService;
+    this.subpackages = subpackages || null;
     // Read-only effect queries are injected by the app. The renderer never
     // selects effects or writes settings; a missing service simply renders the
     // classic fade fallback for older hosts/tests.
@@ -110,12 +111,35 @@ class CanvasRenderer {
       // keep optional generated preview art out of the normal load path.
       if (name === 'preview' || name === 'previewImage' || name === 'themePreview') return;
       if (typeof assets[name] !== 'string' || !assets[name]) return;
-      this.platform.createImage(assets[name], (error, image) => {
-        if (generation !== this.assetGeneration || this.skinService.current().id !== skinId) return;
-        if (!error) this.images[name] = image;
-        this.invalidate();
-      });
+      if (!this.isAssetReady(assets[name])) return;
+      try {
+        this.platform.createImage(assets[name], (error, image) => {
+          if (generation !== this.assetGeneration || this.skinService.current().id !== skinId) return;
+          if (!error && image) this.images[name] = image;
+          this.invalidate();
+        });
+      } catch (error) {
+        // Image creation/decoding failure leaves the existing color fallback.
+      }
     });
+  }
+
+  isAssetReady(source) {
+    return !this.subpackages || this.subpackages.isAssetReady(source);
+  }
+
+  invalidateThemeAssets(themeId) {
+    const id = String(themeId);
+    delete this.themeTileImages[id];
+    delete this.themeTileSources[id];
+    delete this.themeTileLoads[id];
+    delete this.previewImages[id];
+    delete this.previewSources[id];
+    delete this.previewLoads[id];
+    if (id === this.skinService.current().id) {
+      ++this.assetGeneration;
+      this.images = {};
+    }
   }
 
   render(model, now) {
@@ -327,6 +351,7 @@ class CanvasRenderer {
       return this.images.preview;
     }
     if (!source) return null;
+    if (!this.isAssetReady(source)) return null;
 
     // Reuse a preview that was loaded through the selected skin's regular
     // asset pipeline (the gem manifest declares the same file in both places).
@@ -900,6 +925,7 @@ class CanvasRenderer {
     const reference = this.tileAssetReference(manifest);
     const info = this.tileAssetInfo(manifest, reference);
     if (!info.source) return { key: info.key, image: null };
+    if (!this.isAssetReady(info.source)) return { key: info.key, image: null };
 
     const current = this.skinService && this.skinService.current
       ? this.skinService.current()
@@ -1093,11 +1119,15 @@ class CanvasRenderer {
       }
       ctx.restore();
 
+      const assetStatus = theme.assetState === 'idle' ? '点击下载'
+        : theme.assetState === 'loading' ? `下载 ${Math.round(clamp(Number(theme.assetProgress) || 0, 0, 100))}%`
+          : theme.assetState === 'failed' ? '加载失败，点击重试' : '';
+      const statusHeight = assetStatus ? 14 : 0;
       const previewRect = {
         x: rect.x + previewPadding,
         y: rect.y + previewPadding,
         w: rect.w - previewPadding * 2,
-        h: previewHeight
+        h: Math.max(1, previewHeight - statusHeight)
       };
       // Theme cards intentionally preview the first four tile elements in a
       // 2 x 2 arrangement. The optional generated preview image is not used
@@ -1105,8 +1135,12 @@ class CanvasRenderer {
       this.drawThemeElementsPreview(theme, previewRect, skin);
 
       const name = theme.name || theme.title || theme.id;
-      this.text(name, rect.x + rect.w / 2, rect.y + cardHeight - labelHeight * 0.56,
+      this.text(name, rect.x + rect.w / 2, rect.y + cardHeight - labelHeight * 0.56 - statusHeight,
         clamp(cardWidth * 0.105, 13, 18), { weight: selected ? 500 : 300, maxWidth: rect.w - 18 });
+      if (assetStatus) {
+        this.text(assetStatus, rect.x + rect.w / 2, rect.y + cardHeight - labelHeight * 0.34,
+          10, { alpha: 0.72, maxWidth: rect.w - 12 });
+      }
       if (selected) {
         this.text('✓', rect.x + rect.w - 14, rect.y + 14, 13, { weight: 500, alpha: 0.86 });
       }

@@ -10,9 +10,12 @@ const dailyManifest = require('../data/daily-challenges.js');
 const dailySolutions = require('../data/daily-solutions.js');
 const dailyConfig = require('./config/daily.js');
 const mechanics = require('./mechanics/index.js');
+const SubpackageService = require('./services/subpackage-service.js');
+const subpackageConfig = require('./config/subpackages.js');
 
 function start() {
   const platform = new WechatPlatform();
+  const subpackages = new SubpackageService(platform, subpackageConfig);
   const runtimeProgressionConfig = Object.assign({}, progressionConfig, {
     // Only the Developer Tools simulator receives the temporary all-levels
     // override. Real devices and uploaded builds keep the normal gate.
@@ -20,6 +23,7 @@ function start() {
       platform.isDevTools() === true
   });
   const app = new ClearedApp(platform, {
+    subpackages,
     skins,
     effects,
     adConfig,

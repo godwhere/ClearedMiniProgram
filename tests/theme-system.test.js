@@ -13,6 +13,9 @@ const spring = require('../src/skins/spring.js');
 const festival = require('../src/skins/festival.js');
 const music = require('../src/skins/music.js');
 const vehicles = require('../src/skins/vehicles.js');
+const SubpackageService = require('../src/services/subpackage-service.js');
+const { controlledPlatform } = require('./subpackage-service.test.js');
+const bootstrap = require('../src/bootstrap.js');
 
 function fakeContext() {
   const calls = [];
@@ -731,10 +734,230 @@ function runAppChecks() {
   assert.strictEqual(app.themePageIndex, 0, 'gallery swipe navigates back from the second page');
 }
 
-function run() {
+async function flushThemeCallbacks() {
+  await Promise.resolve();
+  await Promise.resolve();
+}
+
+async function runSubpackageChecks() {
+  const platform = Object.assign(createPlatform(), controlledPlatform());
+  const subpackages = new SubpackageService(platform);
+  const app = new ClearedApp(platform, { subpackages });
+  app.start();
+  app.tick(1000);
+  assert.strictEqual(platform.calls.length, 0, 'classic cold start never downloads');
+  app.performAction('home:themes');
+  app.tick(1001);
+  app.changeThemePage(1);
+  app.tick(1002);
+  assert(!platform.sources.some(source => source.startsWith('assets/skins/')),
+    'neither gallery page reads an unloaded sheet');
+  ['themeTileImages', 'themeTileSources', 'themeTileLoads'].forEach(key => {
+    assert.deepStrictEqual(Object.keys(app.renderer[key]), [], 'unloaded images are not memoized');
+  });
+  assert(platform.context.calls.some(call => call.op === 'fillText' && call.args[0] === '点击下载'));
+  const savedBefore = JSON.stringify(platform.storage);
+  const idBefore = app.skinLoadRequestId;
+  assert.strictEqual(app.setSkin('__proto__'), false);
+  assert.strictEqual(app.setSkin({}), false);
+  assert.strictEqual(app.skinLoadRequestId, idBefore);
+  assert.strictEqual(app.setSkin('gem'), true);
+  assert.strictEqual(app.pendingSkinId, 'gem');
+  assert.strictEqual(app.skins.current().id, 'classic');
+  assert.strictEqual(JSON.stringify(platform.storage), savedBefore);
+  assert.strictEqual(platform.calls[0].name, 'theme-gem');
+  app.setSkin('gem');
+  assert.strictEqual(platform.calls.length, 1, 'repeat clicks share the download');
+  platform.calls[0].progress({ progress: 37, totalBytesWritten: 37, totalBytesExpectedToWrite: 100 });
+  const descriptor = app.themeDescriptors().find(theme => theme.id === 'gem');
+  assert.strictEqual(descriptor.assetState, 'loading');
+  assert.strictEqual(descriptor.assetProgress, 37);
+  assert.strictEqual(descriptor.pending, true);
+  assert(!Object.keys(descriptor).some(key => /promise|task|error/i.test(key)));
+  app.changeThemePage(-1);
+  app.tick(1003);
+  assert(platform.context.calls.some(call => call.op === 'fillText' && call.args[0] === '下载 37%'));
+  assert(!platform.sources.some(source => source.startsWith('assets/skins/')));
+  // Seed previous failed image records to prove success explicitly invalidates them.
+  app.renderer.themeTileImages.gem = null;
+  app.renderer.themeTileSources.gem = gem.assets.tileSheet;
+  app.renderer.themeTileLoads.gem = { source: gem.assets.tileSheet };
+  app.renderer.previewImages.gem = null;
+  app.renderer.previewSources.gem = 'old';
+  app.renderer.previewLoads.gem = {};
+  platform.calls[0].success();
+  assert.strictEqual(app.skins.current().id, 'classic', 'commit waits for the promise');
+  await flushThemeCallbacks();
+  assert.strictEqual(app.skins.current().id, 'gem');
+  assert.strictEqual(app.progress.getSetting('skinId'), 'gem');
+  assert.strictEqual(app.pendingSkinId, null);
+  assert(platform.sources.includes(gem.assets.tileSheet));
+  assert.strictEqual(app.renderer.themeTileLoads.gem, undefined);
+  assert.strictEqual(app.renderer.previewSources.gem, undefined);
+  assert.strictEqual(app.scene, 'themes');
+
+  const beforeFail = JSON.stringify(platform.storage);
+  app.setSkin('animals');
+  platform.calls[1].fail({ errMsg: 'offline' });
+  await flushThemeCallbacks();
+  assert.strictEqual(app.skins.current().id, 'gem');
+  assert.strictEqual(JSON.stringify(platform.storage), beforeFail);
+  assert.strictEqual(app.pendingSkinId, null);
+  app.tick(1004);
+  assert(platform.context.calls.some(call => call.op === 'fillText' && call.args[0] === '加载失败，点击重试'));
+  app.setSkin('animals');
+  assert.strictEqual(platform.calls.length, 3);
+  platform.calls[2].success();
+  await flushThemeCallbacks();
+  assert.strictEqual(app.skins.current().id, 'animals');
+
+  // The last valid click wins, including already-loaded and main-package themes.
+  app.setSkin('fruits');
+  app.setSkin('space');
+  platform.calls[4].success();
+  await flushThemeCallbacks();
+  platform.calls[3].success();
+  await flushThemeCallbacks();
+  assert.strictEqual(app.skins.current().id, 'space');
+  assert.strictEqual(app.progress.getSetting('skinId'), 'space');
+  app.setSkin('ocean');
+  app.setSkin('gem');
+  platform.calls[5].success();
+  await flushThemeCallbacks();
+  assert.strictEqual(app.skins.current().id, 'gem');
+  app.setSkin('spring');
+  app.setSkin('classic');
+  assert.strictEqual(platform.calls.length, 7, 'classic itself never requests a package');
+  platform.calls[6].success();
+  await flushThemeCallbacks();
+  assert.strictEqual(app.skins.current().id, 'classic');
+  app.setSkin('music');
+  app.setSkin('vehicles');
+  platform.calls[7].fail();
+  await flushThemeCallbacks();
+  assert.strictEqual(app.pendingSkinId, 'vehicles', 'stale failure cannot clear the latest pending');
+  assert.strictEqual(app.setSkin('unknown'), false);
+  platform.calls[8].success();
+  await flushThemeCallbacks();
+  assert.strictEqual(app.skins.current().id, 'vehicles');
+  assert.strictEqual(app.openLevel(0, 0), true);
+
+  // Restart with saved theme: fresh service must load again; the first frame
+  // and a playable board exist while the package request is unresolved.
+  platform.sources.length = 0;
+  const restored = new ClearedApp(platform, { subpackages: new SubpackageService(platform) });
+  const saved = JSON.stringify(platform.storage);
+  restored.start();
+  restored.tick(2000);
+  assert(restored.renderer.hits.length > 0);
+  assert.strictEqual(restored.skins.current().id, 'vehicles');
+  assert.strictEqual(platform.calls.length, 10);
+  assert(!platform.sources.includes(vehicles.assets.tileSheet));
+  assert(platform.sources.includes('assets/logo.png'), 'inherited main-package logo remains accessible');
+  assert.strictEqual(restored.openLevel(0, 0), true);
+  platform.calls[9].success();
+  await flushThemeCallbacks();
+  assert(platform.sources.includes(vehicles.assets.tileSheet));
+  assert.strictEqual(JSON.stringify(platform.storage), saved, 'restoration does not rewrite settings');
+
+  const restoreFail = new ClearedApp(platform, { subpackages: new SubpackageService(platform) });
+  restoreFail.start();
+  platform.calls[10].fail();
+  await flushThemeCallbacks();
+  assert.strictEqual(restoreFail.skins.current().id, 'vehicles');
+  assert.strictEqual(restoreFail.progress.getSetting('skinId'), 'vehicles');
+  assert.strictEqual(restoreFail.pendingSkinId, null);
+  assert.strictEqual(restoreFail.openLevel(0, 0), true);
+  const restoreRace = new ClearedApp(platform, { subpackages: new SubpackageService(platform) });
+  restoreRace.start();
+  restoreRace.setSkin('classic');
+  platform.calls[11].success();
+  await flushThemeCallbacks();
+  assert.strictEqual(restoreRace.skins.current().id, 'classic');
+
+  const unsupportedPlatform = createPlatform();
+  const unsupported = new ClearedApp(unsupportedPlatform, {
+    subpackages: new SubpackageService(unsupportedPlatform)
+  });
+  unsupported.setSkin('gem');
+  await flushThemeCallbacks();
+  assert.strictEqual(unsupported.skins.current().id, 'classic');
+  assert.strictEqual(unsupported.pendingSkinId, null);
+  assert.strictEqual(unsupported.themeDescriptors()[1].assetState, 'failed');
+  assert.strictEqual(unsupported.openLevel(0, 0), true);
+
+  // Even thrown image decode errors cannot prevent a successful package from
+  // selecting its palette or making the game playable.
+  platform.createImage = () => { throw new Error('decode failed'); };
+  assert.doesNotThrow(() => app.setSkin('gem'));
+  app.performAction('home:themes');
+  assert.doesNotThrow(() => app.tick(3000));
+  assert.strictEqual(app.renderer.images.tileSheet, undefined);
+  assert.strictEqual(app.renderer.ensureThemeTileImage(gem).image, null);
+
+  // Optional preview paths use the same gate and do not poison their cache.
+  const gated = new CanvasRenderer(createPlatform(), app.skins, null, new SubpackageService({}));
+  assert.strictEqual(gated.ensurePreviewImage({ id: 'gem', preview: gem.assets.tileSheet }), null);
+  assert.strictEqual(gated.previewSources.gem, undefined);
+  assert.strictEqual(gated.previewLoads.gem, undefined);
+}
+
+async function runBootstrapSubpackageChecks() {
+  const platform = Object.assign(createPlatform(), controlledPlatform());
+  const canvas = {
+    getContext() { return platform.context; },
+    requestAnimationFrame() { return 1; },
+    cancelAnimationFrame() {}
+  };
+  const previousWx = global.wx;
+  try {
+    global.wx = {
+      createCanvas() { return canvas; },
+      getWindowInfo() { return { windowWidth: 390, windowHeight: 844 }; },
+      getStorageSync: key => platform.getStorage(key),
+      setStorageSync: (key, value) => platform.setStorage(key, value),
+      createImage() {
+        const image = { width: 2000, height: 800 };
+        Object.defineProperty(image, 'src', { set(source) {
+          platform.sources.push(source);
+          image.source = source;
+          image.onload();
+        } });
+        return image;
+      },
+      onTouchStart() {}, onTouchMove() {}, onTouchEnd() {},
+      loadSubpackage(handlers) { platform.calls.push(handlers); return {}; }
+    };
+    const app = bootstrap.start();
+    assert(app.subpackages instanceof SubpackageService);
+    assert.strictEqual(app.renderer.subpackages, app.subpackages);
+    assert.strictEqual(platform.calls.length, 0);
+    app.setSkin('gem');
+    platform.calls[0].success();
+    await flushThemeCallbacks();
+    app.platform.stopLoop();
+    platform.sources.length = 0;
+    const restored = bootstrap.start();
+    assert.strictEqual(platform.calls.length, 2);
+    restored.tick(1000);
+    assert(restored.renderer.hits.length > 0);
+    assert(!platform.sources.includes(gem.assets.tileSheet));
+    platform.calls[1].success();
+    await flushThemeCallbacks();
+    assert(platform.sources.includes(gem.assets.tileSheet));
+    restored.platform.stopLoop();
+  } finally {
+    if (previousWx === undefined) delete global.wx;
+    else global.wx = previousWx;
+  }
+}
+
+async function run() {
   runServiceChecks();
   runRendererChecks();
   runAppChecks();
+  await runSubpackageChecks();
+  await runBootstrapSubpackageChecks();
 }
 
 module.exports = run;

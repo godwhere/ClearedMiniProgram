@@ -68,6 +68,32 @@ class WechatPlatform {
     return image;
   }
 
+  loadSubpackage(name, handlers) {
+    const callbacks = handlers || {};
+    if (!this.api || typeof this.api.loadSubpackage !== 'function') {
+      const error = { code: 'SUBPACKAGE_UNSUPPORTED' };
+      if (callbacks.fail) callbacks.fail(error);
+      if (callbacks.complete) callbacks.complete(error);
+      return null;
+    }
+    try {
+      const task = this.api.loadSubpackage({
+        name,
+        success: result => callbacks.success && callbacks.success(result || {}),
+        fail: error => callbacks.fail && callbacks.fail(error),
+        complete: result => callbacks.complete && callbacks.complete(result)
+      });
+      if (task && typeof task.onProgressUpdate === 'function' && callbacks.progress) {
+        task.onProgressUpdate(result => callbacks.progress(result || {}));
+      }
+      return task;
+    } catch (error) {
+      if (callbacks.fail) callbacks.fail(error);
+      if (callbacks.complete) callbacks.complete(error);
+      return null;
+    }
+  }
+
   bindPointer(handlers) {
     const points = (event, ended) => {
       const list = ended ? event.changedTouches : event.touches;

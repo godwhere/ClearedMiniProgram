@@ -1,4 +1,46 @@
 {
   "deviceOrientation": "portrait",
-  "showStatusBar": false
+  "showStatusBar": false,
+  "subpackages": [
+    {
+      "name": "theme-gem",
+      "root": "assets/skins/gem/"
+    },
+    {
+      "name": "theme-animals",
+      "root": "assets/skins/animals/"
+    },
+    {
+      "name": "theme-fruits",
+      "root": "assets/skins/fruits/"
+    },
+    {
+      "name": "theme-desserts",
+      "root": "assets/skins/desserts/"
+    },
+    {
+      "name": "theme-space",
+      "root": "assets/skins/space/"
+    },
+    {
+      "name": "theme-ocean",
+      "root": "assets/skins/ocean/"
+    },
+    {
+      "name": "theme-spring",
+      "root": "assets/skins/spring/"
+    },
+    {
+      "name": "theme-festival",
+      "root": "assets/skins/festival/"
+    },
+    {
+      "name": "theme-music",
+      "root": "assets/skins/music/"
+    },
+    {
+      "name": "theme-vehicles",
+      "root": "assets/skins/vehicles/"
+    }
+  ]
 }

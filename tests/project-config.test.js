@@ -1,6 +1,10 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
+const vm = require('vm');
+const subpackageConfig = require('../src/config/subpackages.js');
+const skins = require('../src/skins/index.js');
+const { isIgnored } = require('../scripts/check-package-budget.js');
 
 function run() {
   const root = path.resolve(__dirname, '..');
@@ -14,6 +18,53 @@ function run() {
   assert.strictEqual(config.setting.compileHotReLoad, false);
   assert.strictEqual(fs.existsSync(path.join(root, 'game.js')), true);
   assert.strictEqual(gameConfig.deviceOrientation, 'portrait');
+  const packages = gameConfig.subpackages;
+  assert.strictEqual(packages.length, 10);
+  assert.deepStrictEqual(packages, subpackageConfig.packages.map(item => ({ name: item.name, root: item.root })));
+  const themeIds = ['gem', 'animals', 'fruits', 'desserts', 'space',
+    'ocean', 'spring', 'festival', 'music', 'vehicles'];
+  assert.deepStrictEqual(packages.map(item => item.name), themeIds.map(id => `theme-${id}`));
+  assert.strictEqual(new Set(packages.map(item => item.name)).size, 10);
+  assert.strictEqual(new Set(packages.map(item => item.root)).size, 10);
+  const ignored = source => isIgnored(source, config.packOptions.ignore);
+  packages.forEach((item, index) => {
+    assert.strictEqual(item.root, `assets/skins/${themeIds[index]}/`);
+    assert.deepStrictEqual(Object.keys(item).sort(), ['name', 'root']);
+    assert(!packages.some(other => other !== item && other.root.startsWith(item.root)));
+    assert(fs.statSync(path.join(root, item.root)).isDirectory());
+    const entry = `${item.root}game.js`;
+    assert(fs.statSync(path.join(root, entry)).isFile());
+    assert(!ignored(entry));
+    // An asset-only entry can run with no require, wx or GameGlobal, and must
+    // leave the host global unchanged and export only an empty object.
+    const sandbox = { module: { exports: null } };
+    vm.runInNewContext(fs.readFileSync(path.join(root, entry), 'utf8'), sandbox);
+    assert.deepStrictEqual(Object.keys(sandbox), ['module']);
+    assert.strictEqual(JSON.stringify(sandbox.module.exports), '{}');
+    const runtime = subpackageConfig.packages[index];
+    assert.deepStrictEqual(runtime.themeIds, [themeIds[index]]);
+    assert.deepStrictEqual(runtime.assetPrefixes, [item.root]);
+    const theme = skins.find(skin => skin.id === themeIds[index]);
+    const sheet = theme.assets.tileSheet;
+    assert(sheet.startsWith(item.root));
+    assert(fs.statSync(path.join(root, sheet)).isFile());
+    assert(!ignored(sheet), 'formal theme sheets must ship in their subpackage');
+  });
+  assert(!ignored('assets/icons/portal.png'));
+  assert(ignored('assets/skins/animals/drafts/example.png'));
+  ['docs/package-splitting.md', '.github/workflows/check.yml', 'AGENTS.md',
+    '.gitattributes', '.gitignore'].forEach(file => assert(ignored(file), file));
+  ['src/bootstrap.js', 'core/game-runner.js', 'data/catalog.js', 'src/skins/classic.js',
+    'assets/audio/cleared-bgm.m4a'].forEach(file => assert(!ignored(file), file));
+
+  const runtimeFiles = directory => fs.readdirSync(directory, { withFileTypes: true }).flatMap(entry => {
+    const source = path.join(directory, entry.name);
+    return entry.isDirectory() ? runtimeFiles(source) : [source];
+  });
+  runtimeFiles(path.join(root, 'src')).filter(file => file.endsWith('.js')).forEach(file => {
+    if (file === path.join(root, 'src/platform/wechat.js')) return;
+    assert(!/\bwx\s*(?:\.|\[)/.test(fs.readFileSync(file, 'utf8')), `${file} bypasses platform boundary`);
+  });
 }
 
 module.exports = run;
