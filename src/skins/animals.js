@@ -6,6 +6,7 @@
 // slicing, tile geometry, and interaction behavior.
 module.exports = {
   id: 'animals',
+  preview: 'assets/theme-previews/animals.png',
   name: '动物',
   category: '动物',
   assets: {

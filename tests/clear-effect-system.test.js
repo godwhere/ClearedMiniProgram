@@ -38,7 +38,8 @@ function createPlatform() {
     },
     createImage(source, callback) {
       this.sources.push(source);
-      const image = { source, width: 512, height: 384 };
+      const image = source.indexOf('preview') >= 0
+        ? { source, width: 128, height: 128 } : { source, width: 512, height: 384 };
       if (callback) callback(null, image);
       return image;
     },
@@ -95,6 +96,8 @@ function run() {
   assert(app.renderer.hits.some(hit => hit.id === 'corridor:home'));
   assert(app.renderer.hits.some(hit => hit.id === 'corridor:themes'));
   assert(app.renderer.hits.some(hit => hit.id === 'corridor:effects'));
+  assert(!platform.sources.some(source => source.indexOf('preview') >= 0),
+    'corridor entry illustrations remain Canvas-drawn and do not load bitmap previews');
   assert.strictEqual(app.renderer.hits.filter(hit => /^corridor:/.test(hit.id)).length, 4,
     'back, sound, and two corridor cards are registered');
 
@@ -124,6 +127,14 @@ function run() {
     'the no-effect preview is loaded after entering the effect gallery');
   assert(platform.sources.indexOf('assets/effects/fade/preview.png') >= 0,
     'the fade preview is loaded after entering the effect gallery');
+  ['none', 'fade'].forEach(id => {
+    const source = `assets/effects/${id}/preview.png`;
+    const call = platform.context.calls.find(item => item.op === 'drawImage' && item.args[0].source === source);
+    assert(call, `${id}: the PNG-8 preview is drawn`);
+    assert.strictEqual(call.args[0].width, 128);
+    assert.strictEqual(call.args[0].height, 128);
+    assert.strictEqual(call.args[3], call.args[4], 'square previews retain their aspect ratio');
+  });
   const fadeHit = app.renderer.hits.find(hit => hit.id === 'effect:fade');
   app.onPointerStart({ x: fadeHit.rect.x + fadeHit.rect.w / 2,
     y: fadeHit.rect.y + fadeHit.rect.h / 2, id: 11 });

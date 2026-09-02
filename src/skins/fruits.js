@@ -6,6 +6,7 @@
 // Rendering owns slicing, tile geometry, and interaction behavior.
 module.exports = {
   id: 'fruits',
+  preview: 'assets/theme-previews/fruits.png',
   name: '水果',
   category: '水果',
   assets: {

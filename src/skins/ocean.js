@@ -7,6 +7,7 @@
 // geometry, and interaction behavior.
 module.exports = {
   id: 'ocean',
+  preview: 'assets/theme-previews/ocean.png',
   name: '海洋',
   category: '海洋',
   assets: {

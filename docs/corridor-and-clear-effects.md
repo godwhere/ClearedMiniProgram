@@ -345,12 +345,17 @@ service.resolve('missing');     // 返回 fade 回退，不抛出运行时错误
 
 内置预览图位于 `assets/effects/none/preview.png` 和 `assets/effects/fade/preview.png`。它们只服务于特效卡片，不是棋盘动画贴图。
 
+2026-09-03 起，回廊所有位图预览统一采用 **128×128、最多 128 种实际 RGBA 颜色的 PNG-8**，每张不超过 8 KiB。
+两张特效图从原构图等比缩放并透明居中补边；原图保存于 `scripts/gallery-preview-sources/effects/`，该目录不参与发布。
+十套主题预览遵守相同规格，存放在主包的 `assets/theme-previews/`。回廊入口与经典主题继续由 Canvas 绘制，不新增位图。
+具体生成流程、代码白名单/禁止区和验收清单见 [`corridor-preview-assets.md`](corridor-preview-assets.md)。
+
 `fade` 的美术意象：
 
 - 轻薄、半透明的风痕或飘散带状线条；
 - 明亮、干净、低细节，主体居中，能在小卡片中一眼看懂“逐渐消散”；
 - 不包含文字、按钮、Logo、棋盘或水印；
-- 使用适合 `contain` 绘制的方形或 4:3 构图，避免重要内容贴边。
+- 源图使用适合 `contain` 的方形或 4:3 构图，避免重要内容贴边；发布小图统一为等比补边的 128×128 正方形。
 
 可供 ImageGen 使用的提示词草案（仅美术输入，不是运行时代码）：
 
@@ -450,6 +455,7 @@ effect:<id>              -- stay --> effects
 7. **清除视觉契约**：`none` 在普通、每日和 Portal 中均不创建快照、不绘制格子、不保留动画尾；`fade` 的 alpha 单调从 1 到 0；两者都不改变 GameRunner 状态和结算。
 8. **动画快照**：动画播放中切换特效不会改变已开始路径；reset/undo 会清除旧动画；duration 非法值会安全回退；未填满失败窗口不得早于最终动画结束出现。
 9. **预览回退与竞态**：ImageGen 预览懒加载；失败、缺图、晚到回调均不会阻塞页面或覆盖当前页面；棋盘不请求预览图。
+   另运行 `node scripts/validate-gallery-previews.js` 校验全部回廊位图的 128/128c 规格与主包归属；运行离线生成工具的 `--check` 验证源图和小图一致。
 10. **轻量边界**：不新增粒子/物理/offscreen canvas/逐帧 sprite/网络依赖；每格每帧最多调用一次 `drawTile()`，绘制为 O(1)，新增临时对象数量不超过当前路径长度，单次动画沿用主循环。
 11. **回归**：运行 `node tests/run.js`，现有主题、每日挑战、连线、音频、Canvas 和启动测试全部通过。
 12. **真机视觉**：在窄屏、安全区和高 DPR 设备检查回廊/特效页始终保持 2×3，返回按钮可点，预览不拉伸，淡出不遮挡底部操作区。

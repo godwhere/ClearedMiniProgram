@@ -7,6 +7,7 @@
 // tile geometry, and interaction behavior.
 module.exports = {
   id: 'music',
+  preview: 'assets/theme-previews/music.png',
   name: '音乐',
   category: '音乐',
   assets: {

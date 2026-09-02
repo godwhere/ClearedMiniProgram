@@ -7,6 +7,7 @@
 // slicing, tile geometry, and interaction behavior.
 module.exports = {
   id: 'spring',
+  preview: 'assets/theme-previews/spring.png',
   name: '春天',
   category: '春天',
   assets: {

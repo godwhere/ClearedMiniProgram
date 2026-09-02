@@ -21,9 +21,10 @@
 
 主题（内部仍称 skin）的画廊、分页、资源协议与代码边界记录在
 [`docs/theme-system.md`](docs/theme-system.md)。宝石、动物、水果、甜点、太空、海洋、春天、节日限定、音乐和交通工具十个非经典主题已接入运行时，后续主题按同一协议扩展。
-十套正式精灵表各自放在普通分包中。未下载的主题卡片显示 2×2 颜色块与“点击下载”，
-点击后保留原主题并显示下载进度；成功后才切换并保存，失败可再次点击重试。
-下载后的预览使用各主题前四个 tile 按 2×2 排列，不依赖独立预览图。
+十套正式精灵表各自放在普通分包中。主题卡片从主包读取 **128×128、128 色 PNG-8** 小图，
+未下载分包也能看到前四个图标的 2×2 预览。点击后保留原主题并显示下载进度；成功后才切换并保存，失败可再次点击重试，预览始终保留。
+回廊中的两张特效预览也统一为同一规格，每张不超过 8 KiB；入口插画继续由 Canvas 直接绘制。
+生成流程、验收门禁与本次严格修改边界见 [`docs/corridor-preview-assets.md`](docs/corridor-preview-assets.md)。
 经典主题冷启动不请求主题分包；恢复保存的非经典主题时先用颜色回退显示，下载不阻塞游玩。
 包划分、加载状态与验收边界见 [`docs/package-splitting.md`](docs/package-splitting.md)。
 节日限定当前先作为可选视觉主题接入，按日期自动上架/下架的运营规则后续另行实现。
@@ -152,8 +153,9 @@ assets/skins/spring/             春天主题精灵图（主题页取前四个�
 assets/skins/festival/           节日限定主题精灵图（主题页取前四个元素 2×2 展示）
 assets/skins/music/              音乐主题精灵图（主题页取前四个元素 2×2 展示）
 assets/skins/vehicles/           交通工具主题精灵图（主题页取前四个元素 2×2 展示）
-assets/effects/none/             “无特效”选择页预览图
-assets/effects/fade/             “逐渐消失”特效选择页预览图
+assets/theme-previews/           主包主题四格预览，128×128 / 128 色 PNG-8
+assets/effects/none/             “无特效”选择页预览，128×128 / 128 色 PNG-8
+assets/effects/fade/             “逐渐消失”特效选择页预览，128×128 / 128 色 PNG-8
 tests/clear-effect-service.test.js、tests/clear-effect-system.test.js 特效服务与场景测试
 ```
 
@@ -167,6 +169,7 @@ tests/clear-effect-service.test.js、tests/clear-effect-system.test.js 特效服
 ```sh
 node tests/run.js
 node scripts/validate-theme-assets.js
+node scripts/validate-gallery-previews.js
 node scripts/check-package-budget.js
 git diff --check
 ```
@@ -183,11 +186,16 @@ git diff --check
 如修改原始关卡 JSON，可运行 `node scripts/generate-level-modules.js` 更新提交到工程中的
 JS 数据模块；正常导入和运行小游戏不需要执行此命令。
 
+新增主题或更新回廊位图时，使用 Python/Pillow 离线运行 `python3 scripts/generate-gallery-previews.py`，
+再用 `python3 scripts/generate-gallery-previews.py --check` 验证源图与输出一致。
+主题配置声明顶层 `preview`，工具从现有注册列表枚举；特效源图保留在不入包的
+`scripts/gallery-preview-sources/effects/`。安装说明与固定规格见回廊预览方案文档。
+
 包体脚本按 `game.json.subpackages` 和 `project.config.json.packOptions.ignore` 统计源码字节，
 主包预算 ≤ 3.2 MiB、单分包 ≤ 3.5 MiB、总包 ≤ 18 MiB，主包和每个分包均须严格小于 4 MiB。
 它不代表最终微信包体；提交审核前须在开发者工具“详情 -> 本地代码 -> 代码包分析”复核实际包体、
 十张精灵表均不在主包依赖中，以及后台当前总包上限，并在 Android/iOS 验证弱网、失败重试和清缓存重启。
-BGM、短音效、Logo、Portal 图标和特效预览仍在主包；仅在主包超预算时再评估 BGM 分包兜底。
+BGM、短音效、Logo、Portal 图标以及轻量主题/特效预览仍在主包；仅在主包超预算时再评估 BGM 分包兜底。
 主题素材校验不传参数时只检查正式精灵表并跳过 `drafts/`；显式传入 `assets/skins` 会同时检查已排除发布的历史草稿，当前动物旧稿会失败。
 
 声音系统使用原版 BGM 的压缩版本，以及 Echo of Genesis 提供的点击、连线、错误和通关

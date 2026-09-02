@@ -38,7 +38,7 @@ function fakeContext() {
 }
 
 function imageFor(source) {
-  if (source.indexOf('preview') >= 0) return { source, width: 1448, height: 1086 };
+  if (source.indexOf('preview') >= 0) return { source, width: 128, height: 128 };
   if (source.indexOf('sprite-sheet') >= 0) return { source, width: 2000, height: 800 };
   return { source, width: 96, height: 96 };
 }
@@ -85,21 +85,21 @@ function runServiceChecks() {
     ['classic', 'gem', 'animals', 'fruits', 'desserts', 'space', 'ocean', 'spring', 'festival', 'music', 'vehicles']);
   const gemItem = list.find(item => item.id === 'gem');
   assert.strictEqual(gemItem.name, '宝石');
-  assert.strictEqual(gemItem.preview, undefined);
+  assert.strictEqual(gemItem.preview, 'assets/theme-previews/gem.png');
   const animalItem = list.find(item => item.id === 'animals');
   assert.strictEqual(animalItem.name, '动物');
-  assert.strictEqual(animalItem.preview, undefined);
+  assert.strictEqual(animalItem.preview, 'assets/theme-previews/animals.png');
   const fruitItem = list.find(item => item.id === 'fruits');
   assert.strictEqual(fruitItem.name, '水果');
-  assert.strictEqual(fruitItem.preview, undefined);
+  assert.strictEqual(fruitItem.preview, 'assets/theme-previews/fruits.png');
   const dessertItem = list.find(item => item.id === 'desserts');
   assert.strictEqual(dessertItem.name, '甜点');
   assert.strictEqual(dessertItem.category, '甜点');
-  assert.strictEqual(dessertItem.preview, undefined);
+  assert.strictEqual(dessertItem.preview, 'assets/theme-previews/desserts.png');
   const spaceItem = list.find(item => item.id === 'space');
   assert.strictEqual(spaceItem.name, '太空');
   assert.strictEqual(spaceItem.category, '太空');
-  assert.strictEqual(spaceItem.preview, undefined);
+  assert.strictEqual(spaceItem.preview, 'assets/theme-previews/space.png');
   assert.strictEqual(service.select('animals'), true);
   assert.strictEqual(settings.skinId, 'animals');
   assert.strictEqual(service.current().assets.tileSheet,
@@ -137,7 +137,7 @@ function runServiceChecks() {
   const oceanItem = list.find(item => item.id === 'ocean');
   assert.strictEqual(oceanItem.name, '海洋');
   assert.strictEqual(oceanItem.category, '海洋');
-  assert.strictEqual(oceanItem.preview, undefined);
+  assert.strictEqual(oceanItem.preview, 'assets/theme-previews/ocean.png');
   assert.strictEqual(service.select('ocean'), true);
   assert.strictEqual(settings.skinId, 'ocean');
   assert.strictEqual(service.current().assets.tileSheet,
@@ -150,7 +150,7 @@ function runServiceChecks() {
   const springItem = list.find(item => item.id === 'spring');
   assert.strictEqual(springItem.name, '春天');
   assert.strictEqual(springItem.category, '春天');
-  assert.strictEqual(springItem.preview, undefined);
+  assert.strictEqual(springItem.preview, 'assets/theme-previews/spring.png');
   assert.strictEqual(service.select('spring'), true);
   assert.strictEqual(settings.skinId, 'spring');
   assert.strictEqual(service.current().assets.tileSheet,
@@ -163,7 +163,7 @@ function runServiceChecks() {
   const festivalItem = list.find(item => item.id === 'festival');
   assert.strictEqual(festivalItem.name, '节日限定');
   assert.strictEqual(festivalItem.category, '节日');
-  assert.strictEqual(festivalItem.preview, undefined);
+  assert.strictEqual(festivalItem.preview, 'assets/theme-previews/festival.png');
   assert.strictEqual(service.select('festival'), true);
   assert.strictEqual(settings.skinId, 'festival');
   assert.strictEqual(service.current().assets.tileSheet,
@@ -176,7 +176,7 @@ function runServiceChecks() {
   const musicItem = list.find(item => item.id === 'music');
   assert.strictEqual(musicItem.name, '音乐');
   assert.strictEqual(musicItem.category, '音乐');
-  assert.strictEqual(musicItem.preview, undefined);
+  assert.strictEqual(musicItem.preview, 'assets/theme-previews/music.png');
   assert.strictEqual(service.select('music'), true);
   assert.strictEqual(settings.skinId, 'music');
   assert.strictEqual(service.current().assets.tileSheet,
@@ -189,7 +189,7 @@ function runServiceChecks() {
   const vehiclesItem = list.find(item => item.id === 'vehicles');
   assert.strictEqual(vehiclesItem.name, '交通工具');
   assert.strictEqual(vehiclesItem.category, '交通');
-  assert.strictEqual(vehiclesItem.preview, undefined);
+  assert.strictEqual(vehiclesItem.preview, 'assets/theme-previews/vehicles.png');
   assert.strictEqual(service.select('vehicles'), true);
   assert.strictEqual(settings.skinId, 'vehicles');
   assert.strictEqual(service.current().assets.tileSheet,
@@ -281,33 +281,22 @@ function runRendererChecks() {
   'theme card renders only its name');
   assert(!renderer.hits.some(hit => hit.id === 'themes:prev'));
   assert(!renderer.hits.some(hit => hit.id === 'themes:next'));
-  assert(platform.sources.indexOf('assets/skins/gem/gem-sprite-sheet.png') >= 0,
-    'theme card preview loads the gem tile sheet');
-  assert(platform.sources.indexOf('assets/skins/animals/animal-sprite-sheet.png') >= 0,
-    'theme card preview loads the animal tile sheet');
-  assert(platform.sources.indexOf('assets/skins/fruits/fruit-sprite-sheet.png') >= 0,
-    'theme card preview loads the fruit tile sheet');
-  assert(platform.sources.indexOf('assets/skins/desserts/dessert-sprite-sheet.png') >= 0,
-    'theme card preview loads the dessert tile sheet');
-  assert(platform.sources.indexOf('assets/skins/space/space-sprite-sheet.png') >= 0,
-    'theme card preview loads the space tile sheet');
-  assert.strictEqual(platform.context.calls.filter(call => call.op === 'drawImage' &&
-    call.args[0] && call.args[0].source === 'assets/skins/gem/gem-sprite-sheet.png').length, 4,
-  'gem card preview uses exactly the first four tile elements');
-  assert.strictEqual(platform.context.calls.filter(call => call.op === 'drawImage' &&
-    call.args[0] && call.args[0].source === 'assets/skins/animals/animal-sprite-sheet.png').length, 4,
-  'animal card preview uses exactly the first four tile elements');
-  assert.strictEqual(platform.context.calls.filter(call => call.op === 'drawImage' &&
-    call.args[0] && call.args[0].source === 'assets/skins/fruits/fruit-sprite-sheet.png').length, 4,
-  'fruit card preview uses exactly the first four tile elements');
-  assert.strictEqual(platform.context.calls.filter(call => call.op === 'drawImage' &&
-    call.args[0] && call.args[0].source === 'assets/skins/desserts/dessert-sprite-sheet.png').length, 4,
-  'dessert card preview uses exactly the first four tile elements');
-  assert.strictEqual(platform.context.calls.filter(call => call.op === 'drawImage' &&
-    call.args[0] && call.args[0].source === 'assets/skins/space/space-sprite-sheet.png').length, 4,
-  'space card preview uses exactly the first four tile elements');
-  assert.strictEqual(platform.sources.some(source => source.indexOf('/preview.png') >= 0), false,
-    'theme card preview does not request generated preview images');
+  function assertPreviewFrames(theme) {
+    assert(platform.sources.includes(theme.preview), `${theme.id}: loads the main-package preview`);
+    const calls = platform.context.calls.filter(call => call.op === 'drawImage' &&
+      call.args[0] && call.args[0].source === theme.preview);
+    assert.deepStrictEqual(calls.map(call => call.args.slice(1, 5)), [
+      [0, 0, 64, 64], [64, 0, 64, 64], [0, 64, 64, 64], [64, 64, 64, 64]
+    ], `${theme.id}: uses the four 64px preview slots in row-major order`);
+    assert.strictEqual(service.get(theme.id).tileVisuals.columns, 5);
+    assert.strictEqual(service.get(theme.id).tileVisuals.count, 10,
+      'drawing a preview never changes the registered board manifest');
+  }
+  [gem, animals, fruits, desserts, space].forEach(assertPreviewFrames);
+  assert.strictEqual(platform.sources.some(source => source.startsWith('assets/skins/')), false,
+    'gallery previews do not decode full sheets even on a host without subpackage gating');
+  assert.strictEqual(platform.sources.some(source => source === ocean.preview), false,
+    'the next page is not loaded before it is visible');
 
   // Eleven registered themes span two gallery pages; the second page contains
   // ocean, spring, festival, music, and vehicles in five populated slots.
@@ -332,34 +321,16 @@ function runRendererChecks() {
     'the sixth slot on a partial page stays empty and has no hit');
   assert(renderer.hits.some(hit => hit.id === 'themes:prev'));
   assert(!renderer.hits.some(hit => hit.id === 'themes:next'));
-  assert(platform.sources.indexOf('assets/skins/ocean/ocean-sprite-sheet.png') >= 0,
-    'second-page gallery preview loads the ocean tile sheet');
-  assert(platform.sources.indexOf('assets/skins/spring/spring-sprite-sheet.png') >= 0,
-    'second-page gallery preview loads the spring tile sheet');
-  assert(platform.sources.indexOf('assets/skins/festival/festival-sprite-sheet.png') >= 0,
-    'second-page gallery preview loads the festival tile sheet');
-  assert(platform.sources.indexOf('assets/skins/music/music-sprite-sheet.png') >= 0,
-    'second-page gallery preview loads the music tile sheet');
-  assert(platform.sources.indexOf('assets/skins/vehicles/vehicle-sprite-sheet.png') >= 0,
-    'second-page gallery preview loads the vehicles tile sheet');
-  assert.strictEqual(platform.context.calls.filter(call => call.op === 'drawImage' &&
-    call.args[0] && call.args[0].source === 'assets/skins/ocean/ocean-sprite-sheet.png').length, 4,
-  'ocean card preview uses exactly the first four tile elements');
-  assert.strictEqual(platform.context.calls.filter(call => call.op === 'drawImage' &&
-    call.args[0] && call.args[0].source === 'assets/skins/spring/spring-sprite-sheet.png').length, 4,
-  'spring card preview uses exactly the first four tile elements');
-  assert.strictEqual(platform.context.calls.filter(call => call.op === 'drawImage' &&
-    call.args[0] && call.args[0].source === 'assets/skins/festival/festival-sprite-sheet.png').length, 4,
-  'festival card preview uses exactly the first four tile elements');
-  assert.strictEqual(platform.context.calls.filter(call => call.op === 'drawImage' &&
-    call.args[0] && call.args[0].source === 'assets/skins/music/music-sprite-sheet.png').length, 4,
-  'music card preview uses exactly the first four tile elements');
-  assert.strictEqual(platform.context.calls.filter(call => call.op === 'drawImage' &&
-    call.args[0] && call.args[0].source === 'assets/skins/vehicles/vehicle-sprite-sheet.png').length, 4,
-  'vehicles card preview uses exactly the first four tile elements');
+  [ocean, spring, festival, music, vehicles].forEach(assertPreviewFrames);
 
   service.select('gem');
   renderer.loadSkinAssets();
+  platform.context.calls.length = 0;
+  renderer.drawTile(9, 0, 0, 64, { skin: service.current() });
+  const tenthTile = platform.context.calls.find(call => call.op === 'drawImage');
+  assert.strictEqual(tenthTile.args[0].source, gem.assets.tileSheet);
+  assert.deepStrictEqual(tenthTile.args.slice(1, 5), [1600, 400, 400, 400],
+    'the board still draws its tenth slot from the full sheet after gallery rendering');
   const level = { Width: 5, Height: 1, Name: '1', Lines: [{ Start: 0, End: 4 }] };
   const runner = new GameRunner(level, ['#f00']);
   renderer.render({
@@ -608,6 +579,87 @@ function runRendererChecks() {
   assert(platform.context.calls.some(call => call.op === 'fillRect' && call.fillStyle === '#f00'));
 }
 
+function runPreviewChecks() {
+  const rect = { x: 0, y: 0, w: 132, h: 132 };
+  const service = new SkinService(progressStub({ skinId: 'gem' }), [gem]);
+  const coldPlatform = createPlatform();
+  new CanvasRenderer(coldPlatform, service);
+  assert(coldPlatform.sources.includes(gem.assets.tileSheet));
+  assert(!coldPlatform.sources.includes(gem.preview),
+    'preparing a saved theme for gameplay does not load its gallery preview');
+
+  ['error', 'zero', 'wrong-size', 'throw', 'missing'].forEach(mode => {
+    const platform = createPlatform();
+    platform.createImage = function (source, callback) {
+      this.sources.push(source);
+      if (source === gem.preview) {
+        if (mode === 'throw') throw new Error('decode failed');
+        if (mode === 'error') { callback(new Error('missing image')); return null; }
+        const image = { source, width: mode === 'zero' ? 0 : 128, height: 96 };
+        callback(null, image);
+        return image;
+      }
+      const image = imageFor(source);
+      callback(null, image);
+      return image;
+    };
+    const manifest = mode === 'missing' ? Object.assign({}, gem, { preview: undefined }) : gem;
+    const skins = new SkinService(progressStub({}), [manifest]);
+    const renderer = new CanvasRenderer(platform, skins, null, new SubpackageService({}));
+    for (let frame = 0; frame < 3; frame++) {
+      assert.doesNotThrow(() => renderer.drawThemeElementsPreview(manifest, rect, skins.current()));
+    }
+    assert(!platform.sources.includes(gem.assets.tileSheet), `${mode}: never reads an unloaded sheet`);
+    assert.strictEqual(platform.sources.filter(source => source === gem.preview).length,
+      mode === 'missing' ? 0 : 1, `${mode}: no per-frame preview retries`);
+    assert(!platform.context.calls.some(call => call.op === 'drawImage'));
+    assert(platform.context.calls.some(call => call.op === 'fillRect'), `${mode}: retains color fallback`);
+  });
+
+  const readyPlatform = createPlatform();
+  const readyCreate = readyPlatform.createImage;
+  readyPlatform.createImage = function (source, callback) {
+    if (source === gem.preview) { this.sources.push(source); callback(new Error('missing preview')); return null; }
+    return readyCreate.call(this, source, callback);
+  };
+  const readyRenderer = new CanvasRenderer(readyPlatform, service);
+  readyRenderer.drawThemeElementsPreview(gem, rect, service.current());
+  assert.strictEqual(readyPlatform.context.calls.filter(call => call.op === 'drawImage' &&
+    call.args[0].source === gem.assets.tileSheet).length, 4,
+  'a ready full sheet can still supply the preview fallback');
+
+  const callbacks = {};
+  const delayedPlatform = createPlatform();
+  delayedPlatform.createImage = function (source, callback) {
+    this.sources.push(source);
+    callbacks[source] = callback;
+    return imageFor(source);
+  };
+  const delayedRenderer = new CanvasRenderer(delayedPlatform, service);
+  const oldSource = 'assets/theme-previews/old.png';
+  const newSource = 'assets/theme-previews/new.png';
+  delayedRenderer.ensurePreviewImage({ id: 'gem', preview: oldSource });
+  delayedRenderer.ensurePreviewImage({ id: 'gem', preview: newSource });
+  const newImage = imageFor(newSource);
+  callbacks[newSource](null, newImage);
+  callbacks[oldSource](null, imageFor(oldSource));
+  assert.strictEqual(delayedRenderer.previewImages.gem, newImage, 'late old-source completion is ignored');
+  delayedRenderer.invalidateThemeAssets('gem');
+  assert.strictEqual(delayedRenderer.previewImages.gem, newImage, 'board invalidation preserves the preview');
+  assert.strictEqual(delayedRenderer.ensurePreviewImage({ id: 'gem', preview: newSource }), newImage);
+  assert.strictEqual(delayedPlatform.sources.filter(source => source === newSource).length, 1);
+  delayedRenderer.ensurePreviewImage({ id: 'gem', preview: oldSource });
+  const abandonedCallback = callbacks[oldSource];
+  assert.strictEqual(delayedRenderer.ensurePreviewImage({ id: 'gem', preview: newSource }), newImage);
+  abandonedCallback(null, imageFor(oldSource));
+  assert.strictEqual(delayedRenderer.previewImages.gem, newImage,
+    'switching back to a cached source cancels ownership of a pending different source');
+  ['https://example.com/preview.png', 'data:image/png;base64,AA', '//example.com/preview.png'].forEach(source => {
+    assert.strictEqual(delayedRenderer.ensurePreviewImage({ id: 'remote', preview: source }), null);
+    assert(!delayedPlatform.sources.includes(source), 'gallery preview cannot start a network request');
+  });
+}
+
 function runAppChecks() {
   const platform = createPlatform();
   const app = new ClearedApp(platform);
@@ -632,8 +684,7 @@ function runAppChecks() {
   assert.strictEqual(app.skins.current().id, 'desserts');
   assert.strictEqual(app.progress.getSetting('skinId', 'classic'), 'desserts');
   assert.strictEqual(app.scene, 'themes');
-  assert.strictEqual(platform.sources.some(source => source.indexOf('/preview.png') >= 0), false,
-    'selected theme does not load unused generated previews');
+  assert(platform.sources.includes(desserts.preview), 'the selected card already has its small preview');
 
   const restored = new ClearedApp(platform);
   assert.strictEqual(restored.skins.current().id, 'desserts', 'selected theme survives a new app instance');
@@ -746,10 +797,20 @@ async function runSubpackageChecks() {
   app.start();
   app.tick(1000);
   assert.strictEqual(platform.calls.length, 0, 'classic cold start never downloads');
+  assert(!platform.sources.some(source => source.startsWith('assets/theme-previews/')),
+    'classic cold start does not load gallery previews');
   app.performAction('home:themes');
   app.tick(1001);
+  assert.deepStrictEqual(platform.sources.filter(source => source.startsWith('assets/theme-previews/')),
+    [gem, animals, fruits, desserts, space].map(theme => theme.preview),
+    'only visible first-page previews are read without downloading a subpackage');
   app.changeThemePage(1);
   app.tick(1002);
+  assert.strictEqual(platform.calls.length, 0, 'gallery browsing never starts a theme download');
+  [gem, animals, fruits, desserts, space, ocean, spring, festival, music, vehicles].forEach(theme => {
+    assert(platform.context.calls.some(call => call.op === 'drawImage' && call.args[0].source === theme.preview),
+      `${theme.id}: preview is visible while every subpackage is idle`);
+  });
   assert(!platform.sources.some(source => source.startsWith('assets/skins/')),
     'neither gallery page reads an unloaded sheet');
   ['themeTileImages', 'themeTileSources', 'themeTileLoads'].forEach(key => {
@@ -778,13 +839,12 @@ async function runSubpackageChecks() {
   app.tick(1003);
   assert(platform.context.calls.some(call => call.op === 'fillText' && call.args[0] === '下载 37%'));
   assert(!platform.sources.some(source => source.startsWith('assets/skins/')));
+  const cachedGemPreview = app.renderer.previewImages.gem;
+  assert.strictEqual(cachedGemPreview.source, gem.preview);
   // Seed previous failed image records to prove success explicitly invalidates them.
   app.renderer.themeTileImages.gem = null;
   app.renderer.themeTileSources.gem = gem.assets.tileSheet;
   app.renderer.themeTileLoads.gem = { source: gem.assets.tileSheet };
-  app.renderer.previewImages.gem = null;
-  app.renderer.previewSources.gem = 'old';
-  app.renderer.previewLoads.gem = {};
   platform.calls[0].success();
   assert.strictEqual(app.skins.current().id, 'classic', 'commit waits for the promise');
   await flushThemeCallbacks();
@@ -793,7 +853,9 @@ async function runSubpackageChecks() {
   assert.strictEqual(app.pendingSkinId, null);
   assert(platform.sources.includes(gem.assets.tileSheet));
   assert.strictEqual(app.renderer.themeTileLoads.gem, undefined);
-  assert.strictEqual(app.renderer.previewSources.gem, undefined);
+  assert.strictEqual(app.renderer.previewSources.gem, gem.preview);
+  assert.strictEqual(app.renderer.previewImages.gem, cachedGemPreview,
+    'download completion keeps the small card image cached');
   assert.strictEqual(app.scene, 'themes');
 
   const beforeFail = JSON.stringify(platform.storage);
@@ -805,6 +867,10 @@ async function runSubpackageChecks() {
   assert.strictEqual(app.pendingSkinId, null);
   app.tick(1004);
   assert(platform.context.calls.some(call => call.op === 'fillText' && call.args[0] === '加载失败，点击重试'));
+  assert.strictEqual(app.renderer.previewImages.animals.source, animals.preview,
+    'failed downloads do not remove their main-package preview');
+  assert.strictEqual(platform.sources.filter(source => source === animals.preview).length, 1,
+    'progress, failure, and repeated gallery frames reuse the preview');
   app.setSkin('animals');
   assert.strictEqual(platform.calls.length, 3);
   platform.calls[2].success();
@@ -920,7 +986,7 @@ async function runBootstrapSubpackageChecks() {
         const image = { width: 2000, height: 800 };
         Object.defineProperty(image, 'src', { set(source) {
           platform.sources.push(source);
-          image.source = source;
+          Object.assign(image, imageFor(source));
           image.onload();
         } });
         return image;
@@ -955,6 +1021,7 @@ async function runBootstrapSubpackageChecks() {
 async function run() {
   runServiceChecks();
   runRendererChecks();
+  runPreviewChecks();
   runAppChecks();
   await runSubpackageChecks();
   await runBootstrapSubpackageChecks();

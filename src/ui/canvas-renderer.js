@@ -48,14 +48,12 @@ class CanvasRenderer {
       }
     });
     this.images = {};
-    // Optional non-gallery preview assets remain cacheable for future screens.
-    // The theme gallery itself uses the first four tile elements instead.
+    // Main-package 128px previews are independent of downloaded board art.
+    // Only visible theme cards start requests; results stay cached by source.
     this.previewImages = {};
     this.previewSources = {};
     this.previewLoads = {};
-    // Theme-card previews use the first four tile elements rather than a
-    // separately generated preview image. Tile sheets are loaded lazily per
-    // theme so opening the gallery does not eagerly load every future theme.
+    // Ready tile sheets remain a fallback for missing/invalid small previews.
     this.themeTileImages = {};
     this.themeTileSources = {};
     this.themeTileLoads = {};
@@ -107,8 +105,8 @@ class CanvasRenderer {
     this.images = {};
     const assets = this.skinService.current().assets || {};
     Object.keys(assets).forEach(name => {
-      // Theme cards now build their preview from the first four tile frames;
-      // keep optional generated preview art out of the normal load path.
+      // Gallery previews load only when their cards are visible, never as
+      // part of preparing a selected theme's board assets.
       if (name === 'preview' || name === 'previewImage' || name === 'themePreview') return;
       if (typeof assets[name] !== 'string' || !assets[name]) return;
       if (!this.isAssetReady(assets[name])) return;
@@ -133,9 +131,8 @@ class CanvasRenderer {
     delete this.themeTileImages[id];
     delete this.themeTileSources[id];
     delete this.themeTileLoads[id];
-    delete this.previewImages[id];
-    delete this.previewSources[id];
-    delete this.previewLoads[id];
+    // Download/selection changes board art only. Preview path changes are
+    // handled by ensurePreviewImage; keep loaded small images on screen.
     if (id === this.skinService.current().id) {
       ++this.assetGeneration;
       this.images = {};
@@ -344,6 +341,7 @@ class CanvasRenderer {
     const id = String(theme.id);
     const source = this.previewSource(theme);
     if (source && typeof source !== 'string') return source;
+    if (source && /^(?:[a-z][a-z0-9+.-]*:|\/\/)/i.test(source.trim())) return null;
 
     // A selected theme's preview may already have been loaded as one of its
     // regular assets by loadSkinAssets().
@@ -353,8 +351,8 @@ class CanvasRenderer {
     if (!source) return null;
     if (!this.isAssetReady(source)) return null;
 
-    // Reuse a preview that was loaded through the selected skin's regular
-    // asset pipeline (the gem manifest declares the same file in both places).
+    // Preserve compatibility with hosts that supply a preview in the selected
+    // skin's image map, though gallery previews normally load independently.
     if (id === this.skinService.current().id) {
       const currentAssets = this.skinService.current().assets || {};
       const previewKey = Object.keys(currentAssets).find(name =>
@@ -363,11 +361,14 @@ class CanvasRenderer {
       if (previewKey && this.images[previewKey]) return this.images[previewKey];
     }
 
+    const active = this.previewLoads[id];
+    // A manifest can switch back to its cached source while another is in
+    // flight. Cancel that request's ownership before returning the cache.
+    if (active && active.source !== source) delete this.previewLoads[id];
     if (this.previewSources[id] === source &&
         Object.prototype.hasOwnProperty.call(this.previewImages, id)) {
       return this.previewImages[id];
     }
-    const active = this.previewLoads[id];
     if (active && active.source === source) return null;
 
     const request = { source };
@@ -379,16 +380,21 @@ class CanvasRenderer {
         if (this.previewLoads[id] !== request) return;
         this.previewSources[id] = source;
         this.previewImages[id] = error || !image ? null : image;
+        delete this.previewLoads[id];
         this.invalidate();
       });
     } catch (error) {
       if (this.previewLoads[id] === request) {
         this.previewSources[id] = source;
         this.previewImages[id] = null;
+        delete this.previewLoads[id];
         this.invalidate();
       }
     }
-    return null;
+    // Some hosts complete synchronously; they can draw this same frame.
+    return this.previewSources[id] === source &&
+      Object.prototype.hasOwnProperty.call(this.previewImages, id)
+      ? this.previewImages[id] : null;
   }
 
   imageSize(image) {
@@ -1000,7 +1006,22 @@ class CanvasRenderer {
   drawThemeElementsPreview(theme, rect, fallbackSkin) {
     const manifest = this.themeManifest(theme) || theme || {};
     const palette = this.themePalette(manifest, fallbackSkin);
-    const asset = this.ensureThemeTileImage(manifest);
+    const preview = this.ensurePreviewImage(manifest);
+    const dimensions = this.imageSize(preview);
+    const hasPreview = dimensions.width === 128 && dimensions.height === 128;
+    const asset = hasPreview ? { key: 'preview', image: preview }
+      : this.ensureThemeTileImage(manifest);
+    const visuals = this.tileVisualConfig(manifest);
+    // This view-only manifest keeps the board's 5x2 / 10-slot contract intact.
+    // The four preview slots retain the same Canvas-drawn translucent bases.
+    const previewSkin = hasPreview ? Object.assign({}, manifest, {
+      tileVisuals: {
+        type: 'spriteSheet', asset: 'preview', columns: 2, rows: 2, count: 4, scale: 1,
+        background: visuals.background,
+        backgroundColor: visuals.backgroundColor,
+        backgroundAlpha: visuals.backgroundAlpha
+      }
+    }) : manifest;
     const columns = 2;
     const rows = 2;
     const gap = clamp(Math.min(rect.w, rect.h) * 0.06, 3, 8);
@@ -1019,7 +1040,7 @@ class CanvasRenderer {
       const x = startX + (index % columns) * (cell + gap);
       const y = startY + Math.floor(index / columns) * (cell + gap);
       this.drawTile(index, x, y, cell, {
-        skin: manifest,
+        skin: previewSkin,
         images,
         color: palette[index % palette.length] || '#ffffff',
         alpha: 0.96
@@ -1129,9 +1150,7 @@ class CanvasRenderer {
         w: rect.w - previewPadding * 2,
         h: Math.max(1, previewHeight - statusHeight)
       };
-      // Theme cards intentionally preview the first four tile elements in a
-      // 2 x 2 arrangement. The optional generated preview image is not used
-      // by this screen.
+      // The main-package 2x2 preview is visible before the board-art download.
       this.drawThemeElementsPreview(theme, previewRect, skin);
 
       const name = theme.name || theme.title || theme.id;

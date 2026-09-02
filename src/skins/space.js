@@ -7,6 +7,7 @@
 // geometry, and interaction behavior.
 module.exports = {
   id: 'space',
+  preview: 'assets/theme-previews/space.png',
   name: '太空',
   category: '太空',
   assets: {

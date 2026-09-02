@@ -6,6 +6,7 @@
 // Rendering owns slicing, tile geometry, and interaction behavior.
 module.exports = {
   id: 'vehicles',
+  preview: 'assets/theme-previews/vehicles.png',
   name: '交通工具',
   category: '交通',
   assets: {

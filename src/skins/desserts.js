@@ -7,6 +7,7 @@
 // tile geometry, and interaction behavior.
 module.exports = {
   id: 'desserts',
+  preview: 'assets/theme-previews/desserts.png',
   name: '甜点',
   category: '甜点',
   assets: {

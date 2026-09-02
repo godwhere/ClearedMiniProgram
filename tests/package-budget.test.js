@@ -20,12 +20,22 @@ function run() {
     assert.strictEqual(budget.packageForFile(skin.assets.tileSheet, packages), `theme-${skin.id}`);
     const row = report.packages.find(item => item.name === `theme-${skin.id}`);
     assert(row.largestFiles.some(file => file.path === skin.assets.tileSheet));
+    assert.strictEqual(budget.packageForFile(skin.preview, packages), 'main',
+      `${skin.id}: small preview stays outside its board-art subpackage`);
+    assert.strictEqual(budget.isIgnored(skin.preview, config.packOptions.ignore), false);
   });
   ['game.js', 'src/bootstrap.js', 'core/game-runner.js', 'data/solutions.js',
     'src/skins/classic.js', 'assets/logo.png', 'assets/icons/portal.png',
     'assets/effects/fade/preview.png', 'assets/audio/cleared-bgm.m4a'].forEach(source => {
     assert.strictEqual(budget.packageForFile(source, packages), 'main');
     assert.strictEqual(budget.isIgnored(source, config.packOptions.ignore), false);
+  });
+  ['none', 'fade'].forEach(id => {
+    const preview = `assets/effects/${id}/preview.png`;
+    assert.strictEqual(budget.packageForFile(preview, packages), 'main');
+    assert.strictEqual(budget.isIgnored(preview, config.packOptions.ignore), false);
+    assert.strictEqual(budget.isIgnored(`scripts/gallery-preview-sources/effects/${id}.png`,
+      config.packOptions.ignore), true, 'full-size effect source art never ships');
   });
 
   const fixturePackages = [{ name: 'theme-a', root: 'assets/a/' }];

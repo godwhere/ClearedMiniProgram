@@ -6,6 +6,7 @@
 // code remain responsible for slicing the sheet and applying state effects.
 module.exports = {
   id: 'gem',
+  preview: 'assets/theme-previews/gem.png',
   name: '宝石',
   category: '宝石',
   assets: {

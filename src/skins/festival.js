@@ -7,6 +7,7 @@
 // Rendering owns slicing, tile geometry, and interaction behavior.
 module.exports = {
   id: 'festival',
+  preview: 'assets/theme-previews/festival.png',
   name: '节日限定',
   category: '节日',
   assets: {
