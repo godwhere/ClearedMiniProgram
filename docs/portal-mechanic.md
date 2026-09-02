@@ -244,7 +244,7 @@ v1 只允许一个固定双向门对，解答可继续使用 `PairId`，且两�
 - `PortalOverlay` 只绘门图、资源回退、LOCKED 入口放大/选中高亮和状态光圈，不绘 `P1` 或其他内部 ID；
 - `CanvasRenderer` 在棋盘上方固定提示带绘制阶段文案：READY 阶段显示静态 `Instructions`，`PORTAL_LOCKED` 显示“松开手指”，`PORTAL_WAIT` 显示“从任意其他传送门继续连线”，走出传送门后隐藏；
 - 普通 Portal 关在游玩界面标题展示“全局序号 · 关卡名”（如 `63 · 门廊试步`、`7 · 传送初识`），试玩关保持试玩名称；
-- 选关页数字格在 `mechanicId === 'portal'` 时绘制小型 Portal 徽标或安全矢量圆环回退；
+- 选关页只显示连续关卡数字，不在 Portal 关卡数字格上叠加机制徽标；
 - 提示使用轻微呼吸效果，出现和切换时不得改变棋盘布局；
 - Renderer 只消费纯 ViewModel，不自行推断规则或注册独立 Portal hit；
 - 图片加载失败必须保留可操作的矢量回退。
@@ -270,8 +270,8 @@ v1 只允许一个固定双向门对，解答可继续使用 `PairId`，且两�
 - `tests/game-runner-contract.test.js`：结构化结果与只读候选出口数组；
 - `tests/board-input-controller.test.js`：逐格采样、锁定早停、pointer 隔离和取消；
 - `tests/hint-service-portal.test.js`：分段解、多出口搜索、等待态和无解；
-- `tests/app-portal.test.js`：READY 静态提示与动态状态提示、无 Portal 阶段震动、选关页 Portal 标识、试玩结算隔离；
-- `tests/renderer-portal.test.js`：提示位置/呼吸、棋盘不跳位、全局序号标题格式、选关 Portal 徽标、LOCKED 入口居中放大/选中高亮、无 P1、多出口高亮和资源回退；
+- `tests/app-portal.test.js`：READY 静态提示与动态状态提示、无 Portal 阶段震动、选关 ViewModel 机制标识、试玩结算隔离；
+- `tests/renderer-portal.test.js`：提示位置/呼吸、棋盘不跳位、全局序号标题格式、选关页不叠加 Portal 徽标、LOCKED 入口居中放大/选中高亮、无 P1、多出口高亮和资源回退；
 - `tests/portal-publishing.test.js`：5 个 v2 试玩、34 个普通 Portal 关（4 个前期里程碑教学关 + 30 个 8×8 专章关）、三门未用门 fixture、v1 兼容 fixture 和逐段回放；
 - `node tests/run.js` 必须全量通过，现有普通关行为不得回归。
 - `Portals` 缺省或空数组时，现有无 Portal 普通关卡必须保持原有规则、输入、计时、撤销与完成判定语义；新增普通 Portal 关卡使用独立的 v2 分段解答。

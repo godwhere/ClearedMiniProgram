@@ -590,7 +590,7 @@ function run() {
   assert(textDraws.some(call => call.value === '7 · 传送初识'),
     'milestone level 7 must display 7 · 传送初识 in title');
 
-  // 10. Level select renders portal indicator for portal levels
+  // 10. Level select keeps Portal levels visually consistent with ordinary levels.
   const levelSelectModel = {
     scene: 'levels',
     levelPageIndex: 0,
@@ -602,8 +602,8 @@ function run() {
   };
   ctx.calls.length = 0;
   renderer.render(levelSelectModel, Date.now());
-  assert(ctx.calls.some(c => c.method === 'drawImage'),
-    'portal level cell must draw portal indicator icon in level select');
+  assert.strictEqual(ctx.calls.some(c => c.method === 'drawImage'), false,
+    'portal level cell must not draw a portal indicator icon in level select');
 }
 
 module.exports = run;

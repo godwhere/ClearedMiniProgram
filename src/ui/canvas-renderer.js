@@ -1592,29 +1592,6 @@ class CanvasRenderer {
       } else if (completed) {
         this.text('✓', rect.x + rect.w - 9, rect.y + 10, 11, { alpha: 0.75, weight: 500 });
       }
-      if (item.mechanicId === 'portal') {
-        const indicatorSize = clamp(cell * 0.22, 9, 14);
-        const ix = rect.x + 5;
-        const iy = rect.y + 5;
-        const portalIcon = (model.portalTrial && model.portalTrial.icon) || 'assets/icons/portal.png';
-        const image = this.portalOverlay ? this.portalOverlay.ensureImage(portalIcon) : null;
-        if (image) {
-          ctx.save();
-          ctx.globalAlpha = unlocked ? 0.9 : 0.4;
-          this.drawImageContain(image, {
-            x: ix,
-            y: iy,
-            w: indicatorSize,
-            h: indicatorSize
-          }, { fit: 'contain' });
-          ctx.restore();
-        } else if (this.portalOverlay && typeof this.portalOverlay.drawFallback === 'function') {
-          ctx.save();
-          ctx.globalAlpha = unlocked ? 0.9 : 0.4;
-          this.portalOverlay.drawFallback(ix, iy, indicatorSize, now || 0);
-          ctx.restore();
-        }
-      }
       this.addHit(action, rect, unlocked);
     });
 
