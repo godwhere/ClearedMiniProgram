@@ -12,6 +12,7 @@ const progressionConfig = require('./config/progression.js');
 const audioConfig = require('./config/audio.js');
 const CanvasRenderer = require('./ui/canvas-renderer.js');
 const portalInstructions = require('./ui/portal-instructions.js');
+const accountLayout = require('./ui/account-layout.js');
 const defaultSkins = require('./skins/index.js');
 const defaultMechanics = require('./mechanics/index.js');
 const defaultPortalMechanic = defaultMechanics.get('portal');
@@ -207,6 +208,13 @@ class ClearedApp {
     this.auth = opts.auth || null;
     this.progressSync = opts.progressSync || null;
     this.behavior = opts.behavior || null;
+    this.profile = opts.profile || null;
+    this.accountGeneration = 0;
+    this.accountMessage = '';
+    this.accountProfilePending = false;
+    this.accountSyncPending = null;
+    this.hidden = false;
+    this.disposed = false;
     this.progression = new ProgressionService(
       this.progress,
       catalog.sets,
@@ -359,6 +367,9 @@ class ClearedApp {
       show: () => this.onShow(),
       resize: () => {
         this.renderer.ctx = this.platform.context;
+        if (this.scene === 'account' && this.profile) {
+          this.profile.handleResize(accountLayout(this.platform.metrics).profileButton);
+        }
         this.invalidate();
       },
       audioInterruptBegin: () => this.audio.pauseAll(),
@@ -1020,6 +1031,21 @@ class ClearedApp {
       // mutates this value; `performAction('effect:<id>')` owns persistence.
       currentEffectId: this.currentEffectId()
     };
+
+    if (this.scene === 'account') {
+      const sync = this.progressSync ? this.progressSync.state() : { status: 'idle' };
+      const auth = this.auth ? this.auth.state() : 'anonymous';
+      const status = sync.status === 'account-mismatch' ? 'account-mismatch'
+        : this.accountSyncPending || auth === 'authenticating' || sync.status === 'syncing' ? 'syncing'
+          : sync.status === 'synced' ? 'synced' : sync.status === 'error' ? 'error' : 'local';
+      return Object.assign(base, {
+        accountStatus: status, accountMessage: this.accountMessage,
+        accountProfile: this.profile ? this.profile.current() : null,
+        profileSupported: !!(this.profile && this.profile.isSupported()),
+        profilePending: this.accountProfilePending,
+        syncPending: !!this.accountSyncPending
+      });
+    }
 
     if (activeDaily) {
       const completed = this.dailyCompletionState(dailyResolution);
@@ -1707,7 +1733,25 @@ class ClearedApp {
     }
     this.audio.unlock();
     this.audio.playSfx('click');
-    if (action === 'home:dailyChallenge' || action === 'home:daily') {
+    if (action === 'home:account' && this.scene === 'home') {
+      this.openAccount();
+    } else if (action === 'account:back' && this.scene === 'account') {
+      this.scene = 'home';
+    } else if (action === 'account:authorizeProfile' && this.scene === 'account') {
+      // The visible native button handles the actual user gesture. A Canvas
+      // hit may only mount that button, never synthesize consent.
+      this.mountAccountProfile();
+    } else if (action === 'account:retrySync' && this.scene === 'account') {
+      this.retryAccountSync();
+    } else if (action === 'account:privacy' && this.scene === 'account') {
+      const generation = this.accountGeneration;
+      const task = this.platform.openPrivacyContract ? this.platform.openPrivacyContract() : Promise.resolve({ ok: false });
+      Promise.resolve(task).then(result => {
+        if (this.scene !== 'account' || generation !== this.accountGeneration) return;
+        if (!result.ok) this.accountMessage = '暂时无法打开隐私协议';
+        this.invalidate();
+      }).catch(function () {});
+    } else if (action === 'home:dailyChallenge' || action === 'home:daily') {
       this.enterDaily();
     } else if (action === 'home:start') {
       const target = this.progress.resumeTarget(catalog.sets);
@@ -1891,8 +1935,69 @@ class ClearedApp {
         this.renderer && typeof this.renderer.invalidateEffectPreviews === 'function') {
       this.renderer.invalidateEffectPreviews();
     }
+    if (previousScene === 'account' && this.scene !== 'account') this.leaveAccount();
     if ((ordinaryFailure || dailyFailure) && this.renderer) this.renderer.clearInteractionHits();
     this.invalidate();
+  }
+
+  openAccount() {
+    this.clearHintPreview(false);
+    this.scene = 'account';
+    this.accountGeneration++;
+    this.accountMessage = '';
+    this.pointer = null;
+    this.pressedId = null;
+    this.boardInput.setRunner(null);
+    this.mountAccountProfile();
+    if (this.profile) {
+      const generation = this.accountGeneration;
+      this.profile.refresh().then(() => {
+        if (this.scene === 'account' && generation === this.accountGeneration) this.invalidate();
+      });
+    }
+    this.invalidate();
+  }
+
+  mountAccountProfile() {
+    if (this.scene !== 'account' || this.hidden || this.disposed || !this.profile) return false;
+    const generation = this.accountGeneration;
+    const current = () => this.scene === 'account' && !this.hidden && !this.disposed && generation === this.accountGeneration;
+    const skin = this.skins.current();
+    const result = this.profile.mount({
+      rect: accountLayout(this.platform.metrics).profileButton,
+      style: { color: skin.colors.text, backgroundColor: skin.colors.levelCell },
+      onPending: pending => { if (current()) { this.accountProfilePending = pending; this.invalidate(); } },
+      onSuccess: () => { if (current()) { this.accountMessage = '头像昵称已保存'; this.invalidate(); } },
+      onDenied: result => {
+        if (!current()) return;
+        this.accountMessage = result.reason === 'denied' ? '未授权，仍可继续游玩' : '资料暂未保存，请稍后重试';
+        this.invalidate();
+      }
+    });
+    this.accountProfilePending = !!this.profile.pending;
+    return result.ok;
+  }
+
+  leaveAccount() {
+    this.accountGeneration++;
+    this.accountSyncPending = null;
+    this.accountProfilePending = false;
+    if (this.profile) this.profile.unmount();
+  }
+
+  retryAccountSync() {
+    if (this.accountSyncPending || this.scene !== 'account') return false;
+    const token = { generation: this.accountGeneration };
+    this.accountSyncPending = token;
+    this.invalidate();
+    this.resumeOnline().then(result => {
+      if (this.accountSyncPending !== token || this.scene !== 'account' || this.hidden) return;
+      this.accountSyncPending = null;
+      this.accountMessage = result.ok ? '同步完成' : result.reason === 'account-mismatch'
+        ? '当前账号与本地存档绑定的账号不同' : '当前使用本地存档，可稍后重试';
+      this.invalidate();
+    });
+    return true;
   }
 
   changeLevelPage(delta) {
@@ -2213,6 +2318,7 @@ class ClearedApp {
       completionRecorded: false
     });
     this.boardInput.setRunner(runner);
+    if (this.scene === 'account') this.leaveAccount();
     this.scene = 'daily';
     this.pointer = null;
     this.pressedId = null;
@@ -2305,6 +2411,7 @@ class ClearedApp {
     const context = createCatalogRunContext(catalog, setIndex, levelIndex);
     if (!context) return false;
     if (!this.progression.isUnlocked(setIndex, levelIndex)) return false;
+    if (this.scene === 'account') this.leaveAccount();
     this.runContext = context;
     this.setIndex = context.setIndex;
     this.levelIndex = context.levelIndex;
@@ -2480,6 +2587,9 @@ class ClearedApp {
   }
 
   onHide() {
+    if (this.disposed) return;
+    this.hidden = true;
+    if (this.scene === 'account') this.leaveAccount();
     this.pointer = null;
     this.pressedId = null;
     const runner = this.activeRunner();
@@ -2509,14 +2619,26 @@ class ClearedApp {
   }
 
   onShow() {
+    if (this.disposed) return;
+    this.hidden = false;
     const runner = this.activeRunner();
     if (runner) runner.resume();
     this.audio.resumeAll();
     this.renderer.ctx = this.platform.context;
     this.invalidate();
     this.startLoop();
+    if (this.scene === 'account') this.mountAccountProfile();
     this.resumeOnline();
     if (this.behavior) this.behavior.flush('show').catch(function () {});
+  }
+
+  dispose() {
+    this.disposed = true;
+    this.leaveAccount();
+    if (this.profile) this.profile.dispose();
+    if (this.unbindPointer) this.unbindPointer();
+    this.platform.stopLoop();
+    this.audio.pauseAll();
   }
 }
 

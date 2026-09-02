@@ -1,4 +1,7 @@
 const tests = [
+  ['profile service', require('./profile-service.test.js')],
+  ['account layout', require('./account-layout.test.js')],
+  ['account app', require('./account-app.test.js')],
   ['account offline bootstrap', require('./account-bootstrap.test.js')],
   ['progress sync conflicts', require('./progress-sync-conflict.test.js')],
   ['session store', require('./session-store.test.js')],

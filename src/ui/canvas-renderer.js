@@ -2,6 +2,7 @@ const InteractionMap = require('./board/interaction-map.js');
 const BoardRenderer = require('./board/board-renderer.js');
 const PortalOverlay = require('./board/portal-overlay.js');
 const portalInstructions = require('./portal-instructions.js');
+const accountLayout = require('./account-layout.js');
 
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
@@ -62,6 +63,7 @@ class CanvasRenderer {
     this.effectPreviewLoads = {};
     this.effectSceneGeneration = 0;
     this.lastScene = null;
+    this.accountAvatar = null;
     this.assetGeneration = 0;
     this.invalidate = function () {};
     this.portalOverlay = new PortalOverlay({
@@ -149,6 +151,9 @@ class CanvasRenderer {
       this.effectSceneGeneration += 1;
     }
     switch (model.scene) {
+      case 'account':
+        this.drawAccount(model);
+        break;
       case 'levels':
         this.drawLevels(model, now);
         break;
@@ -736,6 +741,8 @@ class CanvasRenderer {
     this.begin(skin.colors.homeBackground);
     this.iconButton('home:sound', { x: width - 58, y: safeTop + (skin.layout.homeTopUiOffset || 0) + 8, w: 44, h: 44 },
       model.soundEnabled ? 'sound' : 'mute', true, model.pressedId);
+    this.button('home:account', { x: 18, y: safeTop + (skin.layout.homeTopUiOffset || 0) + 8, w: 44, h: 44 },
+      '账号', { fontSize: 16 }, model.pressedId);
 
     const buttonHeight = 54;
     const buttonGap = 12;
@@ -852,6 +859,52 @@ class CanvasRenderer {
       stroke: skin.colors.primaryButtonStroke,
       fontSize: 19
     }, model.pressedId);
+  }
+
+  drawAccount(model) {
+    const skin = this.skinService.current();
+    const layout = accountLayout(this.platform.metrics);
+    this.begin(skin.colors.homeBackground);
+    this.iconButton('account:back', layout.backButton, 'back', true, model.pressedId);
+    const panel = layout.panel;
+    const center = panel.x + panel.w / 2;
+    this.text('账号', center, layout.backButton.y + 22, 22);
+    const space = layout.profileButton.y - panel.y;
+    const avatarSize = Math.min(64, space * 0.32);
+    const avatarRect = { x: center - avatarSize / 2, y: panel.y + 6, w: avatarSize, h: avatarSize };
+    const profile = model.accountProfile;
+    const source = profile && profile.avatarUrl;
+    if (!source) this.accountAvatar = null;
+    else if (!this.accountAvatar || this.accountAvatar.source !== source) {
+      const record = { source, image: null };
+      this.accountAvatar = record;
+      try {
+        this.platform.createImage(source, (error, image) => {
+          if (this.accountAvatar !== record) return;
+          record.image = error ? null : image;
+          this.invalidate();
+        });
+      } catch (error) {}
+    }
+    this.roundedRect(avatarRect.x, avatarRect.y, avatarRect.w, avatarRect.h, 12);
+    this.ctx.fillStyle = skin.colors.levelCell;
+    this.ctx.fill();
+    if (this.accountAvatar && this.accountAvatar.image) {
+      this.drawImageContain(this.accountAvatar.image, avatarRect);
+    } else {
+      this.text('我', center, avatarRect.y + avatarSize / 2, Math.min(24, avatarSize / 2));
+    }
+    this.text(profile ? profile.nickname : '本地玩家', center, panel.y + space * 0.46, 18, { maxWidth: panel.w - 24 });
+    const status = { local: '本地游玩', syncing: '正在同步', synced: '已同步', error: '同步失败',
+      'account-mismatch': '账号不一致，已暂停同步' }[model.accountStatus] || '本地游玩';
+    this.text(status, center, panel.y + space * 0.65, 15, { maxWidth: panel.w - 24 });
+    this.text(model.accountMessage || '头像昵称为可选资料', center, panel.y + space * 0.84, 12, { maxWidth: panel.w - 24, alpha: 0.7 });
+    this.button('account:authorizeProfile', layout.profileButton,
+      model.profilePending ? '正在保存资料' : model.profileSupported ? '授权头像昵称' : '头像昵称暂不可用',
+      { enabled: model.profileSupported === true && !model.profilePending, fontSize: 17 }, model.pressedId);
+    this.button('account:retrySync', layout.retryButton, model.syncPending ? '正在同步' : '重试同步',
+      { enabled: !model.syncPending, fontSize: 17 }, model.pressedId);
+    this.button('account:privacy', layout.privacyButton, '隐私协议', { fontSize: 17 }, model.pressedId);
   }
 
   drawFallbackLogo(x, y, size) {

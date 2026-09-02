@@ -237,6 +237,44 @@ class WechatPlatform {
     return this.api.createRewardedVideoAd ? this.api.createRewardedVideoAd(options) : null;
   }
 
+  supportsUserInfoButton() {
+    return !!(this.api && typeof this.api.createUserInfoButton === 'function');
+  }
+
+  createUserInfoButton(options) {
+    if (!this.supportsUserInfoButton()) return null;
+    try {
+      const native = this.api.createUserInfoButton(Object.assign({}, options, {
+        withCredentials: false, style: Object.assign({}, options.style)
+      }));
+      if (!native) return null;
+      let listener = null;
+      return {
+        onTap(callback) {
+          listener = result => {
+            const info = result && result.userInfo;
+            callback({ profile: info ? { nickname: info.nickName, avatarUrl: info.avatarUrl } : null });
+          };
+          native.onTap(listener);
+        },
+        offTap() { if (listener && native.offTap) native.offTap(listener); listener = null; },
+        show() { try { if (native.show) native.show(); } catch (error) {} },
+        hide() { try { if (native.hide) native.hide(); } catch (error) {} },
+        destroy() { if (native.destroy) native.destroy(); }
+      };
+    } catch (error) { return null; }
+  }
+
+  openPrivacyContract() {
+    if (!this.api || typeof this.api.openPrivacyContract !== 'function') return Promise.resolve({ ok: false, reason: 'not-supported' });
+    return new Promise(resolve => {
+      try {
+        this.api.openPrivacyContract({ success: () => resolve({ ok: true }),
+          fail: () => resolve({ ok: false, reason: 'unavailable' }) });
+      } catch (error) { resolve({ ok: false, reason: 'unavailable' }); }
+    });
+  }
+
   createInterstitialAd(options) {
     return this.api.createInterstitialAd ? this.api.createInterstitialAd(options) : null;
   }

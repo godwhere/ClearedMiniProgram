@@ -104,6 +104,13 @@ function run() {
     setStyle(set) { return { background: set.Color, palette: set.Palette }; }
   };
   const renderer = new CanvasRenderer(platform, skins);
+  renderer.render({ scene: 'account', accountStatus: 'local', profileSupported: false }, Date.now());
+  assertHitsInsideSafeArea(renderer.hits, platform.metrics);
+  assert(renderer.hits.some(hit => hit.id === 'account:back'));
+  assert(!renderer.hits.some(hit => hit.id === 'account:authorizeProfile'));
+  renderer.render({ scene: 'account', accountStatus: 'syncing', profileSupported: true, profilePending: true, syncPending: true }, Date.now());
+  assert(!renderer.hits.some(hit => hit.id === 'account:retrySync'));
+  assert(!renderer.hits.some(hit => hit.id === 'account:authorizeProfile'));
   const boardScenes = [];
   const sharedBoardDraw = renderer.boardRenderer.draw.bind(renderer.boardRenderer);
   renderer.boardRenderer.draw = function (viewModel) {
