@@ -21,6 +21,51 @@ function isCompleted(context, lineIndex) {
 }
 
 class OrdinaryHintProvider {
+  findComplete(context, storedPaths) {
+    if (!context || (context.outcome && context.outcome !== 'playing')) return null;
+    if (!Array.isArray(storedPaths)) return null;
+    const lines = linesOf(context);
+    if (!lines.length || storedPaths.length !== lines.length) return null;
+
+    const board = boardOf(context);
+    const width = Number(board.width);
+    const height = Number(board.height);
+    const total = width * height;
+    const fixedLine = Array.isArray(board.fixedLine) ? board.fixedLine : [];
+    const used = new Set();
+    const paths = [];
+
+    for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+      const line = lines[lineIndex];
+      const path = storedPaths[lineIndex];
+      if (!Array.isArray(path) || path.length < 2 ||
+          path[0] !== endpoint(line, 'Start', 'start') ||
+          path[path.length - 1] !== endpoint(line, 'End', 'end')) return null;
+
+      for (let order = 0; order < path.length; order++) {
+        if (!Object.prototype.hasOwnProperty.call(path, order)) return null;
+        const cell = path[order];
+        if (!this.isPlayable(context, cell) || used.has(cell)) return null;
+        const cellFixedLine = Number.isInteger(fixedLine[cell]) ? fixedLine[cell] : -1;
+        if (cellFixedLine >= 0 && cellFixedLine !== lineIndex) return null;
+        if (order > 0) {
+          const previous = path[order - 1];
+          const adjacent = Math.abs((previous % width) - (cell % width)) +
+            Math.abs(Math.floor(previous / width) - Math.floor(cell / width)) === 1;
+          if (!adjacent) return null;
+        }
+        used.add(cell);
+      }
+      paths.push({ lineIndex, path: path.slice(), source: 'solution' });
+    }
+
+    let playableCount = 0;
+    for (let index = 0; index < total; index++) {
+      if (this.isPlayable(context, index)) playableCount++;
+    }
+    return used.size === playableCount ? { paths, source: 'solution' } : null;
+  }
+
   find(context, storedPaths) {
     if (!context || (context.outcome && context.outcome !== 'playing')) return null;
     if (storedPaths) {

@@ -25,6 +25,24 @@ function run() {
   const catalog = require(path.join(dataDir, 'catalog-v2.js'));
   assert.strictEqual(catalog.sets.length, 5);
   assert.strictEqual(catalog.levels.length, 92);
+
+  const portalPositions = [
+    { index: 6, setIndex: 1, levelIndex: 4, id: 'portal-main-5x5-01', name: '传送初识' },
+    { index: 16, setIndex: 2, levelIndex: 9, id: 'portal-main-6x6-01', name: '跨区接力' },
+    { index: 31, setIndex: 3, levelIndex: 14, id: 'portal-main-7x7-01', name: '出口选择' },
+    { index: 46, setIndex: 4, levelIndex: 14, id: 'portal-main-8x8-01', name: '传送规划' }
+  ];
+
+  portalPositions.forEach(pos => {
+    const entry = catalog.levels[pos.index];
+    assert(entry, `level position ${pos.index} must exist in catalog`);
+    assert.strictEqual(entry.setIndex, pos.setIndex);
+    assert.strictEqual(entry.levelIndex, pos.levelIndex);
+    assert.strictEqual(entry.game.Id, pos.id);
+    assert.strictEqual(entry.game.Name, pos.name);
+    assert.strictEqual(entry.game.Mechanic, 'portal');
+  });
+
   const appSource = fs.readFileSync(path.resolve(dataDir, '..', 'src', 'app.js'), 'utf8');
   assert(appSource.includes("../data/catalog-v2.js"));
 }

@@ -20,7 +20,7 @@
 - 后续可通过广告、分享等方式增加进入次数，并增加“复活”按钮；本阶段只预留扩展接口，不接广告、分享、复活或货币。
 - 第 2 关通关后产生一次每日完成奖励资格。货币名称、数量、余额、兑换、皮肤解锁和其他消费逻辑暂不实现。
 
-普通关卡统一按 1—92 连续编号和顺序解锁，题面最大为 8×8；第 63—92 关为普通目录中的 Portal 章节，继续使用独立的普通进度和普通统计。
+普通关卡统一按 1—92 连续编号和顺序解锁，题面最大为 8×8；第 63—92 关为普通目录中的普通/Portal 高阶混合章节，继续使用独立的普通进度和普通统计。
 8×10 只保留在高难／每日挑战中；每日两关不是 catalog-v2 中的额外普通关卡。
 
 ## 2. 附件截图的适用范围
@@ -344,9 +344,15 @@ new GameRunner(level, palette, onChange, {
 
 - 普通 find(runner, setIndex, levelIndex) 保持兼容。
 - 每日使用 findDaily(runner, levelId, dailySolutions)，按 level ID 查询。
+- 完整预览使用 findDailyComplete(runner, levelId, dailySolutions)：只接受并整体验证预设解法，
+  任一路线缺失、非法或未覆盖全部非 Blocked 格时返回 null，不使用 BFS 拼接答案。
 - HintService 只从 `runner.getViewState()` 创建深拷贝 HintContext，再交给 ordinary provider。
 - 存储路径和 BFS 都根据 HintContext 的 `blocked/blockedMask` 跳过镂空格。
 - 提示不读日期、不写存档、不发奖励。
+- App 以独立 `hintPreview` 显示初始棋盘 ViewModel 和全部路线；预览持续 10 秒，再次点击提示立即关闭。
+  预览期间计时继续，棋盘输入、重置和回撤禁用，真实 Runner、每日进度和撤销栈均不变。
+- 按钮切换为“隐藏提示”时，图标与文案按宽度整体居中并保持间距；窄屏可等比缩小内容，
+  不移动或缩小原有触控区域，普通关与每日关共用此排布。
 
 ### 9.2 Renderer
 
@@ -357,6 +363,7 @@ new GameRunner(level, palette, onChange, {
 - 动态按当前 level 的 Width/Height 布局：第一关渲染 3×3，第二关渲染 8×10。
 - 标题至少显示“每日挑战”和 1 / 2 或 2 / 2；棋盘规格显示为 3 × 3 或 8 × 10。
 - 每个 Blocked 格显示为不可走镂空，不绘制 tile、端点、提示或清除动画，也不产生棋盘 UI hit。
+- 完整提示路径按线路颜色绘制经过格、中心连线和缩放方向箭头；预览仍复用当前安全区与动态棋盘布局。
 - 主题只负责 tile、背景和按钮，不判断 Blocked。
 - 结果页只显示每日完成、总用时和次数状态，不显示虚构货币数量。
 - 未填满失败使用同一 Canvas 结果层，显示剩余空格数、“返回主页”和“重试本关”；面板出现后
@@ -518,7 +525,7 @@ onDailyCompleted({
 8. **隔离**：每日不改变普通完成数、lastPlayed、totalClears 或普通广告计数。
 9. **失败与重试**：第 0/1 关留空失败都不写完成；第 1 关失败保留第 0 关结果；重试当前关
    不改变 entriesUsed/entriesRemaining；弹窗延迟期和显示期都无底层点击穿透。
-10. **回归**：实现阶段运行 node tests/run.js，所有既有普通连线、92 个普通关卡（含 30 个 Portal 章节）、主题和音频测试通过。
+10. **回归**：实现阶段运行 node tests/run.js，所有既有普通连线、92 个普通关卡（含 4 个 Portal 里程碑教学关和 30 个高阶混合章节关）、主题和音频测试通过。
 
 ## 14. 实施顺序
 

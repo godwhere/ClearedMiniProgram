@@ -611,7 +611,7 @@ function validatePortalSolution(level, solution) {
  * Combined level validator.  The optional second argument may be a solution
  * array or `{ solution, requireSolution }`.  Structural validation remains
  * useful when no solution catalog is present; passing `requireSolution: true`
- * enforces the trial-level publishing gate from the design document.
+ * enforces the Portal-level publishing gate from the design document.
  */
 function validatePortalLevel(level, solutionOrOptions) {
   let solution;

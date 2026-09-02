@@ -2,8 +2,8 @@
 
 > 记录日期：2026-09-01  
 > 审阅基线：`main@4a3c34aab0f4034b886cdbf2a5cbaf14b1d038cc`  
-> 文档状态：阶段 0—7 已实施并进入回归基线
-> 关联文档：[`portal-mechanic.md`](portal-mechanic.md)、[`daily-challenge-mode.md`](daily-challenge-mode.md)、[`../AGENTS.md`](../AGENTS.md)
+> 文档状态：阶段 0—7 已实施；2026-09-03 已移除独立试玩，统一两句 Portal 提示与纯数字主线标题
+> 关联文档：[`portal-mechanic.md`](portal-mechanic.md)、[`portal-level-design-guide.md`](portal-level-design-guide.md)、[`daily-challenge-mode.md`](daily-challenge-mode.md)、[`../AGENTS.md`](../AGENTS.md)
 
 ## 1. 审阅结论
 
@@ -13,10 +13,10 @@
 - v1 保留 `{ Id, A, B }`、固定出口和门格必填覆盖；v2 使用 `{ Id, Cells }`、任选其他可用出口和非必填门格；
 - `PORTAL_LOCKED → PORTAL_WAIT → PORTAL_CONTINUE` 的触摸边界更完整，`touchcancel` 不再被简单等同为整段取消；
 - 存储解支持正反向、分段提示和传送边，运行时搜索也不再把门两端当成普通相邻格；
-- 试玩关卡从普通 catalog、普通进度、最佳时间和广告计数中隔离；
+- 主线 Portal 统一使用普通 catalog 进度；独立试玩题面、入口和专用结算已删除；
 - 门格拥有独立视觉语义，不显示内部 ID，也不再叠加主题棋子、提示棋子和清除棋子；
-- 到门和松手提示只在对应 phase 出现在棋盘上方；Portal 阶段不震动，完整线路消除震动保留；
-- `portal-publishing.test.js` 会校验并逐段重放 5 个真实试玩关卡及 30 个普通 Portal 关卡，形成了可靠的内容发布门槛；
+- 两句共享提示分别用于进门前和 LOCKED/WAIT，出口续接后隐藏；主线标题只显示数字进度；Portal 阶段不震动，完整线路消除震动保留；
+- `portal-publishing.test.js` 会校验并逐段重放 18 个主线 Portal 题（4 个里程碑 + 14 个混合章节题）；`mixed-chapter.test.js` 另固定混排、颜色数、线路均衡、完整提示、对称去重与高成本无门解；
 - 每日挑战仍明确拒绝传送门题面，避免在尚无分段存档契约时错误兼容。
 
 这些行为是当前回归基线，不能为了拆文件而改变。
@@ -29,7 +29,7 @@
 
 ## 2. 审阅基线中必须解决的五个问题（现均已解决）
 
-本节保留阶段 0 实施前的历史问题描述，用于解释重构动机；当前代码状态以第 10—11 节的完成标准和落地记录为准。
+本节保留阶段 0 实施前的历史问题描述，包括已退役的试玩，用于解释重构动机；这些历史路径不再是可调用功能，当前契约以第 3—5 节和第 10—11 节为准。
 
 ### 2.1 “关卡来源”和“棋盘机制”被混成一个判断
 
@@ -105,8 +105,8 @@ Portal 初次接入后：
 3. `src/platform/wechat.js` 继续作为唯一微信 API 边界。
 4. `src/mechanics/*.js` 保持 data-only manifest，不允许注入任意回调、平台对象或存档对象。
 5. 主题和清除特效仍是纯视觉能力，不能改变棋盘拓扑。
-6. `home:portalTrial`、`corridor:portalTrial` 兼容别名、`portal` manifest ID、关卡 ID、存档 key 和已发布 action ID 不重命名；试玩 action 可保持隐藏，不等于主页必须显示入口。
-7. 普通 catalog 只包含连续编号 1—92、最大 8×8 的关卡，其中 63—92 为普通 Portal 章节；内部 `setIndex/levelIndex` 仍作为稳定身份，普通关、每日挑战和传送门试玩的进度域继续隔离，8×10 只由独立的高难／每日内容来源提供。
+6. `portal` manifest ID、主线关卡 ID 和存档 key 保持稳定；已明确退役的两个隐藏试玩 action 不再执行，不得为测试恢复入口。
+7. 普通 catalog 只包含连续编号 1—92、最大 8×8 的关卡，其中 63—92 为普通/Portal 高阶混合章节；内部 `setIndex/levelIndex` 与既有 ID 保持稳定，机制只按显式字段判断。普通和每日进度域继续隔离，8×10 只由独立的高难／每日内容来源提供。
 8. `pages/` 与根目录旧小程序页面不进入新架构。
 9. 每个重构提交都必须先通过 `node tests/run.js`，再进入下一阶段。
 10. 不在同一提交中同时进行大规模搬文件、改玩法规则和改视觉表现。
@@ -160,13 +160,7 @@ core     → 只依赖纯数据和纯函数
   rulesVersion: 2,
   supportedRulesVersions: [1, 2],
   icon: 'assets/icons/portal.png',
-  enabled: true,
-  trial: {
-    label: '传送门试玩',
-    action: 'home:portalTrial',
-    set: portalDemo,
-    solutions: portalSolutions
-  }
+  enabled: true
 }
 ```
 
@@ -174,7 +168,6 @@ core     → 只依赖纯数据和纯函数
 
 - 稳定 ID、当前规则版本与受支持版本 allowlist；
 - 展示名称和资源；
-- 试玩入口与内容依赖；
 - 是否启用。
 
 它不得声明：
@@ -194,10 +187,10 @@ Portal v2 触发阶段 7 后，`src/mechanics/index.js` 已作为有调用者的
 ```js
 {
   source: {
-    kind: 'catalog' | 'mechanic-trial' | 'daily',
-    id: 'ordinary' | 'portal-trial' | 'daily-2026-09-01'
+    kind: 'catalog' | 'daily',
+    id: 'ordinary' | 'daily-2026-09-01'
   },
-  progressionScope: 'ordinary' | 'none' | 'daily',
+  progressionScope: 'ordinary' | 'daily',
   mechanic: {
     id: null | 'portal',
     rulesVersion: null | 1 | 2
@@ -214,9 +207,9 @@ Portal v2 触发阶段 7 后，`src/mechanics/index.js` 已作为有调用者的
 - 结算由 `progressionScope` 决定，不由 `mechanic.id` 决定；
 - `setIndex` 不适用时为 `null`，不得再使用 `-1`；
 - `level` 和 `set` 在进入关卡时锁定为当前运行上下文；
-- App 只持有一个普通/试玩 `runContext`，每日挑战继续由其独立 daily session 管理，后续再统一；
-- `isPortalTrial()` 最终替换为 `runContext.source.kind === 'mechanic-trial' && source.id === 'portal-trial'`；
-- 正式 portal 普通关未来可以是 `source.kind === 'catalog'`、`progressionScope === 'ordinary'`、`mechanic.id === 'portal'`。
+- App 只持有一个主线 `runContext`，每日挑战继续由其独立 daily session 管理；
+- 不支持的进度域安全返回空结算，不得回退写普通存档；
+- 主线 Portal 使用 `source.kind === 'catalog'`、`progressionScope === 'ordinary'`、`mechanic.id === 'portal'`。
 
 ### 5.3 `GameRunner`：命令接口与查询接口分离
 
@@ -373,9 +366,9 @@ src/services/hints/portal-hint-provider.js
 
 | 模块 | 负责 | 不负责 |
 | --- | --- | --- |
-| `HintService` | 根据只读 mechanic state 选择 provider；保持 `find/findDaily` 兼容 API | BFS 细节、Canvas、音效 |
-| ordinary provider | 普通/每日平面路径、已有解答选择 | portal 分段与门状态 |
-| portal provider | 分段解规范化、正反向、等待态剩余段、portal-aware 搜索 | 修改 Runner、结算、资源加载 |
+| `HintService` | 根据只读 mechanic state 选择 provider；保持 `find/findDaily` 兼容 API，并提供完整预设解查询 | BFS 细节、Canvas、音效 |
+| ordinary provider | 普通/每日平面路径、完整预设解收集与整体验证 | portal 分段与门状态 |
+| portal provider | 分段解规范化、正反向、完整预设解验证、等待态剩余段、portal-aware 搜索 | 修改 Runner、结算、资源加载 |
 | `core/portal-solution.js` | 分段解纯数据规范化与反转 | 查询棋盘占用、播放提示 |
 
 Portal provider 只接受只读 `HintContext`：
@@ -401,20 +394,31 @@ Portal provider 只接受只读 `HintContext`：
 
 不再直接持有并读取可变 Runner 实例。
 
+完整路径预览由 App 单独维护 `hintPreview` 生命周期：它从只读状态创建初始棋盘纯 ViewModel，
+不替换、重置或恢复真实 Runner。CanvasRenderer 只在 10 秒有效期内选择该 ViewModel，
+BoardRenderer 绘制全部线路后再绘 Portal overlay。预览期间输入在 App 边界隔离，
+重置和回撤 action 同时禁用；计时规则不变，也不调用 Runner 的 `pause()/resume()`。
+
+`src/ui/portal-instructions.js` 统一提供两句 Portal 状态文案，初始答案预览也使用初始句；
+逐关 `Instructions` 不再参与 Portal 提示。主线游玩标题统一为数字“当前关卡 / 总关卡”，
+名称仅作为数据元信息保留。独立试玩 opener、隐藏 action、题面、解答和结算分支均已退役。
+
+普通和每日底部按钮共用 `CanvasRenderer.button()`：灯泡图标与“提示 / 隐藏提示”
+按当前字体实测宽度整体居中，保留 8px 组内间距和 12px 左右安全边；窄屏超宽时等比
+缩小图标、字号与间距，不改变按钮命中矩形。文本测量不可用时按每字一 em 安全回退。
+
 ### 5.6 完成策略：按进度域结算
 
 建议新增 `src/gameplay/completion-policies.js`，先使用简单函数，不建立类层级：
 
 ```js
 settleOrdinary(context)
-settleTrial(context)
 settleDaily(context)
 ```
 
 | progressionScope | 行为 |
 | --- | --- |
 | `ordinary` | `ProgressStore.recordCompletion()`，更新最佳时间，调用普通广告完成钩子 |
-| `none` | 生成 `persisted: false` 的会话结果，不写任何普通存档或广告计数 |
 | `daily` | 调用 DailyProgressStore 的每关/每日结算，不写普通 ProgressStore |
 
 `onPathCompleted()` 最终只负责：
@@ -424,7 +428,7 @@ settleDaily(context)
 3. 将 won 交给对应完成策略；
 4. 根据策略结果切换场景。
 
-它不再包含 `if (isPortalTrial())` 这种按玩法 ID 结算的分支。
+它不按玩法 ID 推断结算域；已删除的试玩作用域不会生成结果或写入进度。
 
 ### 5.7 Renderer：只消费纯 ViewModel
 
@@ -514,16 +518,16 @@ docs/gameplay-extension-architecture.md    本文
 
 **步骤**：
 
-1. 保留现有 5 个试玩关的 publishing replay 测试。
+1. 保留全部 18 个主线 Portal 题的 publishing replay 测试。
 2. 增加边界测试，至少检查 `core/*.js` 不 require `src/`、`wx`、Canvas 或存档服务。
-3. 增加公开契约快照：portal manifest ID、rulesVersion、试玩 action、兼容 alias 不变。
+3. 增加公开契约快照：portal manifest ID、rulesVersion 不变，退役试玩 action 不再执行。
 4. 在 Actions 中执行 `node tests/run.js`；固定一个项目支持的 Node 版本。
 5. 将 PR 合并条件设为测试通过；主分支保护属于仓库设置，不在运行时代码中实现。
 
 **验收**：
 
 - 全量 Node 测试通过；
-- 62 个无 Portal 普通关卡、30 个普通 Portal 关卡和 5 个 Portal 试玩解答均能重放；
+- 74 个无 Portal 普通题与 18 个主线 Portal 题均能重放；
 - 微信开发者工具与真机验收仍单独记录，Node 测试不宣称覆盖设备行为。
 
 **建议提交**：`test: freeze gameplay extension architecture contracts`
@@ -556,13 +560,13 @@ tests/portal-publishing.test.js    保持/补充
 - 错误码集合不变；
 - 缺失/未知版本仍不启用 portal；
 - 普通关不受影响；
-- 5 个试玩 publishing replay 全部通过。
+- 主线 Portal publishing replay 全部通过。
 
 **建议提交**：`refactor(core): share portal schema normalization`
 
 ### 阶段 2：引入显式 RunContext，移除负索引哨兵
 
-**目标**：将“试玩/普通/每日来源”与“portal/普通机制”分开。
+**目标**：将“普通/每日来源”与“portal/普通机制”分开。
 
 **涉及文件**：
 
@@ -576,17 +580,17 @@ tests/progress-store.test.js     必要时补充
 
 **步骤**：
 
-1. 实现 `createCatalogRunContext()` 与 `createMechanicTrialRunContext()`。
-2. `openLevel()` 创建 catalog context；`openPortalTrial()` 创建 mechanic-trial context。
+1. 由 `createCatalogRunContext()` 构造主线上下文。
+2. `openLevel()` 创建 catalog context；不再保留专用试玩 opener。
 3. 用 `runContext.set/level/levelIndex` 替换 `currentSet/currentLevel` 双轨读取。
 4. 将 `setIndex = -1` 替换为 `setIndex: null`；普通进度 API 只在 `progressionScope === 'ordinary'` 时接收索引。
 5. 将返回、重玩、下一关和结果文案判断改为读取 `source.kind/source.id`。
 6. `mechanic.id` 只用于规则/展示，不再决定是否持久化。
-7. 暂时保留 `isPortalTrial()` 作为兼容 helper，但其实现改为读取 `runContext.source`；下一阶段移除内部调用。
+7. 不再保留已无调用者的试玩识别 helper、内容属性与导航分支。
 
 **验收**：
 
-- Portal 试玩仍不写普通完成、最佳时间、lastPlayed 或广告计数；
+- 不支持的进度域不写普通完成、最佳时间、lastPlayed 或广告计数；
 - 普通关照常写进度；
 - `setIndex` 不再出现业务哨兵 `-1`；
 - 构造一个“普通来源 + portal mechanic”的测试上下文时，结算策略仍为 ordinary。
@@ -796,8 +800,9 @@ git diff --check
 - 门格不叠加主题/提示/清除棋子；
 - LOCKED/WAIT 文案位于棋盘上方、轻微呼吸且不改变棋盘 layout；
 - 棋盘不显示内部 Portal ID，Portal 阶段不震动，完整线路消除震动保留；
-- 试玩通关不写普通进度和广告计数；
-- 5 个 v2 真实题面/解答、三门未用门 fixture 与 v1 fixture 逐段重放。
+- 主线 Portal 正常记录普通进度和广告计数，退役试玩入口不执行；
+- 18 个主线题面/解答、三门未用门 fixture 与 v1 fixture 逐段重放。
+- 63–67 保留两门、5–6 色题面；68–92 为 16 普通/9 Portal 混排，普通提示按 ID 优先、旧坐标兼容；64、76、84、89 的高成本无门解与一/二色旁路反证均受测试约束。
 
 设备验收：
 
@@ -812,8 +817,8 @@ git diff --check
 
 阶段 1—7 已完成，当前实现达到：
 
-- 新玩法试玩不再要求修改 App 的普通进度分支；
-- 正式 portal 普通关可以写普通进度，试玩 portal 仍不写，二者只由 run source 区分；
+- 主线 Portal 与无 Portal 题共用普通进度策略，不按机制选择持久化方式；
+- 已删除试玩题面、解答、入口和专用运行上下文，不为假设中的来源保留无调用者实现；
 - App、Hint 和 Renderer 不读取 Runner 可变内部数组；
 - Portal schema 在 runtime、validator 和 publishing gate 中只有一个解释来源；
 - Portal v1/v2 由最小 allowlist 分派，未知版本不会执行内容逻辑；

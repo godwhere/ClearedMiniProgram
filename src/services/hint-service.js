@@ -84,8 +84,13 @@ class HintService {
     this.portalProvider = new PortalHintProvider(this.ordinaryProvider);
   }
 
-  solutionFor(setIndex, levelIndex) {
+  solutionFor(setIndex, levelIndex, levelId) {
     if (!this.solutionCatalog) return null;
+    const byId = this.solutionCatalog.ByLevelId || this.solutionCatalog.byLevelId;
+    if (levelId && byId && Object.prototype.hasOwnProperty.call(byId, levelId) &&
+        Array.isArray(byId[levelId])) {
+      return byId[levelId];
+    }
     const sets = this.solutionCatalog.sets || this.solutionCatalog;
     const levels = sets && sets[setIndex];
     const solution = levels && levels[levelIndex];
@@ -105,7 +110,31 @@ class HintService {
     if (context.mechanic && context.mechanic.id === 'portal') {
       return this.portalProvider.find(context, this.portalSolutionFor(context.levelId));
     }
-    return this.ordinaryProvider.find(context, this.solutionFor(setIndex, levelIndex));
+    return this.ordinaryProvider.find(context, this.solutionFor(setIndex, levelIndex, context.levelId));
+  }
+
+  findComplete(source, setIndex, levelIndex) {
+    const context = toHintContext(source);
+    if (!context || (context.outcome && context.outcome !== 'playing')) return null;
+    if (context.mechanic && context.mechanic.id === 'portal') {
+      return this.portalProvider.findComplete(
+        context,
+        this.portalSolutionFor(context.levelId)
+      );
+    }
+    return this.ordinaryProvider.findComplete(
+      context,
+      this.solutionFor(setIndex, levelIndex, context.levelId)
+    );
+  }
+
+  findPortalComplete(source) {
+    const context = toHintContext(source);
+    if (!context || (context.outcome && context.outcome !== 'playing')) return null;
+    return this.portalProvider.findComplete(
+      context,
+      this.portalSolutionFor(context.levelId)
+    );
   }
 
   findPortal(source) {
@@ -168,6 +197,24 @@ class HintService {
       dailySolutions || this.dailySolutions
     );
     return this.ordinaryProvider.find(context, stored);
+  }
+
+  findDailyComplete(source, challengeId, dailySolutions) {
+    const context = toHintContext(source);
+    if (!context || (context.outcome && context.outcome !== 'playing')) return null;
+    if (challengeId && typeof challengeId === 'object' && dailySolutions === undefined) {
+      dailySolutions = challengeId;
+      challengeId = context.levelId;
+    }
+    if (!challengeId) challengeId = context.levelId;
+    const stored = this.dailySolutionFor(
+      challengeId,
+      dailySolutions || this.dailySolutions
+    );
+    if (context.mechanic && context.mechanic.id === 'portal') {
+      return this.portalProvider.findComplete(context, stored);
+    }
+    return this.ordinaryProvider.findComplete(context, stored);
   }
 
   dailySolutionFor(challengeId, dailySolutions) {

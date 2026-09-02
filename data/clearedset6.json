@@ -12,6 +12,6 @@
     {"Width":6,"Height":6,"Name":"7","Lines":[{"Start":34,"End":2},{"Start":1,"End":12},{"Start":19,"End":10},{"Start":18,"End":14},{"Start":21,"End":25}]},
     {"Width":6,"Height":6,"Name":"8","Lines":[{"Start":29,"End":20},{"Start":19,"End":28},{"Start":21,"End":17},{"Start":15,"End":1},{"Start":0,"End":9}]},
     {"Width":6,"Height":6,"Name":"9","Lines":[{"Start":30,"End":2},{"Start":24,"End":1},{"Start":12,"End":0},{"Start":32,"End":5},{"Start":11,"End":34},{"Start":35,"End":17}]},
-    {"Width":6,"Height":6,"Name":"10","Lines":[{"Start":30,"End":1},{"Start":7,"End":10},{"Start":2,"End":20},{"Start":13,"End":21},{"Start":26,"End":28}]}
+    {"Id":"portal-main-6x6-01","Name":"跨区接力","Mechanic":"portal","PortalRulesVersion":2,"Width":6,"Height":6,"Lines":[{"Start":0,"End":17},{"Start":18,"End":35}],"Portals":[{"Id":"P1","Cells":[13,2]}]}
   ]
 }

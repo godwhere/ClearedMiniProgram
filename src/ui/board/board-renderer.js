@@ -19,6 +19,8 @@ class BoardRenderer {
     const opts = options || {};
     this.getSkin = typeof opts.getSkin === 'function'
       ? opts.getSkin : () => opts.skin || { colors: {}, layout: {}, animation: {} };
+    this.getContext = typeof opts.getContext === 'function'
+      ? opts.getContext : () => opts.context || null;
     this.clearEffects = opts.clearEffects || null;
     this.drawTile = typeof opts.drawTile === 'function' ? opts.drawTile : function () {};
     this.drawBlockedCell = typeof opts.drawBlockedCell === 'function'
@@ -61,7 +63,7 @@ class BoardRenderer {
     this.drawCells(board, layout, palette, now, gap, portalCells, options);
     this.renderClearAnimation(board.clearAnimation, palette, now, gap, layout, portalCells);
     if (board.hint && (board.hintUntil === undefined || now < board.hintUntil)) {
-      this.drawHintPath(board.hint, palette, now, layout, portalCells);
+      this.drawHintPaths(board.hint, palette, now, layout, portalCells);
     }
     if (this.portalOverlay) this.portalOverlay.draw(portal, board, layout, gap, now);
     return gap;
@@ -157,6 +159,61 @@ class BoardRenderer {
         });
       });
     });
+
+    const ctx = this.getContext();
+    if (!ctx) return;
+    const lineWidth = clamp(layout.cell * 0.09, 2, 7);
+    const arrowLength = clamp(layout.cell * 0.22, 6, 15);
+    const arrowSpread = clamp(layout.cell * 0.13, 4, 10);
+    ctx.save();
+    ctx.strokeStyle = color;
+    ctx.globalAlpha = 0.76 + breath * 0.18;
+    ctx.lineWidth = lineWidth;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    segments.forEach((segment, segmentIndex) => {
+      if (!Array.isArray(segment) || segment.length < 2) return;
+      ctx.beginPath();
+      segment.forEach((index, order) => {
+        const x = layout.x + (index % layout.cols + 0.5) * layout.cell;
+        const y = layout.y + (Math.floor(index / layout.cols) + 0.5) * layout.cell;
+        if (order === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      });
+      ctx.stroke();
+
+      // The entry segment points into the portal/end. Every continuation
+      // segment points away from its portal exit, and no edge is drawn across
+      // the teleport gap because segments are stroked independently.
+      const fromOrder = segmentIndex === 0 ? segment.length - 2 : 0;
+      const toOrder = segmentIndex === 0 ? segment.length - 1 : 1;
+      const from = segment[fromOrder];
+      const to = segment[toOrder];
+      const fromX = layout.x + (from % layout.cols + 0.5) * layout.cell;
+      const fromY = layout.y + (Math.floor(from / layout.cols) + 0.5) * layout.cell;
+      const toX = layout.x + (to % layout.cols + 0.5) * layout.cell;
+      const toY = layout.y + (Math.floor(to / layout.cols) + 0.5) * layout.cell;
+      const angle = Math.atan2(toY - fromY, toX - fromX);
+      ctx.beginPath();
+      ctx.moveTo(toX, toY);
+      ctx.lineTo(
+        toX - Math.cos(angle) * arrowLength + Math.sin(angle) * arrowSpread,
+        toY - Math.sin(angle) * arrowLength - Math.cos(angle) * arrowSpread
+      );
+      ctx.moveTo(toX, toY);
+      ctx.lineTo(
+        toX - Math.cos(angle) * arrowLength - Math.sin(angle) * arrowSpread,
+        toY - Math.sin(angle) * arrowLength + Math.cos(angle) * arrowSpread
+      );
+      ctx.stroke();
+    });
+    ctx.restore();
+  }
+
+  drawHintPaths(hint, palette, now, layout, portalCells) {
+    if (!hint) return;
+    const paths = Array.isArray(hint.paths) ? hint.paths : [hint];
+    paths.forEach(path => this.drawHintPath(path, palette, now, layout, portalCells));
   }
 
   drawClearAnimation(animation, palette, now, gap, layout, portalCells) {
