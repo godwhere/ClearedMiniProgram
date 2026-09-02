@@ -7,6 +7,7 @@ const tests = [
   ['clear effect service', require('./clear-effect-service.test.js')],
   ['clear effect system', require('./clear-effect-system.test.js')],
   ['canvas renderer', require('./renderer.test.js')],
+  ['canvas button labels', require('./renderer-button.test.js')],
   ['interaction map', require('./interaction-map.test.js')],
   ['board input controller', require('./board-input-controller.test.js')],
   ['mini game app smoke', require('./app-smoke.test.js')],
@@ -30,7 +31,8 @@ const tests = [
   ['app portals', require('./app-portal.test.js')],
   ['renderer portals', require('./renderer-portal.test.js')],
   ['gameplay mechanics', require('./mechanics.test.js')],
-  ['portal publishing gate', require('./portal-publishing.test.js')]
+  ['portal publishing gate', require('./portal-publishing.test.js')],
+  ['mixed 8x8 chapter', require('./mixed-chapter.test.js')]
 ];
 
 async function main() {

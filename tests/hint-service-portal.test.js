@@ -5,7 +5,8 @@ const HintService = require('../src/services/hint-service.js');
 const PortalHintProvider = require('../src/services/hints/portal-hint-provider.js');
 const portalSolution = require('../core/portal-solution.js');
 const GameRunner = require('../core/game-runner.js');
-const portalDemo = require('../data/portal-demo.js');
+const catalog = require('../data/catalog-v2.js');
+const portalSet = catalog.sets[1];
 const portalSolutions = require('../data/portal-solutions.js');
 
 function deepFreeze(value) {
@@ -59,16 +60,16 @@ function purePortalContext(level) {
 function run() {
   const hints = new HintService(null, null, portalSolutions);
 
-  // 1. Solution catalog lookup for demo level 1
-  const level1 = portalDemo.Games[0];
-  const runner1 = new GameRunner(level1, portalDemo.Palette);
+  // 1. Solution catalog lookup for mainline level 7
+  const level1 = portalSet.Games[4];
+  const runner1 = new GameRunner(level1, portalSet.Palette);
   const hint1 = hints.find(runner1);
-  assert(hint1, 'hint must be found for demo 1');
+  assert(hint1, 'hint must be found for mainline level 7');
   assert.strictEqual(hint1.lineIndex, 0);
   assert.strictEqual(hint1.source, 'solution');
   assert.strictEqual(hint1.requiresRelease, true);
   assert(Array.isArray(hint1.segments), 'hint must have segments');
-  assert.strictEqual(hint1.segments.length, 2, 'demo 1 has 2 segments');
+  assert.strictEqual(hint1.segments.length, 2, 'mainline level 7 has 2 segments');
   assert.deepStrictEqual(hint1.segments[0], [0, 1, 6, 5, 10, 11, 16, 15, 20, 21]);
   assert.deepStrictEqual(hint1.segments[1], [2, 3, 4, 9, 8, 7, 12, 13, 14, 19, 18, 17, 22, 23, 24]);
   assert.strictEqual(hint1.teleports.length, 1);
@@ -115,7 +116,7 @@ function run() {
 
   // 3. The same stored answer is usable from the opposite endpoint. Entering
   // the stored B side means the wait hint must continue from A toward Start.
-  const reverseRunner = new GameRunner(level1, portalDemo.Palette);
+  const reverseRunner = new GameRunner(level1, portalSet.Palette);
   reverseRunner.touchStart(24);
   [23, 22, 17, 18, 19, 14, 13, 12, 7, 8, 9, 4, 3, 2]
     .forEach(cell => reverseRunner.touchMove(cell));
@@ -137,7 +138,7 @@ function run() {
   // 4. A player may reach the stored portal through a different route. If
   // that route occupies cells in the stored remainder, reject it and search
   // from the actual exit to the actual target without crossing entry cells.
-  const deviatedRunner = new GameRunner(level1, portalDemo.Palette);
+  const deviatedRunner = new GameRunner(level1, portalSet.Palette);
   const deviatedEntry = [0, 1, 6, 7, 12, 11, 16, 15, 20, 21];
   deviatedRunner.touchStart(deviatedEntry[0]);
   deviatedEntry.slice(1).forEach(cell => deviatedRunner.touchMove(cell));
@@ -215,12 +216,12 @@ function run() {
   assert.strictEqual(searchHint.segments[1][0], 14);
   assert.strictEqual(searchHint.segments[1][searchHint.segments[1].length - 1], 15);
 
-  // 8. All 5 demo levels have valid stored hints
-  portalDemo.Games.forEach((game, idx) => {
-    const r = new GameRunner(game, portalDemo.Palette);
-    const h = hints.find(r);
-    assert(h, `demo level ${idx + 1} (${game.Id}) must produce a hint`);
-    assert.strictEqual(h.source, 'solution');
+  // Every published mainline Portal level keeps a valid keyed hint.
+  catalog.levels.filter(entry => entry.game.Mechanic === 'portal').forEach(entry => {
+    const runner = new GameRunner(entry.game, entry.palette);
+    const hint = hints.find(runner);
+    assert(hint, `${entry.game.Id} must produce a stored hint`);
+    assert.strictEqual(hint.source, 'solution');
   });
 
   // v2 branches from one entry to every other portal in the neutral network.

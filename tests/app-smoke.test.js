@@ -5,6 +5,7 @@ const GameRunner = require('../core/game-runner.js');
 const { createCatalogRunContext } = require('../src/gameplay/run-context.js');
 const solutions = require('../data/solutions.js');
 const portalSolutions = require('../data/portal-solutions.js');
+const portalInstructions = require('../src/ui/portal-instructions.js');
 
 function fakeContext() {
   const context = {};
@@ -339,8 +340,7 @@ function run() {
     'the final ordinary result returns to the page containing level 92');
 
   // A catalog Portal level still settles through the ordinary progress domain
-  // after its segmented answer is completed; only the dedicated trial domain
-  // is intentionally non-persistent.
+  // after its segmented answer is completed.
   const portalApp = new ClearedApp(new WechatPlatform(createWxMock()), {
     solutionCatalog: solutions,
     portalSolutions
@@ -493,26 +493,28 @@ function run() {
   assert.strictEqual(dailyPreviewApp.hintPreview.viewModel.board.cells[1].blocked, true);
   assert.deepStrictEqual(runnerGameplayState(dailyPreviewApp.daily.runner), dailyStateBefore);
 
-  const trialPreviewApp = new ClearedApp(new WechatPlatform(createWxMock()), {
-    portalSolutions
+  const portalPreviewApp = new ClearedApp(new WechatPlatform(createWxMock()), {
+    portalSolutions,
+    progressionConfig: { unlockAllLevelsInDevTools: true }
   });
-  assert.strictEqual(trialPreviewApp.openPortalTrial(0), true);
-  const trialEntry = [0, 1, 6, 5, 10, 11, 16, 15, 20, 21];
-  trialPreviewApp.runner.touchStart(trialEntry[0]);
-  trialEntry.slice(1).forEach(cell => trialPreviewApp.runner.touchMove(cell));
-  trialPreviewApp.runner.touchEnd(-1);
-  const portalPendingBefore = runnerGameplayState(trialPreviewApp.runner);
-  assert.strictEqual(trialPreviewApp.showHint(), true);
-  assert.strictEqual(trialPreviewApp.hint.paths[0].segments.length, 2,
+  assert.strictEqual(portalPreviewApp.openLevel(1, 4), true);
+  const portalEntry = [0, 1, 6, 5, 10, 11, 16, 15, 20, 21];
+  portalPreviewApp.runner.touchStart(portalEntry[0]);
+  portalEntry.slice(1).forEach(cell => portalPreviewApp.runner.touchMove(cell));
+  portalPreviewApp.runner.touchEnd(-1);
+  const portalPendingBefore = runnerGameplayState(portalPreviewApp.runner);
+  assert.strictEqual(portalPreviewApp.showHint(), true);
+  assert.strictEqual(portalPreviewApp.hint.paths[0].segments.length, 2,
     'Portal preview shows the full preset rather than only the pending exit segment');
-  assert.strictEqual(trialPreviewApp.hint.paths[0].teleports.length, 1);
-  assert.strictEqual(trialPreviewApp.hintPreview.viewModel.mechanic.portal.phase, 'READY');
+  assert.strictEqual(portalPreviewApp.hint.paths[0].teleports.length, 1);
+  assert.strictEqual(portalPreviewApp.hintPreview.viewModel.mechanic.portal.phase, 'READY');
+  assert.strictEqual(portalPreviewApp.hintPreview.viewModel.mechanic.portal.instruction, portalInstructions.INITIAL);
   assert.strictEqual(
-    trialPreviewApp.hintPreview.viewModel.mechanic.portal.portals.length > 0,
+    portalPreviewApp.hintPreview.viewModel.mechanic.portal.portals.length > 0,
     true,
     'initial preview retains Portal definitions'
   );
-  assert.deepStrictEqual(runnerGameplayState(trialPreviewApp.runner), portalPendingBefore,
+  assert.deepStrictEqual(runnerGameplayState(portalPreviewApp.runner), portalPendingBefore,
     'Portal pending, selection and canUndo remain untouched');
 }
 

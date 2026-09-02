@@ -29,21 +29,6 @@ function settleOrdinary(context, services) {
   return Object.assign({ elapsedMs, persisted: true }, completion);
 }
 
-function settleTrial(context, services) {
-  const deps = services || {};
-  if (!context || context.progressionScope !== 'none') return null;
-  const elapsedMs = Math.max(1, Number(deps.elapsedMs) || 0);
-  return {
-    elapsedMs,
-    firstClear: false,
-    newBest: false,
-    previousBest: 0,
-    bestMs: elapsedMs,
-    persisted: false,
-    gameplayExtensionId: context.mechanic && context.mechanic.id
-  };
-}
-
 function settleDaily(context, services) {
   const deps = services || {};
   if (!context || context.progressionScope !== 'daily' ||
@@ -54,7 +39,6 @@ function settleDaily(context, services) {
 function settle(context, services) {
   if (!context) return null;
   if (context.progressionScope === 'ordinary') return settleOrdinary(context, services);
-  if (context.progressionScope === 'none') return settleTrial(context, services);
   if (context.progressionScope === 'daily') return settleDaily(context, services);
   return null;
 }
@@ -62,6 +46,5 @@ function settle(context, services) {
 module.exports = {
   settle,
   settleOrdinary,
-  settleTrial,
   settleDaily
 };

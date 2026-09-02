@@ -10,13 +10,11 @@ const adConfig = require('./config/ads.js');
 const progressionConfig = require('./config/progression.js');
 const audioConfig = require('./config/audio.js');
 const CanvasRenderer = require('./ui/canvas-renderer.js');
+const portalInstructions = require('./ui/portal-instructions.js');
 const defaultSkins = require('./skins/index.js');
 const defaultMechanics = require('./mechanics/index.js');
 const defaultPortalMechanic = defaultMechanics.get('portal');
-const {
-  createCatalogRunContext,
-  createMechanicTrialRunContext
-} = require('./gameplay/run-context.js');
+const { createCatalogRunContext } = require('./gameplay/run-context.js');
 const completionPolicies = require('./gameplay/completion-policies.js');
 const BoardInputController = require('./gameplay/board-input-controller.js');
 
@@ -46,7 +44,6 @@ const defaultDailyManifest = optionalRequire('../data/daily-challenges.js', {
   Challenges: []
 });
 const defaultDailySolutions = optionalRequire('../data/daily-solutions.js', null);
-const defaultPortalDemo = optionalRequire('../data/portal-demo.js', null);
 const defaultPortalSolutions = optionalRequire('../data/portal-solutions.js', null);
 
 // Daily mode deliberately has its own entry budget.  Keep the default here
@@ -84,15 +81,6 @@ const OUTCOME = GameRunner.OUTCOME || {
   WON: 'won',
   FAILED: 'failed'
 };
-const PORTAL_INSTRUCTIONS = Object.freeze({
-  PORTAL_LOCKED: '松开手指',
-  PORTAL_WAIT: '从任意其他传送门继续连线'
-});
-
-function portalInstructionForPhase(phase) {
-  return PORTAL_INSTRUCTIONS[phase] || null;
-}
-
 function portalExpectedExits(pending) {
   if (!pending || typeof pending !== 'object') return [];
   const raw = Array.isArray(pending.eligibleExits)
@@ -199,13 +187,9 @@ class ClearedApp {
     this.portalMechanic = opts.portalMechanic === undefined
       ? defaultPortalMechanic
       : opts.portalMechanic;
-    const portalTrial = this.portalMechanic && this.portalMechanic.trial;
-    this.portalDemo = opts.portalDemo !== undefined
-      ? opts.portalDemo
-      : ((portalTrial && portalTrial.set) || defaultPortalDemo);
     this.portalSolutions = opts.portalSolutions !== undefined
       ? opts.portalSolutions
-      : ((portalTrial && portalTrial.solutions) || defaultPortalSolutions);
+      : defaultPortalSolutions;
     // The home migration is deliberately opt-in. Production/default builds
     // keep the existing visible `home:themes` hit; tests or a later release
     // can explicitly enable the replacement with `homeMigration: true` (or
@@ -797,37 +781,6 @@ class ClearedApp {
     return !!(state && state.terminal);
   }
 
-  isPortalTrial() {
-    const source = this.runContext && this.runContext.source;
-    return !!source && source.kind === 'mechanic-trial' && source.id === 'portal-trial';
-  }
-
-  portalTrialDescriptor() {
-    const definition = this.portalMechanic;
-    const trial = definition && definition.trial;
-    const games = this.portalDemo && this.portalDemo.Games;
-    const stableId = definition && definition.id;
-    const action = trial && (trial.action || 'home:portalTrial');
-    const supportedRulesVersions = definition && Array.isArray(definition.supportedRulesVersions)
-      ? definition.supportedRulesVersions : [1];
-    if (!definition || definition.enabled === false || definition.mechanic !== 'portal' ||
-        (definition.rulesVersion !== 1 && definition.rulesVersion !== 2) ||
-        supportedRulesVersions.indexOf(definition.rulesVersion) < 0 ||
-        stableId !== 'portal' || !trial ||
-        typeof action !== 'string' || !action ||
-        !Array.isArray(games) || games.length === 0) return null;
-    return {
-      id: stableId,
-      name: definition.name,
-      kind: definition.kind,
-      rulesVersion: definition.rulesVersion,
-      icon: definition.icon,
-      label: trial.label || definition.name,
-      action,
-      enabled: true
-    };
-  }
-
   activeEnteredAt() {
     if (this.scene === 'daily' || this.scene === 'dailyResult') return this.daily.enteredAt;
     return this.levelEnteredAt;
@@ -901,7 +854,7 @@ class ClearedApp {
     return false;
   }
 
-  buildBoardViewModel(runner, clearAnimation, levelSource) {
+  buildBoardViewModel(runner, clearAnimation) {
     if (!runner || typeof runner.getViewState !== 'function') return null;
     let viewState;
     try {
@@ -964,10 +917,6 @@ class ClearedApp {
     const pending = mechanicState.pending;
     const locked = mechanicState.locked;
     const expectedExits = portalExpectedExits(pending);
-    const dynamicInstruction = portalInstructionForPhase(mechanicState.phase);
-    const level = levelSource || (this.runContext && this.runContext.level) || this.level || null;
-    const staticInstruction = (level && (level.Instructions || level.instructions)) || null;
-    const portalInstruction = dynamicInstruction || (mechanicState.phase === 'READY' ? staticInstruction : null);
     const portal = mechanicState.id === 'portal' ? {
       icon: this.portalMechanic && this.portalMechanic.icon,
       rulesVersion: mechanicState.rulesVersion,
@@ -976,7 +925,7 @@ class ClearedApp {
       expectedExits,
       expectedExit: mechanicState.rulesVersion === 1 && expectedExits.length === 1
         ? expectedExits[0] : null,
-      instruction: portalInstruction,
+      instruction: portalInstructions.forState(mechanicState),
       lockedEntry: locked && Number.isInteger(locked.entry) ? locked.entry : null
     } : null;
     return {
@@ -1058,7 +1007,6 @@ class ClearedApp {
       dailyEntriesRemaining: this.dailyDebugUnlimited ? null : homeDailyEntry.entriesRemaining,
       dailyDebugUnlimited: this.dailyDebugUnlimited,
       homeMigration: this.homeMigration,
-      portalTrial: this.portalTrialDescriptor(),
       // Expose the active visual selection as data only. The renderer never
       // mutates this value; `performAction('effect:<id>')` owns persistence.
       currentEffectId: this.currentEffectId()
@@ -1066,8 +1014,7 @@ class ClearedApp {
 
     if (activeDaily) {
       const completed = this.dailyCompletionState(dailyResolution);
-      const activeDailyLevel = activeDaily.challenge || (activeDaily.levels && activeDaily.levels[activeDaily.levelIndex]);
-      const boardView = this.buildBoardViewModel(activeDaily.runner, activeDaily.clearAnimation, activeDailyLevel);
+      const boardView = this.buildBoardViewModel(activeDaily.runner, activeDaily.clearAnimation);
       const portalStatus = boardView && boardView.mechanic.portal;
       return Object.assign(base, {
         dailyAvailable: !!activeDaily.challenge,
@@ -1215,11 +1162,10 @@ class ClearedApp {
       const set = context && context.set;
       const level = context && context.level;
       const activeLevelIndex = context ? context.levelIndex : this.levelIndex;
-      const trial = !!context && context.source.kind === 'mechanic-trial';
-      const ordinaryPosition = !trial && context
+      const ordinaryPosition = context
         ? this.catalogLevelPosition(context.setIndex, activeLevelIndex)
         : -1;
-      const boardView = this.buildBoardViewModel(this.runner, this.clearAnimation, level);
+      const boardView = this.buildBoardViewModel(this.runner, this.clearAnimation);
       const portalStatus = boardView && boardView.mechanic.portal;
       return Object.assign(base, {
         set,
@@ -1236,10 +1182,7 @@ class ClearedApp {
         hintAvailable: !!boardView && !boardView.terminal,
         result: this.result,
         resultVisibleAt: this.resultVisibleAt,
-        hasNext: trial
-          ? (activeLevelIndex + 1 < ((set && set.Games) || []).length)
-          : !!(context && this.progression.nextLevel(context.setIndex, activeLevelIndex)),
-        isPortalTrial: trial,
+        hasNext: !!(context && this.progression.nextLevel(context.setIndex, activeLevelIndex)),
         portals: portalStatus ? portalStatus.portals : [],
         portalStatus,
         expectedExit: portalStatus ? portalStatus.expectedExit : null,
@@ -1728,7 +1671,6 @@ class ClearedApp {
       return false;
     }
     const previousScene = this.scene;
-    const portalTrial = this.portalTrialDescriptor();
     if (action === 'home:sound' || action === 'play:sound' || action === 'themes:sound' ||
         action === 'daily:sound' || action === 'dailyResult:sound' ||
         action === 'corridor:sound' || action === 'effects:sound') {
@@ -1741,9 +1683,6 @@ class ClearedApp {
     this.audio.playSfx('click');
     if (action === 'home:dailyChallenge' || action === 'home:daily') {
       this.enterDaily();
-    } else if (portalTrial &&
-        (action === portalTrial.action || action === 'corridor:portalTrial')) {
-      this.openPortalTrial(0);
     } else if (action === 'home:start') {
       const target = this.progress.resumeTarget(catalog.sets);
       this.openLevel(target.setIndex, target.levelIndex);
@@ -1884,11 +1823,7 @@ class ClearedApp {
         this.resetCurrentDailyLevel();
       }
     } else if (action === 'play:back' || action === 'result:levels') {
-      if (this.isPortalTrial()) {
-        this.scene = 'home';
-      } else {
-        this.scene = 'levels';
-      }
+      this.scene = 'levels';
       this.runner = null;
       this.runContext = null;
       this.boardInput.setRunner(null);
@@ -1903,9 +1838,7 @@ class ClearedApp {
     } else if (action === 'play:hint') {
       this.showHint();
     } else if (action === 'result:replay') {
-      if (this.isPortalTrial()) {
-        this.openPortalTrial(this.runContext.levelIndex);
-      } else if (this.runContext) {
+      if (this.runContext) {
         this.openLevel(this.runContext.setIndex, this.runContext.levelIndex);
       }
     } else if (action === 'failure:retry') {
@@ -1913,17 +1846,7 @@ class ClearedApp {
         this.resetCurrentLevel();
       }
     } else if (action === 'result:next') {
-      if (this.isPortalTrial()) {
-        const context = this.runContext;
-        if (context && context.levelIndex + 1 < ((context.set && context.set.Games) || []).length) {
-          this.openPortalTrial(context.levelIndex + 1);
-        } else {
-          this.scene = 'home';
-          this.runner = null;
-          this.runContext = null;
-          this.boardInput.setRunner(null);
-        }
-      } else if (this.runContext) {
+      if (this.runContext) {
         const target = this.progression.nextLevel(
           this.runContext.setIndex,
           this.runContext.levelIndex
@@ -2332,35 +2255,6 @@ class ClearedApp {
     return true;
   }
 
-  openPortalTrial(levelIndex = 0) {
-    if (!this.portalTrialDescriptor()) return false;
-    const context = createMechanicTrialRunContext(
-      this.portalMechanic,
-      levelIndex,
-      this.portalDemo
-    );
-    if (!context) return false;
-    this.runContext = context;
-    this.levelIndex = context.levelIndex;
-    this.runner = new GameRunner(
-      context.level,
-      context.set.Palette || [],
-      () => this.invalidate()
-    );
-    this.boardInput.setRunner(this.runner);
-    this.scene = 'play';
-    this.levelEnteredAt = Date.now();
-    this.lastClockSecond = -1;
-    this.clearAnimation = null;
-    this.hint = null;
-    this.hintUntil = 0;
-    this.hintPreview = null;
-    this.result = null;
-    this.resultVisibleAt = 0;
-    this.invalidate();
-    return true;
-  }
-
   isHintPreviewActive(now) {
     const timestamp = Number.isFinite(Number(now)) ? Number(now) : Date.now();
     return !!(this.hintPreview && timestamp < this.hintPreview.until);
@@ -2375,9 +2269,9 @@ class ClearedApp {
     return existed;
   }
 
-  createHintPreview(runner, hint, level, until) {
+  createHintPreview(runner, hint, until) {
     if (!hint || !Array.isArray(hint.paths) || !hint.paths.length) return null;
-    const viewModel = this.buildBoardViewModel(runner, null, level);
+    const viewModel = this.buildBoardViewModel(runner, null);
     if (!viewModel || !viewModel.board) return null;
     const lines = Array.isArray(viewModel.board.lines) ? viewModel.board.lines : [];
     if (hint.paths.length !== lines.length) return null;
@@ -2405,7 +2299,7 @@ class ClearedApp {
       portal.expectedExits = [];
       portal.expectedExit = null;
       portal.lockedEntry = null;
-      portal.instruction = level && (level.Instructions || level.instructions) || null;
+      portal.instruction = portalInstructions.INITIAL;
     }
     return { until, viewModel };
   }
@@ -2440,7 +2334,6 @@ class ClearedApp {
     const preview = this.createHintPreview(
       this.runner,
       hint,
-      context && context.level,
       until
     );
     if (!preview) {
@@ -2484,7 +2377,6 @@ class ClearedApp {
     const preview = this.createHintPreview(
       runner,
       hint,
-      this.daily.challenge || (this.daily.levels && this.daily.levels[this.daily.levelIndex]),
       until
     );
     if (!preview) {

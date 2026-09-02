@@ -1,6 +1,7 @@
 const InteractionMap = require('./board/interaction-map.js');
 const BoardRenderer = require('./board/board-renderer.js');
 const PortalOverlay = require('./board/portal-overlay.js');
+const portalInstructions = require('./portal-instructions.js');
 
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
@@ -13,6 +14,7 @@ function formatTime(milliseconds) {
 
 const PORTAL_PROMPT_BAND_HEIGHT = 32;
 const PORTAL_PROMPT_CYCLE_MS = 1800;
+const CANVAS_FONT_FAMILY = '-apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif';
 
 class CanvasRenderer {
   constructor(platform, skinService, clearEffects) {
@@ -214,7 +216,7 @@ class CanvasRenderer {
     const opts = options || {};
     ctx.save();
     ctx.fillStyle = opts.color || this.skinService.current().colors.text;
-    ctx.font = `${opts.weight || 300} ${size}px -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif`;
+    ctx.font = `${opts.weight || 300} ${size}px ${CANVAS_FONT_FAMILY}`;
     ctx.textAlign = opts.align || 'center';
     ctx.textBaseline = opts.baseline || 'middle';
     ctx.globalAlpha = opts.alpha === undefined ? 1 : opts.alpha;
@@ -243,16 +245,46 @@ class CanvasRenderer {
       ctx.stroke();
     }
     ctx.restore();
-    const labelX = rect.x + rect.w / 2 + (opts.icon ? 13 : 0);
+    let fontSize = opts.fontSize || 18;
+    const weight = opts.weight || 400;
+    const labelText = String(label);
+    let labelX = rect.x + rect.w / 2;
+    let labelMaxWidth;
     if (opts.icon) {
+      // Center icon + measured label as one group. The hint button changes
+      // from two to four CJK characters while keeping the same touch target.
+      let labelWidth = labelText.length * fontSize;
+      ctx.save();
+      ctx.font = `${weight} ${fontSize}px ${CANVAS_FONT_FAMILY}`;
+      try {
+        const measured = typeof ctx.measureText === 'function' ? ctx.measureText(labelText) : null;
+        if (measured && Number.isFinite(measured.width) && measured.width > 0) {
+          labelWidth = measured.width;
+        }
+      } catch (error) {
+        // Older hosts/tests may not measure text; one em per character is a
+        // conservative fallback for the current Chinese action labels.
+      }
+      ctx.restore();
+      const iconSize = fontSize * 1.25;
+      const gap = labelText ? 8 : 0;
+      const contentWidth = iconSize + gap + labelWidth;
+      const scale = Math.min(1, Math.max(1, rect.w - 24) / contentWidth);
+      const fittedIconSize = iconSize * scale;
+      labelMaxWidth = labelWidth * scale;
+      fontSize *= scale;
+      const contentLeft = rect.x + (rect.w - contentWidth * scale) / 2;
+      labelX = contentLeft + fittedIconSize + gap * scale + labelMaxWidth / 2;
       ctx.save();
       ctx.globalAlpha = (enabled ? 1 : 0.5) * opacity;
-      this.drawIcon(opts.icon, rect.x + rect.w / 2 - 24, rect.y + rect.h / 2, (opts.fontSize || 18) * 1.25);
+      this.drawIcon(opts.icon, contentLeft + fittedIconSize / 2,
+        rect.y + rect.h / 2, fittedIconSize);
       ctx.restore();
     }
-    this.text(label, labelX, rect.y + rect.h / 2, opts.fontSize || 18, {
-      weight: opts.weight || 400,
-      alpha: (enabled ? 1 : 0.5) * opacity
+    this.text(labelText, labelX, rect.y + rect.h / 2, fontSize, {
+      weight,
+      alpha: (enabled ? 1 : 0.5) * opacity,
+      maxWidth: labelMaxWidth
     });
     this.addHit(id, rect, enabled);
   }
@@ -1647,20 +1679,14 @@ class CanvasRenderer {
     const portal = mechanicId === 'portal' &&
       (rulesVersion === 1 || rulesVersion === 2) && Array.isArray(definitions)
       ? {
-        icon: model.portalTrial && model.portalTrial.icon,
+        icon: portalStatus && portalStatus.icon,
         rulesVersion,
         portals: normalizedDefinitions,
         phase: portalPhase,
         expectedExits,
         expectedExit: rulesVersion === 1 && expectedExits.length === 1
           ? expectedExits[0] : null,
-        instruction: portalStatus && typeof portalStatus.instruction === 'string'
-          ? portalStatus.instruction
-          : (typeof model.portalInstruction === 'string'
-            ? model.portalInstruction
-            : (portalPhase === 'READY'
-              ? ((level && (level.Instructions || level.instructions)) || null)
-              : null)),
+        instruction: portalInstructions.forState(portalStatus || { phase: portalPhase }),
         lockedEntry: portalStatus && Number.isInteger(portalStatus.lockedEntry)
           ? portalStatus.lockedEntry : null
       }
@@ -1778,26 +1804,7 @@ class CanvasRenderer {
     const numberedTitle = hasOrdinaryNumber
       ? `${ordinaryNumber} / ${ordinaryCount}`
       : `${model.levelIndex + 1} / ${(model.set.Games || []).length}`;
-    const instructionTitle = game.Instructions && hasOrdinaryNumber
-      ? `${ordinaryNumber} · ${game.Instructions}`
-      : game.Instructions;
-    let title;
-    let hasNamedTitle;
-    if (portal) {
-      if (game.Name) {
-        title = hasOrdinaryNumber && !model.isPortalTrial
-          ? `${ordinaryNumber} · ${game.Name}`
-          : game.Name;
-        hasNamedTitle = true;
-      } else {
-        title = numberedTitle;
-        hasNamedTitle = false;
-      }
-    } else {
-      title = instructionTitle || numberedTitle;
-      hasNamedTitle = !!game.Instructions;
-    }
-    this.text(title, width / 2, topUi + 27, hasNamedTitle ? 18 : 24, {
+    this.text(numberedTitle, width / 2, topUi + 27, 24, {
       weight: 300,
       maxWidth: width - 220
     });
@@ -2128,7 +2135,7 @@ class CanvasRenderer {
 
     const backAction = daily ? 'dailyResult:home' : 'result:levels';
     const retryAction = daily ? 'dailyFailure:retry' : 'failure:retry';
-    const backLabel = daily || model.isPortalTrial ? '返回主页' : '返回选关';
+    const backLabel = daily ? '返回主页' : '返回选关';
     const retryLabel = daily ? '重试本关' : '重新开始';
     const buttonHeight = stacked ? 44 : 48;
     if (stacked) {
@@ -2260,29 +2267,22 @@ class CanvasRenderer {
     const panelY = (height - panelHeight) / 2;
     ctx.fillStyle = skin.colors.strongPanel;
     ctx.fillRect(0, panelY, width, panelHeight);
-    const trialResult = model.result && model.result.persisted === false &&
-      !!model.result.gameplayExtensionId;
     this.drawIcon('check', width / 2, panelY + 47, 40);
-    this.text(trialResult ? '试玩完成' : (model.result.newBest ? '新纪录' : '完成'),
+    this.text(model.result.newBest ? '新纪录' : '完成',
       width / 2, panelY + 92, 27, { weight: 300 });
-    const resultText = trialResult
-      ? `本次 ${formatTime(model.result.elapsedMs)} · 试玩不记录最佳`
-      : `本次 ${formatTime(model.result.elapsedMs)} · 最佳 ${formatTime(model.result.bestMs)}`;
+    const resultText = `本次 ${formatTime(model.result.elapsedMs)} · 最佳 ${formatTime(model.result.bestMs)}`;
     this.text(resultText, width / 2, panelY + 124, 13, { alpha: 0.72 });
 
     const gap = 10;
-    const buttonCount = trialResult && !model.hasNext ? 2 : 3;
-    const buttonWidth = Math.min(104, (width - 48 - gap * (buttonCount - 1)) / buttonCount);
-    const totalWidth = buttonWidth * buttonCount + gap * (buttonCount - 1);
+    const buttonWidth = Math.min(104, (width - 48 - gap * 2) / 3);
+    const totalWidth = buttonWidth * 3 + gap * 2;
     const x = (width - totalWidth) / 2;
     const y = panelY + panelHeight - 72;
     this.button('result:levels', { x, y, w: buttonWidth, h: 46 },
-      trialResult ? '返回主页' : '选关', { fontSize: 15 }, model.pressedId);
+      '选关', { fontSize: 15 }, model.pressedId);
     this.button('result:replay', { x: x + buttonWidth + gap, y, w: buttonWidth, h: 46 }, '重玩', { fontSize: 15 }, model.pressedId);
-    if (buttonCount === 3) {
-      this.button('result:next', { x: x + (buttonWidth + gap) * 2, y, w: buttonWidth, h: 46 },
-        model.hasNext ? '下一关' : '关卡列表', { fontSize: 15 }, model.pressedId);
-    }
+    this.button('result:next', { x: x + (buttonWidth + gap) * 2, y, w: buttonWidth, h: 46 },
+      model.hasNext ? '下一关' : '关卡列表', { fontSize: 15 }, model.pressedId);
   }
 }
 

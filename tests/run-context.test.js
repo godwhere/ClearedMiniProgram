@@ -1,10 +1,7 @@
 'use strict';
 
 const assert = require('assert');
-const {
-  createCatalogRunContext,
-  createMechanicTrialRunContext
-} = require('../src/gameplay/run-context.js');
+const { createCatalogRunContext } = require('../src/gameplay/run-context.js');
 const completionPolicies = require('../src/gameplay/completion-policies.js');
 
 function run() {
@@ -33,21 +30,8 @@ function run() {
   const catalogPortal = createCatalogRunContext(catalog, 0, 1);
   assert.strictEqual(catalogPortal.source.kind, 'catalog');
   assert.strictEqual(catalogPortal.progressionScope, 'ordinary',
-    'a portal mechanic does not imply trial progression');
+    'a portal mechanic retains ordinary catalog progression');
   assert.deepStrictEqual(catalogPortal.mechanic, { id: 'portal', rulesVersion: 1 });
-
-  const trialSet = { Id: 'trial-set', Games: [portalLevel], Palette: [] };
-  const trial = createMechanicTrialRunContext({
-    id: 'portal',
-    mechanic: 'portal',
-    rulesVersion: 1,
-    trial: { set: trialSet }
-  }, 0);
-  assert.strictEqual(trial.source.kind, 'mechanic-trial');
-  assert.strictEqual(trial.source.id, 'portal-trial');
-  assert.strictEqual(trial.progressionScope, 'none');
-  assert.strictEqual(trial.setIndex, null);
-  assert.strictEqual(trial.levelIndex, 0);
 
   let recorded = null;
   let adClears = null;
@@ -76,13 +60,12 @@ function run() {
     'optional ad failures cannot suppress an already-persisted completion');
 
   recorded = null;
-  const trialResult = completionPolicies.settle(trial, {
+  const unsupportedResult = completionPolicies.settle({ progressionScope: 'none' }, {
     progress,
     elapsedMs: 30
   });
-  assert.strictEqual(recorded, null, 'trial completion never writes ordinary progress');
-  assert.strictEqual(trialResult.persisted, false);
-  assert.strictEqual(trialResult.gameplayExtensionId, 'portal');
+  assert.strictEqual(recorded, null, 'unsupported progression cannot write ordinary progress');
+  assert.strictEqual(unsupportedResult, null, 'the removed trial scope does not settle');
 
   let dailyCalls = 0;
   const dailyResult = completionPolicies.settle({ progressionScope: 'daily' }, {

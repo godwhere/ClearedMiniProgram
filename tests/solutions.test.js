@@ -21,7 +21,14 @@ function run() {
   const nonNullCount = solutions.sets.reduce((total, set) =>
     total + set.filter(sol => sol !== null).length, 0);
   assert.strictEqual(nonNullCount, 58,
-    'the flat solution table contains exactly 58 non-Portal level solutions');
+    'the legacy flat solution table contains exactly 58 non-Portal level solutions');
+  assert(solutions.ByLevelId && typeof solutions.ByLevelId === 'object',
+    'mixed chapter ordinary solutions must expose a stable-ID table');
+  assert.strictEqual(Object.keys(solutions.ByLevelId).length, 16,
+    'the mixed chapter must publish exactly 16 additional ordinary solutions');
+
+  const ordinaryIds = new Set();
+  let ordinaryCount = 0;
 
   catalog.sets.forEach((set, setIndex) => {
     const setSolutions = solutions.sets[setIndex];
@@ -32,7 +39,11 @@ function run() {
       return result;
     }, []);
     ordinaryGames.forEach(({ game, levelIndex }) => {
-      const paths = setSolutions[levelIndex];
+      ordinaryCount += 1;
+      const keyed = game.Id && Object.prototype.hasOwnProperty.call(solutions.ByLevelId, game.Id)
+        ? solutions.ByLevelId[game.Id] : null;
+      if (keyed) ordinaryIds.add(game.Id);
+      const paths = keyed || setSolutions[levelIndex];
       const total = game.Width * game.Height;
       assert(Array.isArray(paths), `${set.Name}/${game.Name} paths missing`);
       assert.strictEqual(paths.length, game.Lines.length);
@@ -72,6 +83,10 @@ function run() {
         `${set.Name}/${game.Name} official solution must win`);
     });
   });
+  assert.strictEqual(ordinaryCount, 74,
+    'the 92-level catalog must contain 74 ordinary and 18 Portal levels');
+  assert.deepStrictEqual(Array.from(ordinaryIds).sort(), Object.keys(solutions.ByLevelId).sort(),
+    'the ID-indexed ordinary table must not contain stale or Portal-only entries');
 }
 
 module.exports = run;

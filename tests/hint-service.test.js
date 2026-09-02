@@ -34,6 +34,20 @@ function run() {
   assert.deepStrictEqual(runner.getViewState(), stateBeforeCompleteHint,
     'complete hint lookup cannot mutate the live Runner');
 
+  const mixedGame = catalog.sets[4].Games[35];
+  assert.strictEqual(mixedGame.Id, 'portal-8x8-06');
+  assert.strictEqual(mixedGame.Mechanic, undefined,
+    'a preserved Portal-prefixed ID must not enable Portal rules on an ordinary level');
+  const mixedRunner = new GameRunner(mixedGame, catalog.sets[4].Palette);
+  const mixedHint = hints.find(mixedRunner, 4, 35);
+  assert(mixedHint && mixedHint.source === 'solution');
+  assert.deepStrictEqual(mixedHint.path, solutions.ByLevelId[mixedGame.Id][0],
+    'mixed chapter ordinary hints must use the stable-ID solution table');
+  const mixedComplete = hints.findComplete(mixedRunner);
+  assert(mixedComplete && mixedComplete.source === 'solution');
+  assert.deepStrictEqual(mixedComplete.paths.map(item => item.path), solutions.ByLevelId[mixedGame.Id],
+    'full ordinary hints must resolve by ID even without legacy catalog coordinates');
+
   const fallback = new HintService();
   const searched = fallback.find(new GameRunner(game, catalog.sets[0].Palette), 0, 1);
   assert(searched);

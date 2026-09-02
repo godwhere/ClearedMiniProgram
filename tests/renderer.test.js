@@ -273,13 +273,6 @@ function run() {
       `ordinary failure text "${call.args[0]}" stays inside the vertical safe area`);
   });
 
-  platform.context.calls.length = 0;
-  renderer.render(Object.assign({}, failureModel, { isPortalTrial: true }), failureVisibleAt + 180);
-  assert.strictEqual(textCalls(platform.context, '返回主页').length, 1,
-    'portal trial failure returns to the home scene');
-  assert.strictEqual(textCalls(platform.context, '返回选关').length, 0,
-    'portal trial failure does not expose the ordinary level-list label');
-
   const dailyChallenge = Object.assign({
     Color: set.Color,
     Palette: set.Palette

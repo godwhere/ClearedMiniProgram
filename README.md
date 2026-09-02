@@ -6,11 +6,11 @@
 
 现有内容：
 
-- 92 个普通关卡，选关页统一按 1—92 连续编号；第 7、17、32、47 关为 Portal 里程碑教学关，第 63—92 关为完整 Portal 章节；普通题面最大为 8×8；
+- 92 个普通关卡，选关页统一按 1—92 连续编号；第 7、17、32、47 关为 Portal 里程碑教学关，第 63—92 关为 16 个普通题与 14 个 Portal 题组成的高阶混合章节；普通题面最大为 8×8；
 - 首页、“选择关卡”、每页 25 关的左右滑动分页、游玩、撤销、重置和通关流程；
 - 原版“连接成功后路径淡出并清空格子”的玩法；
 - 全局顺序解锁，完成当前关后开放下一关，锁定关不可进入；
-- 关卡底部左右分布“提示 / 回撤”按钮；提示会在只读初始棋盘上临时显示预设完整解法的全部彩色路径，10 秒后自动恢复真实棋盘；
+- 关卡底部左右分布“提示 / 回撤”按钮；提示会在只读初始棋盘上临时显示预设完整解法的全部彩色路径，10 秒后自动恢复，也可点击“隐藏提示”立即关闭；
 - 本地完成进度和每关最佳时间；
 - 原版配色与 Logo；
 - 可插拔皮肤服务与无广告默认实现。
@@ -27,21 +27,21 @@
 回廊功能入口、消除特效选择页、“无特效”/“逐渐消失”特效以及首页主题入口迁移契约，记录在
 [`docs/corridor-and-clear-effects.md`](docs/corridor-and-clear-effects.md)。第一版场景、特效和首页回廊入口已接入，旧主题 action 仍兼容保留。
 
-传送门玩法的入口段锁定、松手后任选同网络其他出口、错误选择回滚、试玩关卡、分段解答格式和
+传送门玩法的入口段锁定、松手后任选同网络其他出口、错误选择回滚、分段解答格式和
 `GameRunner`/输入/渲染代码边界记录在 [`docs/portal-mechanic.md`](docs/portal-mechanic.md)。
-目前已完成 Portal v2 单网络任选出口、分段手势/提示、完整路径清除动画、5 个独立试玩关、4 个前期里程碑教学关和 30 个 8×8 专章关，并保留 Portal v1 题面和解答兼容。READY 阶段只在题面声明时显示关卡说明；到门锁定和松手等待时动态切换提示，走出传送门后隐藏。连到入口时门图标会居中放大并显示选中高亮；门格不显示 `P1`，Portal 阶段不震动，完整线路消除仍保留原有震动。
-传送门试玩保留为兼容入口，但不在主页注册可见按钮；第 7、17、32、47 关及第 63—92 关均通过连续选关进入。
-传送门以 [`src/mechanics/portal.js`](src/mechanics/portal.js) 作为独立“玩法拓展”定义，不属于主题或特效回廊；试玩通关不写入普通关卡进度、最佳时间或广告计数。门格只显示传送门，不叠加当前主题棋子；默认图标为
+目前已完成 Portal v2 单网络任选出口、分段手势、完整路径清除动画、4 个前期里程碑教学关，以及 8×8 高阶混合章节中的 14 个双门题，并保留 Portal v1 题面和解答兼容。全部 Portal 关在进门前显示“路径会通过传送门抵达另一个传送门”，到门锁定和等待出口时显示“到达传送门后松手，再从另一扇门继续”，出口续接后隐藏。主线游玩标题统一为“当前关卡 / 总关卡”，不显示名称。连到入口时门图标会居中放大并显示选中高亮；门格不显示 `P1`，Portal 阶段不震动，完整线路消除仍保留原有震动。
+独立传送门试玩及其隐藏兼容入口已删除；所有 Portal 题均通过主线连续选关进入。
+传送门以 [`src/mechanics/portal.js`](src/mechanics/portal.js) 作为独立“玩法拓展”定义，不属于主题或特效回廊。门格只显示传送门，不叠加当前主题棋子；默认图标为
 [`assets/icons/portal.png`](assets/icons/portal.png)。
 
 传送门作为首个玩法拓展所暴露的运行上下文、规则查询、输入、提示、渲染与结算边界，以及后续分阶段迁移步骤，记录在
 [`docs/gameplay-extension-architecture.md`](docs/gameplay-extension-architecture.md)。阶段 0—6 的架构重构已经完成；Portal v2 已触发并完成阶段 7 的最小规则版本 Registry，以 allowlist 分派 v1/v2 策略，未知机制或版本不会执行内容脚本。
 
-新增的 30 个 8×8 Portal 普通关卡、分档目标、精确题面、分段解法和后续机制预留记录在
-[`docs/8x8-portal-level-pack-design.md`](docs/8x8-portal-level-pack-design.md)。它们已接入普通 catalog，
-其中第 63–67 关已按新的两门、5–6 色和均衡线路标准完成首批重做；第 68–92 关仍是
-待逐批替换的旧候选。可复用的出题方法、旁路分类和质量门槛见
-[`docs/portal-level-design-guide.md`](docs/portal-level-design-guide.md)。全部内容仍需策划试玩和真机验收后才视为正式发布。
+第 63–92 关的高阶混排、题面指标、解答来源和后续机制预留记录在
+[`docs/8x8-portal-level-pack-design.md`](docs/8x8-portal-level-pack-design.md)。63–67 保留首批
+五个双门题；68–92 已重做为 16 个普通题和 9 个双门题，使用 6–9 色均衡线路，Portal 说明
+统一为上述两句状态提示。64、76、84、89 保留经过审查的高成本无门解。可复用的出题方法和质量门槛见
+[`docs/portal-level-design-guide.md`](docs/portal-level-design-guide.md)。全部内容仍需策划试玩和真机验收。
 
 “高难关卡”主页入口及“每日挑战”模式的棋盘、日期、镂空、存档和实现边界记录在
 [`docs/daily-challenge-mode.md`](docs/daily-challenge-mode.md)；广告/分享增次、复活和货币系统暂未接入。
@@ -72,7 +72,7 @@
 普通关卡按 1 → 92 的显示编号顺序解锁，底层仍保留原有数据索引以兼容存档；已完成关卡
 始终可以重玩，未解锁关卡显示锁图标且不响应点击。关卡分布和显示编号为：Training 2 关
 （1—2）、5×5 5 关（3—7）、6×6 10 关（8—17）、7×7 15 关（18—32）、8×8 60 关
-（33—92，其中第 47 关为 Portal 里程碑教学关，63—92 为 Portal 章节）。此外第 7、17、32 关分别承担 5×5、6×6、7×7 Portal 教学。普通题面最大为 8×8；8×10 仅由独立的“高难关卡／每日挑战”模式使用，
+（33—92，其中第 47 关为 Portal 里程碑教学关，63—92 为高阶混合章节）。此外第 7、17、32 关分别承担 5×5、6×6、7×7 Portal 教学。普通题面最大为 8×8；8×10 仅由独立的“高难关卡／每日挑战”模式使用，
 不计入普通关卡编号、进度或统计。
 
 ## 轻量架构
@@ -85,16 +85,18 @@ core/portal-schema.js           Portal 字段读取、规范化与索引的唯�
 core/portal-solution.js         Portal 分段解规范化、反转与展平纯函数
 core/portal-validation.js       Portal 题面和分段解答的严格发布校验
 data/                           原版 JSON 与小游戏可加载的 JS 关卡模块
-data/solutions.js               58 个无 Portal 普通关卡的完整有效路径（提示数据，离线生成）
-data/portal-solutions.js        Portal 试玩与普通 Portal 关卡（4 个里程碑关 + 30 个 8x8 专章关）的按 ID 分段解答
+data/solutions.js               58 个旧普通题坐标解，并汇入 16 个混合章节普通题的 ID 解
+data/ordinary-chapter-solutions.js 混合章节 16 个普通题的按 ID 完整路径
+data/portal-solutions.js        18 个主线 Portal 题（4 个里程碑 + 14 个章节题）的按 ID 分段解答
 data/daily-challenges.js        每日两关题面、日期和镂空数据
 data/daily-solutions.js         每日关卡按 level ID 索引的提示路径
 src/app.js                      场景、反馈与纯棋盘 ViewModel 编排
 src/gameplay/run-context.js     关卡来源、进度域与棋盘机制上下文
-src/gameplay/completion-policies.js 按进度域分派普通/试玩/每日结算
+src/gameplay/completion-policies.js 按进度域分派普通/每日结算
 src/gameplay/board-input-controller.js 棋盘 pointer 生命周期与逐格采样
 src/platform/wechat.js          Canvas、触摸、生命周期、存储和广告 API
 src/ui/canvas-renderer.js       单 Canvas 场景渲染门面
+src/ui/portal-instructions.js   主线 Portal 两句状态提示的唯一来源
 src/ui/board/interaction-map.js 命中区域与棋盘定位
 src/ui/board/board-renderer.js  普通/每日共用的纯 ViewModel 棋盘与消除特效绘制
 src/ui/board/portal-overlay.js  Portal 图标、状态光圈与资源回退
@@ -125,13 +127,14 @@ src/effects/index.js            内置消除特效注册入口
 src/effects/none.js             “无特效”manifest（不创建清除动画快照）
 src/effects/fade.js             “逐渐消失”特效 manifest
 src/mechanics/index.js          玩法拓展 definition 注册与稳定 ID 查询
-src/mechanics/portal.js         传送门玩法拓展定义、试玩集与解答依赖
+src/mechanics/portal.js         传送门玩法拓展定义与版本、图标声明
 src/config/ads.js               广告位与展示频率配置
 src/config/progression.js       普通关卡连续顺序解锁配置
 src/config/audio.js              音频资源与音量配置
 assets/audio/                   压缩后的本地音频素材
 docs/portal-mechanic.md          传送门玩法、状态机、数据/提示契约与代码边界
 docs/portal-level-design-guide.md Portal 关卡设计经验、难度指标与内容验收门槛
+scripts/solve-no-portal.js       8×8 内容无门完整覆盖审计（有上限，非运行时逻辑）
 docs/gameplay-extension-architecture.md 玩法拓展架构、迁移阶段和文件职责边界
 assets/skins/gem/               宝石主题精灵图
 assets/skins/animals/           动物主题精灵图（主题页取前四个元素 2×2 展示）
@@ -160,10 +163,13 @@ node tests/run.js
 ```
 
 测试覆盖路径连接、回退、阻挡、跨行边界、重画、撤销、Portal v1/v2 与多出口回放、92 个普通关卡的数据完整性、
-4 个前期里程碑教学关与 30 个 8×8 Portal 专章的按 ID 发布校验与逐段回放、进度存储、
+4 个前期里程碑教学关与 30 个 8×8 高阶混合关的按 ID 发布校验与逐段回放、进度存储、
 主题清单/分页/素材回退、回廊与消除特效清单/分页/存档/无特效与淡出回退、开发者工具运行时门禁、每日两关/次数/镂空规则、
-未填满棋盘的失败终局与重试、Canvas 渲染和完整小游戏启动/触控烟雾流程。58 个无 Portal 普通关卡的官方
-解答以及 34 个普通 Portal 关卡解答还会实际驱动规则机，确保全部保持胜利结果。
+未填满棋盘的失败终局与重试、Canvas 渲染和完整小游戏启动/触控烟雾流程。74 个无 Portal 普通题的官方
+解答以及 18 个主线 Portal 题解答还会实际驱动规则机，确保全部保持胜利结果。
+
+`node scripts/solve-no-portal.js` 可审计章节 Portal 题的无门解，追加关卡号可单独检查。
+混排测试还会固定其他官方线路，排除只改一色或两色即可通关的廉价旁路。
 
 如修改原始关卡 JSON，可运行 `node scripts/generate-level-modules.js` 更新提交到工程中的
 JS 数据模块；正常导入和运行小游戏不需要执行此命令。

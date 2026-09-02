@@ -84,8 +84,13 @@ class HintService {
     this.portalProvider = new PortalHintProvider(this.ordinaryProvider);
   }
 
-  solutionFor(setIndex, levelIndex) {
+  solutionFor(setIndex, levelIndex, levelId) {
     if (!this.solutionCatalog) return null;
+    const byId = this.solutionCatalog.ByLevelId || this.solutionCatalog.byLevelId;
+    if (levelId && byId && Object.prototype.hasOwnProperty.call(byId, levelId) &&
+        Array.isArray(byId[levelId])) {
+      return byId[levelId];
+    }
     const sets = this.solutionCatalog.sets || this.solutionCatalog;
     const levels = sets && sets[setIndex];
     const solution = levels && levels[levelIndex];
@@ -105,7 +110,7 @@ class HintService {
     if (context.mechanic && context.mechanic.id === 'portal') {
       return this.portalProvider.find(context, this.portalSolutionFor(context.levelId));
     }
-    return this.ordinaryProvider.find(context, this.solutionFor(setIndex, levelIndex));
+    return this.ordinaryProvider.find(context, this.solutionFor(setIndex, levelIndex, context.levelId));
   }
 
   findComplete(source, setIndex, levelIndex) {
@@ -119,7 +124,7 @@ class HintService {
     }
     return this.ordinaryProvider.findComplete(
       context,
-      this.solutionFor(setIndex, levelIndex)
+      this.solutionFor(setIndex, levelIndex, context.levelId)
     );
   }
 

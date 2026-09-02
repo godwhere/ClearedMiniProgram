@@ -4,7 +4,6 @@ const assert = require('assert');
 const GameRunner = require('../core/game-runner.js');
 const portalValidation = require('../core/portal-validation.js');
 const HintService = require('../src/services/hint-service.js');
-const portalDemo = require('../data/portal-demo.js');
 const portalSolutions = require('../data/portal-solutions.js');
 const catalog = require('../data/catalog-v2.js');
 
@@ -75,52 +74,15 @@ function requiredCells(level) {
 }
 
 function run() {
-  const games = portalDemo.Games || [];
-  assert.strictEqual(games.length, 5);
+  assert.strictEqual(Object.keys(portalSolutions.ByLevelId).length, 18,
+    'published Portal answers contain only the 18 mainline levels');
 
-  games.forEach(game => {
-    assert.strictEqual(game.PortalRulesVersion, 2,
-      `${game.Id} must publish with the current portal rules version`);
-    assert(game.Portals.every(portal => Array.isArray(portal.Cells) && portal.Cells.length >= 2),
-      `${game.Id} must use the v2 portal network shape`);
-    const validation = portalValidation.validatePortalLevel(game, {
-      solution: portalSolutions,
-      requireSolution: true
-    });
-    assert.strictEqual(validation.ok, true,
-      `${game.Id} publishing validation failed: ${validation.errors.join(',')}`);
-
-    const answer = portalSolutions.ByLevelId[game.Id];
-    assert(Array.isArray(answer));
-    answer.forEach(lineAnswer => {
-      (lineAnswer.Segments || []).forEach(segment => {
-        if (!segment.Exit) return;
-        assert.strictEqual(segment.Exit.PortalId, 'P1');
-        assert.strictEqual(segment.Exit.PairId, undefined,
-          `${game.Id} v2 answers must not publish the legacy PairId field`);
-      });
-    });
-    const runner = replay(game, answer, portalDemo.Palette);
-
-    const owner = runner.getBoardState().owner;
-    assert(requiredCells(game).every(cell => owner[cell] >= 0),
-      `${game.Id} must cover every required non-portal cell`);
-    assert.strictEqual(runner.remainingCellCount(), 0,
-      `${game.Id} must leave no required cells unfilled`);
-    assert.strictEqual(runner.isGameOver, true, `${game.Id} must replay to completion`);
-  });
-
-  // The ordinary catalog contains 34 Portal levels: 4 progressive teaching
-  // milestone levels (levels 7, 17, 32, 47) and the 30-level 8x8 Portal chapter
-  // (levels 63-92). Keep their answers in the ID-indexed Portal table.
+  // The ordinary catalog contains 18 Portal levels: 4 progressive teaching
+  // milestones and 14 Portal slots in the 30-level mixed 8x8 chapter.
+  // Keep their answers in the ID-indexed Portal table.
   const hints = new HintService({ portalSolutions });
   const allPortalLevels = [];
   const seenPortalIds = new Set();
-
-  games.forEach(game => {
-    assert(!seenPortalIds.has(game.Id), `Duplicate portal level ID: ${game.Id}`);
-    seenPortalIds.add(game.Id);
-  });
 
   const milestoneSpecs = [
     { setIndex: 1, levelIndex: 4, expectedId: 'portal-main-5x5-01' },
@@ -140,15 +102,15 @@ function run() {
 
   const chapterGames = (catalog.sets[4].Games || []).slice(30);
   assert.strictEqual(chapterGames.length, 30,
-    'the 8x8 Portal chapter must retain exactly 30 levels at positions 63-92');
+    'the mixed 8x8 chapter must retain exactly 30 levels at positions 63-92');
   chapterGames.forEach((game, index) => {
     const expectedId = `portal-8x8-${String(index + 1).padStart(2, '0')}`;
     assert.strictEqual(game.Id, expectedId,
       `${expectedId} must retain its stable chapter position and ID`);
   });
 
-  // Levels 63-67 are the first content-redesign pilot. Unlike the remaining
-  // legacy candidates, they use two portals and balanced 5/6-color routes,
+  // Levels 63-67 are the first content-redesign pilot. They use two portals
+  // and balanced 5/6-color routes,
   // and rely on the earlier milestone levels for basic interaction teaching.
   PORTAL_8X8_PILOT.forEach((spec, index) => {
     const game = chapterGames[index];
@@ -182,9 +144,9 @@ function run() {
       `${spec.id} must retain its reviewed Portal color`);
   });
 
-  // Level 64 intentionally supports a second, no-Portal solution. All five
-  // colors must reroute, keeping the alternate discovery substantial rather
-  // than allowing the Portal color to reconnect through a cheap local gap.
+  // Level 64 intentionally supports a second, no-Portal solution. This
+  // reviewed witness reroutes all five colors; mixed-chapter.test.js also
+  // rejects any bypass that changes only one or two stored routes.
   const optionalGame = chapterGames[1];
   const optionalRunner = replay(optionalGame, PORTAL_8X8_OPTIONAL_ROUTE,
     catalog.sets[4].Palette);
@@ -200,7 +162,7 @@ function run() {
     count + (JSON.stringify(flattenedLine(lineAnswer)) !==
       JSON.stringify(flattenedLine(storedOptional[lineIndex])) ? 1 : 0), 0);
   assert.strictEqual(changedLineCount, optionalGame.Lines.length,
-    `${optionalGame.Id} no-Portal route must require every color to change course`);
+    `${optionalGame.Id} reviewed no-Portal witness must change every stored route`);
 
   catalog.sets.forEach((set, setIndex) => {
     (set.Games || []).forEach((game, levelIndex) => {
@@ -209,8 +171,8 @@ function run() {
     });
   });
 
-  assert.strictEqual(allPortalLevels.length, 34,
-    'the ordinary catalog must contain exactly 34 Portal levels (4 milestones + 30 8x8 chapter levels)');
+  assert.strictEqual(allPortalLevels.length, 18,
+    'the ordinary catalog must contain exactly 18 Portal levels (4 milestones + 14 mixed chapter levels)');
 
   allPortalLevels.forEach(({ set, setIndex, game, levelIndex }) => {
     assert(!seenPortalIds.has(game.Id), `Duplicate portal level ID in ordinary catalog: ${game.Id}`);
@@ -218,6 +180,9 @@ function run() {
 
     assert.strictEqual(game.PortalRulesVersion, 2,
       `${game.Id} must publish with Portal rules v2`);
+    assert.strictEqual(game.Instructions, undefined,
+      `${game.Id} must use the shared two-message Portal prompt`);
+    assert.strictEqual(game.instructions, undefined);
     const validation = portalValidation.validatePortalLevel(game, {
       solution: portalSolutions,
       requireSolution: true
@@ -255,6 +220,9 @@ function run() {
     assert.strictEqual(runner.isGameOver, true,
       `${game.Id} must replay to completion`);
   });
+
+  assert.deepStrictEqual(Array.from(seenPortalIds).sort(), Object.keys(portalSolutions.ByLevelId).sort(),
+    'removed trial answers and orphaned level IDs must not remain in the publishing table');
 
   // Published v2 content may expose more than two exits in one neutral
   // network. A line chooses one other portal and unused portal cells are not
