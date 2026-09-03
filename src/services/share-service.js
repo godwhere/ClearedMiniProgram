@@ -116,8 +116,19 @@ class ShareService {
     if (this.config.resultEnabled !== true || !context || context.completed !== true || !['ordinary_result', 'daily_result'].includes(context.scene)) return Promise.resolve({ initiated: false, reason: 'not-configured' });
     // Use a prepared intent only. Network latency must never delay the native
     // share gesture; an ordinary screenshot card remains available offline.
+    return this.initiate(this.buildPayload(context));
+  }
+
+  shareHint(context) {
+    if (!context || !['play', 'daily'].includes(context.scene)) return Promise.resolve({ initiated: false, reason: 'invalid-context' });
+    // Local hint access uses an ordinary screenshot card. It never selects an
+    // invitation campaign, changes menu context, or requests a server reward.
+    return this.initiate({ title: '这道题你能解开吗？', query: 'sv=1&scene=home' });
+  }
+
+  initiate(payload) {
     let result;
-    try { result = this.platform.shareAppMessage(this.buildPayload(context)); } catch (error) { result = { initiated: false, reason: 'not-supported' }; }
+    try { result = this.platform.shareAppMessage(payload); } catch (error) { result = { initiated: false, reason: 'not-supported' }; }
     return Promise.resolve(result || { initiated: false, reason: 'not-supported' });
   }
 

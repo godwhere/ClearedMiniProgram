@@ -10,17 +10,17 @@
 - 首页、“选择关卡”、每页 25 关的左右滑动分页、游玩、撤销、重置和通关流程；
 - 原版“连接成功后路径淡出并清空格子”的玩法；
 - 全局顺序解锁，完成当前关后开放下一关，锁定关不可进入；
-- 关卡底部左右分布“提示 / 回撤”按钮；提示会在只读初始棋盘上临时显示预设完整解法的全部彩色路径，10 秒后自动恢复，也可点击“隐藏提示”立即关闭；
+- 关卡底部保留提示与回撤按钮；提示当前按“分享解锁 → 查看提示 → 隐藏提示”运行。发起分享后本关当天解锁，取消分享也可能解锁；再次点击才显示只读初始棋盘的全部通关路径，每次显示 10 秒。普通、Portal、每日小关共用本地当日解锁记录，同关重玩、重启后可重复查看。规则与代码边界见 [`docs/hint-access-and-sharing.md`](docs/hint-access-and-sharing.md)；
 - 本地完成进度和每关最佳时间；
 - 原版配色与 Logo；
 - 可插拔皮肤服务与无广告默认实现。
-- 账号接入基础层：独立 session／同步元数据／有限事件队列，由 bootstrap 显式注入；普通结算完成后才通知 EngagementService。所有在线开关默认关闭，提示保持免费，本地存档 key 与离线启动不变。完整实施合同见 [`docs/user-account-sharing-ads-integration.md`](docs/user-account-sharing-ads-integration.md)。
+- 账号接入基础层：独立 session／同步元数据／有限事件队列，由 bootstrap 显式注入；普通结算完成后才通知 EngagementService。后端相关开关默认关闭，提示分享可独立使用，原本地进度存档 key 与离线启动不变。完整实施合同见 [`docs/user-account-sharing-ads-integration.md`](docs/user-account-sharing-ads-integration.md)。
 - 静默身份与普通云存档客户端已实现：只合并完成集合和最短有效用时；首次 migration、增量 operation 和部分 ACK 均可重试。账号变化暂停同步并保留本地数据。需部署独立后端后依次开启 backend、auth、progressSync；当前未配置后端，开发者工具联网及真机账号切换尚未验收。
   旧存档只有 completed 而没有 bestMs 时，增量 payload 省略 elapsedMs，服务端只合并完成状态，不能凭空生成最佳时间。启动/恢复前台会拉取远端并核对本地快照，以恢复队列溢出或“本地落盘后、写队列前退出”的遗漏；事件和同步队列各最多 200 条。
 - 账号页提供本地／云同步状态、重试同步和隐私协议入口。可选头像昵称服务与 Canvas 共用纯布局，原生按钮在离开、隐藏、调整尺寸或销毁时移除；拒绝授权不影响游玩。资料服务已由 bootstrap 注入，当前 profile 开关默认关闭。
   已在微信开发者工具 Stable 2.02.2608060 编译并验证账号页进入、关闭后端时的重试回退及返回首页。原生授权按钮、真实资料读写、隐私授权、Android/iOS 和发布包分析尚未验收。
-- 菜单、普通成功结果和每日成功结果分享已实现，默认关闭。分享使用游戏截图，不新增图片资源；只有预先取得的后端 shareId 才进入 query。冷/热启动归因使用独立 `cleared:minigame:share-entry:v1`，最多保留 20 条待发送项与 50 个近期已处理标识；超过容量不接收新归因，后端仍须幂等防自邀。分享发起与回前台均不发奖。
-- 激励广告返回稳定 attemptId、rewarded/reason 和清理后的错误码；完整观看才允许当前局内提示，重置或离开后迟到结果被丢弃。`hintMode` 默认为 `free`；广告单元为空、无库存或 API 不支持均安全降级。可选 `disableFallbackSharePage` 仅在基础库 ≥ 3.7.7 时传入，兼容判断由平台层承担。
+- 菜单、普通成功结果和每日成功结果分享已实现，默认关闭。分享使用游戏截图，不新增图片资源；只有预先取得的后端 shareId 才进入 query。冷/热启动归因使用独立 `cleared:minigame:share-entry:v1`，最多保留 20 条待发送项与 50 个近期已处理标识；超过容量不接收新归因，后端仍须幂等防自邀。分享发起与回前台不能直接发放邀请或每日增次奖励；提示分享只登记本地提示访问许可。
+- 激励广告返回稳定 attemptId、rewarded/reason 和清理后的错误码；提示广告的规则口径为“观看广告并达到平台发奖条件后解锁”，以 `isEnded === true` 为准，不根据跳过按钮或自行计时判断。`hintMode` 当前为 `share`，保留 `free` 回滚与既有 `rewarded` 单局模式；每日首次免费、第二次分享、第三次起广告的分级策略尚未启用。广告单元为空、无库存或 API 不支持均安全降级。可选 `disableFallbackSharePage` 仅在基础库 ≥ 3.7.7 时传入，兼容判断由平台层承担。
 - 主题入口、2×3 分页主题画廊，以及宝石、动物、水果、甜点、太空、海洋、春天、节日限定、音乐、交通工具十个非经典主题素材。
 - 回廊与消除特效选择场景，内置“无特效”和“逐渐消失”两种选择；运行时已将首页原主题按钮替换为回廊入口。
 - “高难关卡”入口与“每日挑战”：每日 2 关（3×3 入门、8×10 极难镂空），正式模式每日默认 3 次进入；开发入口可无限次调试。
@@ -121,6 +121,7 @@ src/services/clear-effect-service.js 消除特效注册、选择与回退
 src/services/ads-service.js     激励视频/插屏广告门面，默认无广告
 src/services/audio-service.js   BGM、连线和通关音效适配
 src/services/hint-service.js    普通/Portal 提示 provider 的兼容路由门面
+src/services/hint-access-service.js 本地当日提示解锁、去重记录与保存失败重试
 src/services/hints/             只消费纯 HintContext 的普通/Portal 提示实现
 src/services/daily-challenge-service.js 日期选择、两关校验与每日题面解析
 src/services/daily-progress-store.js     每日进入次数、关卡完成和幂等存档

@@ -539,9 +539,11 @@ async function run() {
   guarded.requestHint(); guarded.openLevel(0, 0); finishHint({ granted: true });
   await Promise.resolve(); await Promise.resolve();
   assert.strictEqual(guarded.hintPreview, null, 'late ad cannot affect a different run');
-  const free = new ClearedApp(new WechatPlatform(createWxMock()), { solutionCatalog: solutions });
+  const free = new ClearedApp(new WechatPlatform(createWxMock()), {
+    solutionCatalog: solutions, adConfig: { rules: { hintMode: 'free' } }
+  });
   free.openLevel(0, 0); free.performAction('play:hint');
-  assert(free.hintPreview, 'default free hint is still immediate');
+  assert(free.hintPreview, 'the explicit free rollback policy is still immediate');
 
 }
 

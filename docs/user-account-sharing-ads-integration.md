@@ -1,6 +1,6 @@
 # 微信小游戏用户身份、云存档、分享与广告奖励接入方案
 
-> 文档状态：Phase 0—6 客户端已实施；6e7e1b0 交付复核的四项修复见第 36 节。在线默认关闭，后端及设备发布验收待执行
+> 文档状态：Phase 0—6 客户端已实施；6e7e1b0 交付复核的四项修复见第 36 节，当前提示分享规则见第 37 节。后端相关开关默认关闭，后端及设备发布验收待执行
 > 目标仓库：`godwhere/ClearedMiniProgram`  
 > 设计基线：`main@cdab6c984f5749b7af47560fddd210f01642fce9`  
 > 微信 API 基线：`wechat-miniprogram/minigame-api-typings@4cae82af7f3c4339d1f11aea8e672fb16051d24a`（3.8.21）  
@@ -802,7 +802,7 @@ Authorization: Bearer <token>
 
 ### 10.6 分享不能直接证明成功
 
-客户端只能可靠记录 `share_initiated`，不能把调用 `wx.shareAppMessage()` 或回到前台视为分享奖励凭证。
+客户端只能可靠记录 `share_initiated`，不能把调用 `wx.shareAppMessage()` 或回到前台视为邀请或服务端奖励凭证。当前另有用户明确接受的本地提示许可：发起分享流程后解锁，取消也可能解锁；它不证明发送成功、不调用 reward-claims，见第 37 节。
 
 因此禁止：
 
@@ -824,7 +824,7 @@ Authorization: Bearer <token>
 
 - 保留逻辑 placement 到 adUnitId 的映射。
 - 保留全局单例和 busy 保护。
-- 保留完整观看 `isEnded === true` 才成功。
+- 保留平台发奖条件 `isEnded === true` 才成功；允许跳过后仍返回 true 的广告也满足，不以按钮文字或本地计时判断。
 - 保留 `show()` 失败后 `load()` 再展示一次。
 - 保留插屏间隔。
 - 增加 attemptId、错误码、行为回调和兼容字段。
@@ -875,7 +875,7 @@ module.exports = {
   rules: {
     interstitialEveryClears: 4,
     interstitialMinIntervalMs: 180000,
-    hintMode: 'free',
+    hintMode: 'share',
     dailyExtraEntryEnabled: false,
     dailyExtraEntryLimit: 1
   }
@@ -884,7 +884,7 @@ module.exports = {
 
 首次实施时：
 
-- `hintMode` 必须保持 `free`，不改变现有免费提示。
+- Phase 0—6 首次实施时 `hintMode` 为 `free`；当前按第 37 节授权切为 `share`，保留显式 free 回滚。
 - `dailyExtraEntryEnabled` 必须为 false。
 - 广告 ID 为空时保持 no-op。
 - 若 `hint` 和 `dailyExtraEntry` 使用不同 adUnitId，则不得沿用当前单例实现；第一版要求两个 placement 指向同一个激励视频单元。
@@ -1020,13 +1020,14 @@ rewardService.claim(input, ownerUserId)
 }
 ```
 
-### 12.4 低价值单局效果
+### 12.4 低价值提示访问与预览
 
-提示预览属于低价值、不可交易、单局效果。第一版允许两种模式：
+提示预览属于低价值、不可交易的本地功能。当前允许三种模式：
 
 ```text
-free       直接展示，保持当前行为
-rewarded   完整观看后在当前 run 内展示
+free       直接展示，保留原免费回滚行为
+share      发起分享后保存本关当日许可；再次点击查看，当前默认
+rewarded   观看广告并达到平台发奖条件后解锁，在当前 run 内展示
 ```
 
 即使是 rewarded hint，也不能增加永久货币。若广告完成后用户已离开当前关卡，迟到回调不得把提示应用到新关卡。
@@ -1137,10 +1138,16 @@ class EngagementService {
 hintMode == free
   -> 返回 { granted:true, mode:'free' }
 
+hintMode == share
+  -> 已有本关当日许可：返回 granted:true
+  -> 本次许可保存失败：重试保存，不再分享
+  -> 发起 shareHint，不等待网络；initiated:true 后保存原关卡许可
+  -> 返回 { granted:false, mode:'share', unlocked:true }，下次点击才显示
+
 hintMode == rewarded
   -> AdsService.showRewarded('hint')
-  -> 未完整观看：返回 denied
-  -> 完整观看：返回 { granted:true, mode:'rewarded', attemptId }
+  -> 未达到平台发奖条件：返回 denied
+  -> 达到平台发奖条件：返回 { granted:true, mode:'rewarded', attemptId }
 ```
 
 EngagementService 不调用 HintService。App 收到 granted 且 run guard 仍匹配后，才调用原有提示展示逻辑。
@@ -1151,14 +1158,14 @@ EngagementService 不调用 HintService。App 收到 granted 且 run guard 仍�
 检查功能开关和本地 pending
   -> 确保 AuthService session，固定发起 userId
   -> AdsService.showRewarded('dailyExtraEntry')
-  -> 完整观看
+  -> 达到平台发奖条件（isEnded === true）
   -> RewardService.claim(daily_extra_entry, 发起 userId)
   -> 先持久化原账号 + attemptId 的 pending 请求
   -> 会话过期时重新认证；仅同账号允许发送原幂等请求
   -> 返回服务端 entitlement
 ```
 
-认证失败、网络失败或重新认证为其他账号时，已完整观看的请求保留在原账号的既有 rewards 队列；重启后由原账号恢复，复用同一幂等键，不再要求观看。提前关闭不创建 pending，也不发奖。
+认证失败、网络失败或重新认证为其他账号时，已达到平台发奖条件的请求保留在原账号的既有 rewards 队列；重启后由原账号恢复，复用同一幂等键，不再要求观看。未达到条件而关闭不创建 pending，也不发奖。
 
 任一步失败只返回结构化 reason，不直接改 App 或 DailyProgressStore。
 
@@ -2003,7 +2010,7 @@ README.md
 #### 验收
 
 - dailyFailure:retry 仍免费。
-- 只有完整看完广告后才请求 reward claim。
+- 只有广告回调确认达到平台发奖条件后才请求 reward claim。
 - 同一 attemptId 只能获得一次 grant。
 - 同一 grantId 本地只能应用一次。
 - 达到每日上限时服务端拒绝且本地不增加。
@@ -2551,3 +2558,13 @@ POST  /v1/events:batch
 此次修改不增加存储 key 或字段，不改变 HTTP 请求/响应合同、在线默认关闭配置、核心玩法、关卡、主题、素材或 UI。新增的 claim 第二参数仅存在于客户端服务之间，持久 pending 沿用原 `{userId,input}` 结构。
 
 本次只完成本地客户端修复和 Node 验证。没有对修复版执行后端联调、微信开发者工具在线登录/分享/广告验证、Android/iOS 真机、真实账号切换、流量主库存与发布上传验收。第 35 节开发者工具截图和读数是原交付证据，不是本次修复版的设备证据。
+
+## 37. 提示分享与本地当日许可
+
+在 `f39fee1` 基础上新增提示分享：用户已接受“发起分享流程后解锁，取消也可能解锁”的客户端口径。`hintMode` 当前为 share，新的 HintAccessService 使用 `cleared:minigame:hint-access:v1` 保存当天已解锁的关卡集合；普通、Portal、每日小关共享记录，同关当天可重复查看。首次解锁只更新按钮，再次点击才展示原有完整路径。
+
+提示分享独立于菜单/结果分享开关、认证、share intent、归因和 RewardService。它不发送身份、sid 或存档，不增加每日进入次数。原账号、同步、奖励合同与广告位配置保持不变。
+
+后续分级策略尚未实施：当天第一个新关免费、第二个分享、第三个及以后“观看广告并达到平台发奖条件后解锁”。广告条件沿用 `isEnded === true`，包含允许跳过后仍满足条件的情况。
+
+完整规则、原生分享能力限制、存储容量、异步边界、文件清单与回归范围见 [`hint-access-and-sharing.md`](hint-access-and-sharing.md)。本期在既有测试入口新增两组，55 组 Node 测试通过；设备证据与发布检查需单独记录，不能把 Node 结果当成真实发送或正式广告验收。

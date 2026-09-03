@@ -74,18 +74,20 @@ function run() {
     ['native', 'missing', 'throws'].forEach(measurement => {
       ['play', 'daily'].forEach(scene => {
         let normalRect;
-        [false, true].forEach(previewActive => {
+        ['提示', '分享解锁', '查看提示', '重试保存', '分享不可用', '处理中', '隐藏提示'].forEach(label => {
+          const previewActive = label === '隐藏提示';
           const fixture = createRenderer(width, measurement);
           const model = {
             hintAvailable: true,
+            hintLabel: label,
             canUndo: true,
             hintPreview: previewActive ? { until: 2000 } : null
           };
           const method = scene === 'play' ? 'drawPlayActions' : 'drawDailyActions';
           fixture.renderer[method](model, 600, 1000);
           const rect = assertGroupInsideButton(fixture, `${scene}:hint`,
-            previewActive ? '隐藏提示' : '提示', measurement);
-          if (!previewActive) normalRect = rect;
+            label, measurement);
+          if (!normalRect) normalRect = rect;
           else assert.deepStrictEqual(rect, normalRect,
             'switching the label must not move or resize the touch target');
         });

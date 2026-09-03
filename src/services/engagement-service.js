@@ -8,10 +8,19 @@ class EngagementService {
     this.config = opts.config || {};
     this.auth = opts.auth || null;
     this.dailyPending = null;
+    this.hintAccess = opts.hintAccess || null;
+    this.hintPending = null;
+  }
+  hintState(context) {
+    const mode = this.config.hintMode || 'free';
+    if (mode !== 'share') return { mode, unlocked: mode === 'free' };
+    return Object.assign({ mode }, this.hintAccess ? this.hintAccess.status(context)
+      : { ok: false, reason: 'not-configured', unlocked: false });
   }
   requestHint(context) {
     const mode = this.config.hintMode || 'free';
     if (mode === 'free') return { granted: true, mode: 'free' };
+    if (mode === 'share') return this.requestHintShare(context);
     if (!this.ads) return Promise.resolve({ granted: false, reason: 'not-configured' });
     if (this.behavior) this.behavior.track('ad_requested', { placement: 'hint', scene: context && context.scene });
     return this.ads.showRewarded('hint').then(result => {
@@ -19,6 +28,34 @@ class EngagementService {
       return result.rewarded ? { granted: true, mode: 'rewarded', attemptId: result.attemptId }
         : { granted: false, mode: 'rewarded', reason: result.reason };
     }).catch(() => ({ granted: false, mode: 'rewarded', reason: 'error' }));
+  }
+  requestHintShare(context) {
+    const state = this.hintState(context);
+    const denied = reason => ({ granted: false, mode: 'share', reason });
+    if (!state.ok) return denied(state.reason);
+    if (state.unlocked) return { granted: true, mode: 'share', alreadyUnlocked: true };
+    if (this.hintPending) return denied('busy');
+    const finish = () => {
+      const saved = this.hintAccess.unlock(context);
+      // Newly unlocked hints require a second tap; the preview timer must not
+      // run while the native share interface covers the game.
+      return saved.ok ? { granted: false, mode: 'share', unlocked: true } : denied(saved.reason);
+    };
+    if (state.pendingSave) return finish();
+    if (!this.share || typeof this.share.shareHint !== 'function') return denied('not-configured');
+    const token = { dateKey: context.dateKey, levelKey: context.levelKey, scene: context.scene };
+    context = token;
+    this.hintPending = token;
+    let task;
+    // Keep the native call in the user's gesture, before any Promise await.
+    try { task = this.share.shareHint(token); } catch (error) { task = { initiated: false, reason: 'not-supported' }; }
+    return Promise.resolve(task).then(result => {
+      if (!result || result.initiated !== true) return denied((result && result.reason) || 'unavailable');
+      if (this.behavior) this.behavior.track('share_initiated', { scene: token.scene, source: 'hint' });
+      return finish();
+    }).catch(() => denied('unavailable')).finally(() => {
+      if (this.hintPending === token) this.hintPending = null;
+    });
   }
   canRequestDailyExtraEntry() {
     return this.config.dailyExtraEntryEnabled === true && !!this.rewards && this.rewards.enabled() &&

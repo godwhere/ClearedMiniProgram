@@ -757,6 +757,7 @@ DailyChallengeService.DEFAULT_TIME_ZONE = DEFAULT_TIME_ZONE;
 DailyChallengeService.DEFAULT_ENTRY_LIMIT = DEFAULT_ENTRY_LIMIT;
 DailyChallengeService.DATE_KEY_RE = DATE_KEY_RE;
 DailyChallengeService.isValidDateKey = isValidDateKey;
+DailyChallengeService.dateKeyFor = dateKeyFor;
 DailyChallengeService.clone = clone;
 
 module.exports = DailyChallengeService;

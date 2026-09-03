@@ -27,6 +27,7 @@ const engagementConfig = require('./config/engagement.js');
 const ProfileService = require('./services/profile-service.js');
 const ShareService = require('./services/share-service.js');
 const RewardService = require('./services/reward-service.js');
+const HintAccessService = require('./services/hint-access-service.js');
 
 function start() {
   const platform = new WechatPlatform();
@@ -44,7 +45,8 @@ function start() {
   const rewards = new RewardService(platform, api, auth, syncStore,
     { enabled: engagementConfig.rewards.dailyExtraEntryEnabled === true || engagementConfig.share.rewardsEnabled === true }, behavior);
   const share = new ShareService(platform, api, auth, syncStore, engagementConfig.share, behavior);
-  const engagement = new EngagementService({ ads, share, rewards, auth, behavior, config: Object.assign({}, adConfig.rules,
+  const hintAccess = new HintAccessService(platform, { timeZone: dailyConfig.timeZone });
+  const engagement = new EngagementService({ ads, share, rewards, auth, behavior, hintAccess, config: Object.assign({}, adConfig.rules,
     { dailyExtraEntryEnabled: adConfig.rules.dailyExtraEntryEnabled === true && engagementConfig.rewards.dailyExtraEntryEnabled === true }) });
   auth.onSessionChanged((session, state) => {
     if (session) behavior.identify(session.userId);
@@ -59,7 +61,7 @@ function start() {
       platform.isDevTools() === true
   });
   const app = new ClearedApp(platform, {
-    progress, dailyStore, auth, progressSync, behavior, ads, engagement, profile, share, rewards,
+    progress, dailyStore, auth, progressSync, behavior, ads, engagement, profile, share, rewards, hintAccess,
     subpackages,
     skins,
     effects,

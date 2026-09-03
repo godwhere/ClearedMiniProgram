@@ -1979,7 +1979,7 @@ class CanvasRenderer {
     const rectH = 50;
     const hintPreviewActive = !!(model.hintPreview && now < model.hintPreview.until);
     this.button('play:hint', { x: margin, y: rectY, w: buttonWidth, h: rectH },
-      hintPreviewActive ? '隐藏提示' : '提示', {
+      hintPreviewActive ? '隐藏提示' : (model.hintLabel || '提示'), {
       fontSize: 17,
       icon: 'hint',
       enabled: model.hintAvailable !== false,
@@ -2160,7 +2160,7 @@ class CanvasRenderer {
     const rectH = 50;
     const hintPreviewActive = !!(model.hintPreview && now < model.hintPreview.until);
     this.button('daily:hint', { x: margin, y: rectY, w: buttonWidth, h: rectH },
-      hintPreviewActive ? '隐藏提示' : '提示', {
+      hintPreviewActive ? '隐藏提示' : (model.hintLabel || '提示'), {
       fontSize: 17,
       icon: 'hint',
       enabled: model.hintAvailable !== false,

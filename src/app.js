@@ -7,6 +7,7 @@ const EngagementService = require('./services/engagement-service.js');
 const ProgressionService = require('./services/progression-service.js');
 const AudioService = require('./services/audio-service.js');
 const HintService = require('./services/hint-service.js');
+const HintAccessService = require('./services/hint-access-service.js');
 const adConfig = require('./config/ads.js');
 const progressionConfig = require('./config/progression.js');
 const audioConfig = require('./config/audio.js');
@@ -247,9 +248,8 @@ class ClearedApp {
       this.clearEffects = fallbackClearEffects(this.progress);
     }
     this.ads = opts.ads || new AdsService(platform, opts.adConfig || adConfig);
-    this.engagement = opts.engagement || new EngagementService({ ads: this.ads, share: this.share,
-      behavior: this.behavior, config: (opts.adConfig || adConfig).rules });
     this.hintRequest = null;
+    this.hintFeedback = null;
     this.runSequence = 0;
     this.audio = new AudioService(platform, this.progress, opts.audioConfig || audioConfig);
     // Daily mode owns a separate service/store pair.  They are deliberately
@@ -303,6 +303,12 @@ class ClearedApp {
     // internal short names remain compact in the orchestration code.
     this.dailyChallengeService = this.dailyService;
     this.dailyProgressStore = this.dailyProgress;
+    this.hintAccess = opts.hintAccess || new HintAccessService(platform, {
+      clock: this.dailyClock,
+      timeZone: opts.dailyTimeZone || opts.timeZone || (this.dailyService && this.dailyService.timeZone) || 'Asia/Shanghai'
+    });
+    this.engagement = opts.engagement || new EngagementService({ ads: this.ads, share: this.share,
+      hintAccess: this.hintAccess, behavior: this.behavior, config: (opts.adConfig || adConfig).rules });
     this.hints = new HintService(
       opts.solutionCatalog || null,
       this.dailySolutions,
@@ -1033,6 +1039,7 @@ class ClearedApp {
       hint: this.hint,
       hintUntil: this.hintUntil,
       hintPreview: this.hintPreview,
+      hintLabel: this.hintButtonLabel(),
       dailyAvailable: !!(homeDaily && homeDaily.status === 'available'),
       dailyEntryAvailable: !!homeDailyEntry.allowed,
       dailyCanEnter: !!homeDailyEntry.allowed,
@@ -2000,6 +2007,31 @@ class ClearedApp {
   clearHintRequest() {
     this.runSequence++;
     this.hintRequest = null;
+    this.hintFeedback = null;
+  }
+
+  hintContext() {
+    let levelKey = null;
+    if (this.scene === 'play' && this.runContext) {
+      levelKey = HintAccessService.levelKey({ source: 'catalog',
+        setIndex: this.runContext.setIndex, levelIndex: this.runContext.levelIndex });
+    } else if (this.scene === 'daily' && this.daily.runner && this.daily.challenge) {
+      levelKey = HintAccessService.levelKey({ source: 'daily',
+        dayId: this.daily.dayId, challengeId: this.daily.challengeId });
+    }
+    return levelKey ? { scene: this.scene, levelKey, dateKey: this.hintAccess.dateKey() } : null;
+  }
+
+  hintButtonLabel() {
+    if (this.hintRequest) return '处理中';
+    const context = this.hintContext();
+    const state = this.engagement.hintState ? this.engagement.hintState(context) : { mode: 'free' };
+    if (state.mode !== 'share') return '提示';
+    if (state.unlocked) return '查看提示';
+    if (state.pendingSave) return '重试保存';
+    if (context && this.hintFeedback && context.dateKey === this.hintFeedback.dateKey &&
+        context.levelKey === this.hintFeedback.levelKey) return this.hintFeedback.label;
+    return '分享解锁';
   }
 
   dailyRewardContext() {
@@ -2062,18 +2094,37 @@ class ClearedApp {
     const runner = this.activeRunner();
     if (!runner || this.runnerTerminal(runner) || !['play', 'daily'].includes(this.scene)) return false;
     if (this.isHintPreviewActive()) return this.scene === 'daily' ? this.showDailyHint() : this.showHint();
-    if (this.hintRequest) return false;
-    const token = { scene: this.scene, runKey: this.runSequence, runner };
+    if (this.hintRequest || this.boardInput.isActive()) return false;
+    const context = this.hintContext();
+    // Validate the existing complete solution before asking for any unlock
+    // action. The temporary view is never installed or used to mutate play.
+    const hint = this.resolveCompleteHint(runner);
+    if (!hint || !this.createHintPreview(runner, hint, 0)) {
+      this.hintFeedback = Object.assign({}, context, { label: '暂无提示' });
+      this.audio.playSfx('error');
+      this.invalidate();
+      return false;
+    }
+    const token = { scene: this.scene, runKey: this.runSequence, runner, context };
     this.hintRequest = token;
+    this.hintFeedback = null;
     const apply = result => {
       if (this.hintRequest !== token) return false;
       this.hintRequest = null;
-      if (this.disposed || this.scene !== token.scene || this.runSequence !== token.runKey || this.activeRunner() !== runner || this.runnerTerminal(runner)) return false;
       this.invalidate();
+      if (this.disposed || this.scene !== token.scene || this.runSequence !== token.runKey || this.activeRunner() !== runner || this.runnerTerminal(runner)) return false;
+      if (result && result.mode === 'share') {
+        if (!context || context.dateKey !== this.hintAccess.dateKey()) return false;
+        if (!result.granted && !result.unlocked) {
+          const label = result.reason === 'persist-failed' ? '重试保存'
+            : ['not-supported', 'not-configured'].includes(result.reason) ? '分享不可用' : '重试分享';
+          this.hintFeedback = Object.assign({}, context, { label });
+        }
+      }
       return result && result.granted === true && (this.scene === 'daily' ? this.showDailyHint() : this.showHint());
     };
     let result;
-    try { result = this.engagement.requestHint({ scene: this.scene }); } catch (error) { return apply({ granted: false }); }
+    try { result = this.engagement.requestHint(Object.assign({ scene: this.scene }, context)); } catch (error) { return apply({ granted: false }); }
     if (!result || typeof result.then !== 'function') return apply(result);
     result.then(apply).catch(() => apply({ granted: false }));
     this.invalidate();
@@ -2625,6 +2676,19 @@ class ClearedApp {
     return { until, viewModel };
   }
 
+  resolveCompleteHint(runner) {
+    if (!runner || !this.hints) return null;
+    try {
+      if (this.scene === 'daily') {
+        return typeof this.hints.findDailyComplete === 'function'
+          ? this.hints.findDailyComplete(runner, this.daily.challengeId, this.dailySolutions) : null;
+      }
+      const context = this.runContext;
+      return typeof this.hints.findComplete === 'function'
+        ? this.hints.findComplete(runner, context ? context.setIndex : null, context ? context.levelIndex : this.levelIndex) : null;
+    } catch (error) { return null; }
+  }
+
   showHint() {
     if (this.scene !== 'play' || !this.runner || this.runnerTerminal(this.runner) ||
         this.boardInput.isActive()) return false;
@@ -2632,19 +2696,7 @@ class ClearedApp {
       this.clearHintPreview();
       return true;
     }
-    const context = this.runContext;
-    let hint = null;
-    try {
-      if (this.hints && typeof this.hints.findComplete === 'function') {
-        hint = this.hints.findComplete(
-          this.runner,
-          context ? context.setIndex : null,
-          context ? context.levelIndex : this.levelIndex
-        );
-      }
-    } catch (error) {
-      hint = null;
-    }
+    const hint = this.resolveCompleteHint(this.runner);
     if (!hint) {
       this.clearHintPreview(false);
       this.audio.playSfx('error');
@@ -2679,15 +2731,7 @@ class ClearedApp {
       return true;
     }
     const runner = this.daily.runner;
-    const challengeId = this.daily.challengeId;
-    let hint = null;
-    try {
-      if (this.hints && typeof this.hints.findDailyComplete === 'function') {
-        hint = this.hints.findDailyComplete(runner, challengeId, this.dailySolutions);
-      }
-    } catch (error) {
-      hint = null;
-    }
+    const hint = this.resolveCompleteHint(runner);
     if (!hint) {
       this.clearHintPreview(false);
       this.audio.playSfx('error');

@@ -13,7 +13,7 @@ module.exports = {
   rules: {
     interstitialEveryClears: 4,
     interstitialMinIntervalMs: 180000,
-    hintMode: 'free',
+    hintMode: 'share',
     dailyExtraEntryEnabled: false,
     dailyExtraEntryLimit: 1
   }
