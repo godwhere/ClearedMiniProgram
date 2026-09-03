@@ -210,6 +210,9 @@ class ClearedApp {
     this.behavior = opts.behavior || null;
     this.profile = opts.profile || null;
     this.share = opts.share || null;
+    this.rewards = opts.rewards || null;
+    this.dailyExtraRequest = null;
+    this.dailyRewardMessage = null;
     this.pendingShare = null;
     this.accountGeneration = 0;
     this.accountMessage = '';
@@ -1016,6 +1019,12 @@ class ClearedApp {
       pressedId: this.pressedId,
       shareAvailable: !!(this.share && this.share.isResultEnabled() && this.shareContext().completed),
       sharePending: !!this.pendingShare,
+      dailyExtraEntryAvailable: !!(this.engagement.canRequestDailyExtraEntry && this.engagement.canRequestDailyExtraEntry() &&
+        dailyResolution && dailyResolution.status === 'available' &&
+        (this.scene === 'home' ? !homeDailyEntry.allowed : this.scene === 'dailyResult' &&
+          activeDaily && activeDaily.result && activeDaily.result.outcome !== OUTCOME.FAILED && activeDaily.entriesRemaining <= 0)),
+      dailyExtraEntryPending: !!this.dailyExtraRequest,
+      dailyRewardMessage: this.dailyRewardMessage && dailyResolution && this.dailyRewardMessage.dateKey === dailyResolution.dateKey ? this.dailyRewardMessage.text : '',
       // Count only published ordinary levels. Retired catalog coordinates may
       // remain in an upgraded player's save and must not inflate this total.
       completedCount: this.ordinaryCompletedCount(),
@@ -1645,6 +1654,7 @@ class ClearedApp {
   }
 
   requestDailyRevive(source, idempotencyKey) {
+    if (this.engagement.canRequestDailyExtraEntry && this.engagement.canRequestDailyExtraEntry()) return this.requestDailyExtraEntry();
     const payload = {
       dateKey: this.daily.dateKey,
       dayId: this.daily.dayId,
@@ -1888,6 +1898,8 @@ class ClearedApp {
       }
     } else if (action === 'daily:hint') {
       this.requestHint();
+    } else if (action === 'daily:extraEntry') {
+      return this.requestDailyExtraEntry();
     } else if (action === 'daily:revive' || action === 'dailyResult:revive') {
       // Reserved action only.  Ads/share and entry restoration are deliberately
       // outside this release; consumers may observe the request and decide
@@ -1990,6 +2002,61 @@ class ClearedApp {
   clearHintRequest() {
     this.runSequence++;
     this.hintRequest = null;
+  }
+
+  dailyRewardContext() {
+    if (this.scene === 'dailyResult' && this.daily.result && this.daily.result.outcome !== OUTCOME.FAILED) {
+      return { dateKey: this.daily.dateKey, dayId: this.daily.dayId };
+    }
+    if (this.scene !== 'home') return null;
+    const day = this.resolveDaily();
+    return day && day.status === 'available' ? { dateKey: day.dateKey, dayId: day.dayId } : null;
+  }
+
+  applyDailyGrant(grant) {
+    const session = this.auth && this.auth.current();
+    if (!session || !grant || !grant.ok || !grant.granted || grant.userId !== session.userId ||
+        !this.dailyProgress || !this.dailyProgress.applyAuthorizedEntryGrant) return { ok: false, reason: 'account-mismatch' };
+    const applied = this.dailyProgress.applyAuthorizedEntryGrant({ dateKey: grant.context.dateKey, dayId: grant.context.dayId,
+      grantId: grant.grantId, entryLimit: grant.entitlement.entryLimit, grantedAt: Date.now() });
+    if (applied.ok && this.daily.dateKey === grant.context.dateKey && this.daily.dayId === grant.context.dayId) {
+      const day = this.dailyProgress.getDay(grant.context.dateKey);
+      this.daily.entryLimit = day.entryLimit;
+      this.daily.entriesUsed = day.entriesUsed;
+      this.daily.entriesRemaining = this.dailyDebugUnlimited ? null : day.entriesRemaining;
+    }
+    return applied;
+  }
+
+  requestDailyExtraEntry() {
+    const context = this.dailyRewardContext();
+    if (!context || this.dailyExtraRequest || !this.rewards) return false;
+    const token = { scene: this.scene, runKey: this.runSequence, context };
+    this.dailyExtraRequest = token;
+    this.invalidate();
+    this.engagement.requestDailyExtraEntry(context).then(grant => {
+      const applied = grant.ok ? this.applyDailyGrant(grant) : grant;
+      if (this.dailyExtraRequest !== token || this.scene !== token.scene || this.runSequence !== token.runKey) return;
+      this.dailyRewardMessage = { dateKey: context.dateKey, text: applied.ok ? '已获得一次额外进入机会'
+        : applied.reason === 'closed' ? '未完整观看，未增加次数'
+          : applied.reason === 'DAILY_REWARD_LIMIT_REACHED' ? '今日额外次数已领取'
+            : '暂未增加次数，请稍后重试' };
+    }).catch(function () {}).finally(() => {
+      if (this.dailyExtraRequest === token) this.dailyExtraRequest = null;
+      if (!this.disposed) this.invalidate();
+    });
+    return true;
+  }
+
+  recoverDailyRewards() {
+    if (!this.rewards) return Promise.resolve();
+    const resolved = this.resolveDaily();
+    if (!resolved || resolved.status !== 'available') return Promise.resolve();
+    return this.rewards.recover({ dateKey: resolved.dateKey, dayId: resolved.dayId }).then(result => {
+      if (this.disposed) return;
+      (result.grants || []).forEach(grant => this.applyDailyGrant(grant));
+      this.invalidate();
+    }).catch(function () {});
   }
 
   requestHint() {
@@ -2693,7 +2760,7 @@ class ClearedApp {
         this.share.prepareContext(this.shareContext());
         return this.share.consumePendingAttribution(this.auth.current()).then(() => synced);
       });
-    }).then(result => { this.invalidate(); return result; }).catch(() => ({ ok: false, reason: 'network' }));
+    }).then(result => this.recoverDailyRewards().then(() => { this.invalidate(); return result; })).catch(() => ({ ok: false, reason: 'network' }));
   }
 
   onShow(options) {

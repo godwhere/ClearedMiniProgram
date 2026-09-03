@@ -2380,3 +2380,5 @@ PR 7  feat: add server-attributed invite rewards
 - Phase 3：菜单/成功结果分享、冷/热启动归因、有限持久队列及纯分享 payload 已接入，51 组测试及门禁通过。意图异步预取，点击时不等待网络；使用游戏截图。归因响应约定 `attributed:true` 或 `alreadyAttributed:true`，仅 ACK 删除对应项。分享和归因默认关闭，真实卡片冷启动与后端拒绝自邀/过期验证仍待执行。
 
 - Phase 4：保留广告单例及加载重试，新增 attemptId、标准结果、销毁时结清 pending、广告间 busy 隔离与当前 run 提示 guard；51 组测试、包体与差异检查通过。官方 typings 的 disableFallbackSharePage 最低版本为 3.7.7，旧版保守过滤。正式广告位、完整观看/早关/无库存和后台回调的真机验证未执行。
+
+- Phase 5：RewardService、持久待结算队列、确认 grant 缓存、每日授权增次和恢复查询已接入。53 组测试与门禁通过；免费失败重试保持原行为。新增 `cleared:minigame:rewards:v1`，待结算上限 20、确认缓存上限 64；超限拒绝新请求，恢复仍以服务端 ledger 为准。GET daily-entitlements/{dateKey} 响应为 `{dayId, grants:[...]}`，grants 最多 50 条，每项沿用第 12.3 节完整 grant 结构。entriesUsed/Remaining 仅校验，不覆盖本地每日消耗；服务端配置更高每日 grant 上限前需升级缓存/分页合同。后端幂等账本和实际广告验收仍属外部发布门禁。

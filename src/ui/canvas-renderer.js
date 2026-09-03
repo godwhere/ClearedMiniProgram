@@ -750,7 +750,7 @@ class CanvasRenderer {
     // share the first row, while the resume/start action spans the second row.
     // Keep the geometry explicit so hit regions and rendering stay in lockstep
     // across screen sizes and safe-area insets.
-    const buttonStackHeight = buttonHeight * 2 + buttonGap;
+    const buttonStackHeight = buttonHeight * 2 + buttonGap + (model.dailyExtraEntryAvailable ? 52 : 0);
     const configuredBottomInset = skin.layout && skin.layout.homeButtonBottomInset;
     const buttonBottomInset = Number.isFinite(Number(configuredBottomInset))
       ? Math.max(0, Number(configuredBottomInset))
@@ -859,6 +859,11 @@ class CanvasRenderer {
       stroke: skin.colors.primaryButtonStroke,
       fontSize: 19
     }, model.pressedId);
+    if (model.dailyExtraEntryAvailable) this.button('daily:extraEntry', {
+      x: buttonX, y: firstY + buttonHeight * 2 + buttonGap + 10, w: buttonWidth, h: 42
+    }, model.dailyExtraEntryPending ? '正在处理' : '看视频，增加一次挑战',
+    { fontSize: 15, enabled: !model.dailyExtraEntryPending }, model.pressedId);
+    if (model.dailyRewardMessage) this.text(model.dailyRewardMessage, width / 2, firstY - 29, 12, { maxWidth: buttonWidth });
   }
 
   drawAccount(model) {
@@ -2300,8 +2305,10 @@ class CanvasRenderer {
     // entries). Keep a minimum panel height so that line never overlaps the
     // action buttons on compact phones.
     const sharing = model.shareAvailable === true;
-    const panelHeight = sharing ? Math.min(350, safeBottom - safeTop - 16) : Math.min(300, Math.max(246, height * 0.34));
-    const panelY = sharing ? safeTop + (safeBottom - safeTop - panelHeight) / 2 : (height - panelHeight) / 2;
+    const extraEntry = model.dailyExtraEntryAvailable === true;
+    const extraRows = Number(sharing) + Number(extraEntry);
+    const panelHeight = extraRows ? Math.min(298 + extraRows * 52, safeBottom - safeTop - 16) : Math.min(300, Math.max(246, height * 0.34));
+    const panelY = extraRows ? safeTop + (safeBottom - safeTop - panelHeight) / 2 : (height - panelHeight) / 2;
     ctx.fillStyle = skin.colors.strongPanel;
     ctx.fillRect(0, panelY, width, panelHeight);
     this.drawIcon('check', width / 2, panelY + 47, 40);
@@ -2328,7 +2335,7 @@ class CanvasRenderer {
     const buttonWidth = Math.min(142, (width - 48 - gap) / 2);
     const totalWidth = buttonWidth * 2 + gap;
     const x = (width - totalWidth) / 2;
-    const y = panelY + panelHeight - (sharing ? 114 : 62);
+    const y = panelY + panelHeight - 62 - extraRows * 52;
     this.button('dailyResult:home', { x, y, w: buttonWidth, h: 46 }, '返回主页', {
       fontSize: 15,
       fill: skin.colors.secondaryButton
@@ -2341,6 +2348,10 @@ class CanvasRenderer {
     }, model.pressedId);
     if (sharing) this.button('dailyResult:share', { x, y: y + 52, w: totalWidth, h: 44 },
       '分享挑战', { fontSize: 16, enabled: !model.sharePending }, model.pressedId);
+    if (extraEntry) this.button('daily:extraEntry', { x, y: y + (sharing ? 104 : 52), w: totalWidth, h: 44 },
+      model.dailyExtraEntryPending ? '正在处理' : '看视频，增加一次挑战',
+      { fontSize: 15, enabled: !model.dailyExtraEntryPending }, model.pressedId);
+    if (model.dailyRewardMessage) this.text(model.dailyRewardMessage, width / 2, panelY + 185, 11, { maxWidth: width - 40 });
   }
 
   drawHintPath(hint, palette, now, portalCells) {

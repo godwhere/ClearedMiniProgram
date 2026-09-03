@@ -572,3 +572,8 @@ onDailyCompleted({
 开发入口当前将 `dailyDebugUnlimited` 设为 `true`；发布前必须显式关闭该开关，恢复每日 3 次限制。
 
 当前自动化回归命令为 `node tests/run.js`。示例日期表只覆盖当前开发验证日期；新增正式日期时必须按本契约补齐两个 level、解答和数据校验。
+
+
+## 17. 在线额外次数接入（2026-09-03）
+
+本节覆盖前文“尚未接入”的预留描述。`daily:extraEntry` 是当日完整挑战的额外进入额度，默认关闭；旧 `daily:revive` / `dailyResult:revive` 在功能启用时路由到同一语义。`dailyFailure:retry` 继续免费重试当前关，不新增消耗，不接广告。RewardService 返回确认 grant 后，App 才调用 `applyAuthorizedEntryGrant`；该方法保留 entriesUsed，单调合并 entryLimit，并在原每日 key 内使用 `_grantIds` 幂等，失败回滚内存。无货币或 ad revive 玩法。后端、正式广告位、真实隐私与广告行为及 Android/iOS 验证仍待执行。

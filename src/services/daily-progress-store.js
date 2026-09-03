@@ -215,6 +215,7 @@ function normalizeDayRecord(raw, dateKey) {
     if (result._levelIds.indexOf(id) < 0) result._levelIds.push(id);
   });
   result._entryKeys = keys;
+  result._grantIds = normalizeIdList(source._grantIds);
   if (entryHistory.length) result.entryHistory = entryHistory;
   if (validDateKey(dateKey)) result._dateKey = dateKey;
   return result;
@@ -737,6 +738,28 @@ class DailyProgressStore {
   // Reserved boundary for the future ad/share entitlement flow. It is
   // intentionally a no-op in the current release: no caller can increase the
   // daily budget without a separately implemented, idempotent reward service.
+  applyAuthorizedEntryGrant(input) {
+    const data = input || {};
+    if (!validDateKey(data.dateKey) || !stringId(data.dayId) || !stringId(data.grantId) ||
+        data.grantId.length > 180 || data.dayId.length > 180 || /[\x00-\x1f]/.test(data.grantId + data.dayId) || !Number.isSafeInteger(data.entryLimit) || data.entryLimit <= 0 ||
+        !Number.isSafeInteger(data.grantedAt) || data.grantedAt < 0) return { ok: false, reason: 'invalid-grant' };
+    const previous = this.state.entries[data.dateKey];
+    if (Object.keys(this.state.entries).some(key => key !== data.dateKey &&
+        (this.state.entries[key]._grantIds || []).includes(data.grantId))) return { ok: false, reason: 'grant-context-mismatch' };
+    if (previous && previous.dayId && previous.dayId !== data.dayId) return { ok: false, reason: 'challenge-mismatch' };
+    if (previous && Array.isArray(previous._grantIds) && previous._grantIds.includes(data.grantId)) return { ok: true, alreadyApplied: true };
+    if (data.entryLimit < this.effectiveEntryLimit(previous)) return { ok: false, reason: 'entry-limit-decreased' };
+    const before = this.state;
+    const next = previous ? clone(previous) : normalizeDayRecord({}, data.dateKey);
+    next.dayId = data.dayId;
+    next.entryLimit = data.entryLimit;
+    if (!Array.isArray(next._grantIds)) next._grantIds = [];
+    next._grantIds.push(data.grantId);
+    this.state = Object.assign({}, before, { entries: Object.assign({}, before.entries, { [data.dateKey]: next }) });
+    if (!this.save()) { this.state = before; return { ok: false, reason: 'persist-failed' }; }
+    return { ok: true, alreadyApplied: false, entryLimit: next.entryLimit };
+  }
+
   requestEntryIncrease(input) {
     const data = isRecord(input) ? input : { source: input };
     return {

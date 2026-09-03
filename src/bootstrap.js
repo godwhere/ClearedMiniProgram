@@ -26,6 +26,7 @@ const backendConfig = require('./config/backend.js');
 const engagementConfig = require('./config/engagement.js');
 const ProfileService = require('./services/profile-service.js');
 const ShareService = require('./services/share-service.js');
+const RewardService = require('./services/reward-service.js');
 
 function start() {
   const platform = new WechatPlatform();
@@ -39,9 +40,12 @@ function start() {
   const behavior = new BehaviorService(platform, api, syncStore, engagementConfig.behavior);
   const profile = new ProfileService(platform, api, auth, engagementConfig.profile, behavior);
   const progressSync = new ProgressSyncService(api, progress, syncStore, auth, engagementConfig.progressSync, behavior);
-  const ads = new AdsService(platform, adConfig);
+  const ads = new AdsService(platform, adConfig, { nextAttemptId: () => syncStore.nextId('adatt_') });
+  const rewards = new RewardService(platform, api, auth, syncStore,
+    { enabled: engagementConfig.rewards.dailyExtraEntryEnabled === true || engagementConfig.share.rewardsEnabled === true }, behavior);
   const share = new ShareService(platform, api, auth, syncStore, engagementConfig.share, behavior);
-  const engagement = new EngagementService({ ads, share, behavior, config: adConfig.rules });
+  const engagement = new EngagementService({ ads, share, rewards, auth, behavior, config: Object.assign({}, adConfig.rules,
+    { dailyExtraEntryEnabled: adConfig.rules.dailyExtraEntryEnabled === true && engagementConfig.rewards.dailyExtraEntryEnabled === true }) });
   auth.onSessionChanged((session, state) => {
     if (session) behavior.identify(session.userId);
     else behavior.clearUser();
@@ -55,7 +59,7 @@ function start() {
       platform.isDevTools() === true
   });
   const app = new ClearedApp(platform, {
-    progress, dailyStore, auth, progressSync, behavior, ads, engagement, profile, share,
+    progress, dailyStore, auth, progressSync, behavior, ads, engagement, profile, share, rewards,
     subpackages,
     skins,
     effects,

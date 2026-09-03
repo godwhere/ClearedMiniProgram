@@ -56,7 +56,7 @@
 [`docs/portal-level-design-guide.md`](docs/portal-level-design-guide.md)。全部内容仍需策划试玩和真机验收。
 
 “高难关卡”主页入口及“每日挑战”模式的棋盘、日期、镂空、存档和实现边界记录在
-[`docs/daily-challenge-mode.md`](docs/daily-challenge-mode.md)；广告/分享增次、复活和货币系统暂未接入。
+[`docs/daily-challenge-mode.md`](docs/daily-challenge-mode.md)；额外进入次数通过 RewardService 接入，默认关闭；失败重试仍免费，未实现货币。
 
 ## 直接导入微信开发者工具
 
@@ -209,3 +209,5 @@ BGM、短音效、Logo、Portal 图标以及轻量主题/特效预览仍在主�
 音效；通关音采用约 2.3 秒的短版 shimmer。小游戏首次触摸后解锁音频，切到后台会暂停，
 并可在首页或游玩页切换静音。原项目代码、关卡和仓库素材的许可声明见
 `THIRD_PARTY_NOTICES.md`。
+
+每日额外进入次数：`daily:extraEntry` 经完整视频与后端幂等 ledger 确认后，缓存服务端 entryLimit；客户端不提交数量。`cleared:minigame:rewards:v1` 最多保留 20 条待结算请求、64 条已确认 grant 缓存，缓存淘汰不删除服务端账本。写入失败、后台退出和同 grant 重放有恢复保护；普通/每日原存储 key 保持不变，新增每日 `_grantIds` 防重复。`dailyFailure:retry` 不扣额外次数且不要求广告。

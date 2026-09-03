@@ -63,6 +63,13 @@ function run() {
   share.renderer.clearInteractionHits();
   share.renderer.drawDailyResult({ result: {}, dailyResultVisibleAt: 0, shareAvailable: true }, 1);
   assert(share.renderer.hits.some(hit => hit.id === 'dailyResult:share'));
+  share.renderer.clearInteractionHits();
+  share.renderer.drawDailyResult({ result: {}, dailyResultVisibleAt: 0, dailyExtraEntryAvailable: true }, 1);
+  assert(share.renderer.hits.some(hit => hit.id === 'daily:extraEntry'));
+  assert(!share.renderer.hits.some(hit => /revive/.test(hit.id)));
+  share.renderer.clearInteractionHits();
+  share.renderer.drawDailyResult({ result: {}, dailyResultVisibleAt: 0, dailyExtraEntryAvailable: true, dailyExtraEntryPending: true }, 1);
+  assert(!share.renderer.hits.some(hit => hit.id === 'daily:extraEntry'));
   [280, 320, 390].forEach(width => {
     ['native', 'missing', 'throws'].forEach(measurement => {
       ['play', 'daily'].forEach(scene => {

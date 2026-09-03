@@ -1,4 +1,6 @@
 const tests = [
+  ['reward service', require('./reward-service.test.js')],
+  ['daily authorized entry grants', require('./daily-entry-grant.test.js')],
   ['share service', require('./share-service.test.js')],
   ['share entry lifecycle', require('./share-entry.test.js')],
   ['profile service', require('./profile-service.test.js')],
