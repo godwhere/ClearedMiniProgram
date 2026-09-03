@@ -2360,6 +2360,30 @@ class CanvasRenderer {
     }
   }
 
+  drawResultPanel(desiredHeight, options) {
+    const opts = options || {};
+    const { width, height } = this.platform.metrics;
+    const safeTop = Number(this.platform.metrics.safeTop) || 0;
+    const safeBottom = Number(this.platform.metrics.safeBottom) || height;
+    const panelHeight = Math.min(desiredHeight, Math.max(0, safeBottom - safeTop - 16));
+    const panelY = clamp((height - panelHeight) / 2 + (opts.offsetY || 0),
+      safeTop + 8, safeBottom - panelHeight - 8);
+    // The existing ordinary success panel is the visual contract: an edge-to-
+    // edge band, with no rounded frame or extra full-screen dimming layer.
+    this.ctx.save();
+    this.ctx.globalAlpha = opts.opacity === undefined ? 1 : opts.opacity;
+    if (opts.background) {
+      // Gallery cards contain labels and previews; cover them inside the
+      // purchase band before applying the same translucent result token.
+      this.ctx.fillStyle = opts.background;
+      this.ctx.fillRect(0, panelY, width, panelHeight);
+    }
+    this.ctx.fillStyle = this.skinService.current().colors.strongPanel;
+    this.ctx.fillRect(0, panelY, width, panelHeight);
+    this.ctx.restore();
+    return { x: 0, y: panelY, w: width, h: panelHeight };
+  }
+
   drawFailureDialog(model, now, options) {
     const opts = options || {};
     const result = model.result || {};
@@ -2371,104 +2395,53 @@ class CanvasRenderer {
     this.hits = [];
     if (now < visibleAt) return;
 
-    const skin = this.skinService.current();
-    const metrics = this.platform.metrics;
-    const width = metrics.width;
-    const height = metrics.height;
-    const safeTop = Number(metrics.safeTop) || 0;
-    const safeBottom = Number(metrics.safeBottom) || height;
+    const width = this.platform.metrics.width;
     const daily = opts.daily === true;
     const enter = clamp((now - visibleAt) / 180, 0, 1);
     const eased = 1 - Math.pow(1 - enter, 3);
-    const panelWidth = Math.min(360, Math.max(288, width - 48), width - 32);
-    const stacked = panelWidth < 280;
-    const desiredHeight = stacked ? (daily ? 318 : 300) : (daily ? 254 : 238);
-    const panelHeight = Math.min(desiredHeight, Math.max(220, safeBottom - safeTop - 24));
-    const panelX = (width - panelWidth) / 2;
-    const centeredY = (safeTop + safeBottom - panelHeight) / 2;
-    const panelY = clamp(centeredY, safeTop + 12, safeBottom - panelHeight - 12);
-    const shiftedY = panelY + (1 - eased) * 8;
+    const panel = this.drawResultPanel(daily ? 268 : 246,
+      { opacity: eased, offsetY: (1 - eased) * 8 });
+    const panelY = panel.y;
     const ctx = this.ctx;
-
-    ctx.save();
-    ctx.globalAlpha = 0.3 * eased;
-    ctx.fillStyle = '#000000';
-    ctx.fillRect(0, 0, width, height);
-    ctx.restore();
-
     ctx.save();
     ctx.globalAlpha = eased;
-    this.roundedRect(panelX, shiftedY, panelWidth, panelHeight, 16);
-    ctx.fillStyle = skin.colors.strongPanel;
-    ctx.fill();
-    ctx.strokeStyle = skin.colors.hairline || 'rgba(255,255,255,0.42)';
-    ctx.lineWidth = 1;
-    ctx.stroke();
+    this.drawIcon('warning', width / 2, panelY + 47, 40);
     ctx.restore();
-
-    ctx.save();
-    ctx.globalAlpha = eased;
-    this.drawIcon('warning', width / 2, shiftedY + 40, 40);
-    ctx.restore();
-    this.text('挑战失败', width / 2, shiftedY + 82, 27, { weight: 300, alpha: eased });
+    this.text('挑战失败', width / 2, panelY + 92, 27, { weight: 300, alpha: eased });
     this.text(`还有 ${Math.max(1, Number(result.remainingCells) || 1)} 个空格未消除`,
-      width / 2, shiftedY + 116, 15, { alpha: 0.9 * eased, maxWidth: panelWidth - 32 });
+      width / 2, panelY + 124, 13, { alpha: 0.72 * eased, maxWidth: width - 32 });
     this.text('连接棋子的同时，需要经过全部格子',
-      width / 2, shiftedY + 143, 12, { alpha: 0.68 * eased, maxWidth: panelWidth - 32 });
+      width / 2, panelY + 146, 12, { alpha: 0.68 * eased, maxWidth: width - 32 });
     if (daily) {
       this.text('重试当前关不会额外消耗次数',
-        width / 2, shiftedY + 164, 11, { alpha: 0.56 * eased, maxWidth: panelWidth - 32 });
+        width / 2, panelY + 168, 11, { alpha: 0.56 * eased, maxWidth: width - 32 });
     }
 
     const backAction = daily ? 'dailyResult:home' : 'result:levels';
     const retryAction = daily ? 'dailyFailure:retry' : 'failure:retry';
     const backLabel = daily ? '返回主页' : '返回选关';
     const retryLabel = daily ? '重试本关' : '重新开始';
-    const buttonHeight = stacked ? 44 : 48;
-    if (stacked) {
-      const buttonWidth = Math.min(220, panelWidth - 32);
-      const buttonX = (width - buttonWidth) / 2;
-      const primaryY = shiftedY + panelHeight - buttonHeight * 2 - 26;
-      this.button(retryAction, { x: buttonX, y: primaryY, w: buttonWidth, h: buttonHeight }, retryLabel, {
-        fontSize: 15,
-        opacity: eased,
-        fill: skin.colors.primaryButton,
-        stroke: skin.colors.primaryButtonStroke
-      }, model.pressedId);
-      this.button(backAction, { x: buttonX, y: primaryY + buttonHeight + 10, w: buttonWidth, h: buttonHeight }, backLabel, {
-        fontSize: 15,
-        opacity: eased,
-        fill: skin.colors.secondaryButton,
-        stroke: skin.colors.primaryButtonStroke
-      }, model.pressedId);
-      return;
-    }
-
     const buttonGap = 10;
-    const buttonWidth = (panelWidth - 32 - buttonGap) / 2;
-    const buttonY = shiftedY + panelHeight - buttonHeight - 16;
-    this.button(backAction, { x: panelX + 16, y: buttonY, w: buttonWidth, h: buttonHeight }, backLabel, {
+    const buttonWidth = Math.min(142, (width - 48 - buttonGap) / 2);
+    const buttonX = (width - buttonWidth * 2 - buttonGap) / 2;
+    const buttonY = panelY + panel.h - 72;
+    this.button(backAction, { x: buttonX, y: buttonY, w: buttonWidth, h: 46 }, backLabel, {
       fontSize: 15,
-      opacity: eased,
-      fill: skin.colors.secondaryButton,
-      stroke: skin.colors.primaryButtonStroke
+      opacity: eased
     }, model.pressedId);
     this.button(retryAction, {
-      x: panelX + 16 + buttonWidth + buttonGap,
+      x: buttonX + buttonWidth + buttonGap,
       y: buttonY,
       w: buttonWidth,
-      h: buttonHeight
+      h: 46
     }, retryLabel, {
       fontSize: 15,
-      opacity: eased,
-      fill: skin.colors.primaryButton,
-      stroke: skin.colors.primaryButtonStroke
+      opacity: eased
     }, model.pressedId);
   }
 
   drawDailyResult(model, now) {
-    const skin = this.skinService.current();
-    const { width, height, safeTop, safeBottom } = this.platform.metrics;
+    const { width } = this.platform.metrics;
     const visibleAt = Number(model.dailyResultVisibleAt || model.resultVisibleAt) || 0;
     const result = model.result || {};
     if (result.outcome === 'failed') {
@@ -2476,20 +2449,18 @@ class CanvasRenderer {
       return;
     }
     if (now < visibleAt) return;
-    const ctx = this.ctx;
     // The daily result has one extra status line (round count and remaining
     // entries). Keep a minimum panel height so that line never overlaps the
     // action buttons on compact phones.
     const sharing = model.shareAvailable === true;
     const extraEntry = model.dailyExtraEntryAvailable === true;
     const extraRows = Number(sharing) + Number(extraEntry);
-    const panelHeight = extraRows ? Math.min(298 + extraRows * 52, safeBottom - safeTop - 16) : Math.min(300, Math.max(246, height * 0.34));
-    const panelY = extraRows ? safeTop + (safeBottom - safeTop - panelHeight) / 2 : (height - panelHeight) / 2;
-    ctx.fillStyle = skin.colors.strongPanel;
-    ctx.fillRect(0, panelY, width, panelHeight);
+    const panel = this.drawResultPanel(300 + extraRows * 52);
+    const panelY = panel.y;
     this.drawIcon('check', width / 2, panelY + 47, 40);
     const levelCount = Math.max(1, Number(model.dailyLevelCount || (model.levels && model.levels.length) || 1));
-    this.text(`每日挑战完成  ${levelCount} / ${levelCount}`, width / 2, panelY + 92, 22, { weight: 300 });
+    this.text(`每日挑战完成  ${levelCount} / ${levelCount}`, width / 2, panelY + 92, 27,
+      { weight: 300, maxWidth: width - 48 });
     this.text(`用时 ${formatTime(result.elapsedMs || 0)}`, width / 2, panelY + 124, 13, { alpha: 0.72 });
     if (result.currencyReward) this.text(result.currencyReward.status === 'granted'
       ? `获得 ${result.currencyReward.amount} 货币`
@@ -2514,19 +2485,16 @@ class CanvasRenderer {
       );
     }
 
-    const gap = 12;
+    const gap = 10;
     const buttonWidth = Math.min(142, (width - 48 - gap) / 2);
     const totalWidth = buttonWidth * 2 + gap;
     const x = (width - totalWidth) / 2;
-    const y = panelY + panelHeight - 62 - extraRows * 52;
+    const y = panelY + panel.h - 72 - extraRows * 52;
     this.button('dailyResult:home', { x, y, w: buttonWidth, h: 46 }, '返回主页', {
-      fontSize: 15,
-      fill: skin.colors.secondaryButton
+      fontSize: 15
     }, model.pressedId);
     this.button('dailyResult:replay', { x: x + buttonWidth + gap, y, w: buttonWidth, h: 46 }, '重玩', {
       fontSize: 15,
-      fill: skin.colors.primaryButton,
-      stroke: skin.colors.primaryButtonStroke,
       enabled: model.dailyEntryAvailable !== false && model.dailyCanEnter !== false
     }, model.pressedId);
     if (sharing) this.button('dailyResult:share', { x, y: y + 52, w: totalWidth, h: 44 },
@@ -2557,20 +2525,16 @@ class CanvasRenderer {
   }
 
   drawResult(model, now) {
-    const skin = this.skinService.current();
-    const { width, height, safeTop, safeBottom } = this.platform.metrics;
+    const { width } = this.platform.metrics;
     if (model.result && model.result.outcome === 'failed') {
       this.drawFailureDialog(model, now, { daily: false, visibleAt: model.resultVisibleAt });
       return;
     }
     if (now < model.resultVisibleAt) return;
 
-    const ctx = this.ctx;
     const sharing = model.shareAvailable === true;
-    const panelHeight = Math.min(sharing ? 300 : 246, safeBottom - safeTop - 16);
-    const panelY = sharing ? safeTop + (safeBottom - safeTop - panelHeight) / 2 : (height - panelHeight) / 2;
-    ctx.fillStyle = skin.colors.strongPanel;
-    ctx.fillRect(0, panelY, width, panelHeight);
+    const panel = this.drawResultPanel(sharing ? 300 : 246);
+    const panelY = panel.y;
     this.drawIcon('check', width / 2, panelY + 47, 40);
     this.text(model.result.newBest ? '新纪录' : '完成',
       width / 2, panelY + 92, 27, { weight: 300 });
@@ -2588,7 +2552,7 @@ class CanvasRenderer {
     const buttonWidth = Math.min(104, (width - 48 - gap * 2) / 3);
     const totalWidth = buttonWidth * 3 + gap * 2;
     const x = (width - totalWidth) / 2;
-    const y = panelY + panelHeight - (sharing ? 118 : 72);
+    const y = panelY + panel.h - (sharing ? 118 : 72);
     this.button('result:levels', { x, y, w: buttonWidth, h: 46 },
       '选关', { fontSize: 15 }, model.pressedId);
     this.button('result:replay', { x: x + buttonWidth + gap, y, w: buttonWidth, h: 46 }, '重玩', { fontSize: 15 }, model.pressedId);
@@ -2598,6 +2562,32 @@ class CanvasRenderer {
       '分享成绩', { fontSize: 16, enabled: !model.sharePending }, model.pressedId);
   }
 
+  drawPurchaseDialog(model) {
+    const dialog = model.rewardDialog;
+    const width = this.platform.metrics.width;
+    const panel = this.drawResultPanel(246, { background: this.skinService.current().colors.homeBackground });
+    const preview = dialog.preview;
+    if (preview && dialog.rewardId.indexOf('theme:') === 0) {
+      this.drawThemeElementsPreview(preview, { x: width / 2 - 20, y: panel.y + 27, w: 40, h: 40 },
+        this.skinService.current());
+      this.drawIcon('lock', width / 2 + 24, panel.y + 62, 14);
+    } else {
+      this.drawIcon('lock', width / 2, panel.y + 47, 40);
+    }
+    this.text(dialog.title || '', width / 2, panel.y + 92, 27, { weight: 300, maxWidth: width - 48 });
+    this.text(dialog.message || '', width / 2, panel.y + 124, 13, { alpha: 0.72, maxWidth: width - 32 });
+    this.text('解锁条件', width / 2, panel.y + 146, 12, { alpha: 0.68 });
+    const gap = 10;
+    const buttonWidth = Math.min(142, (width - 48 - gap) / 2);
+    const x = (width - buttonWidth * 2 - gap) / 2;
+    const y = panel.y + panel.h - 72;
+    if (dialog.secondaryAction) this.button(dialog.secondaryAction,
+      { x, y, w: buttonWidth, h: 46 }, dialog.secondaryLabel || '关闭', { fontSize: 15 }, model.pressedId);
+    if (dialog.primaryAction) this.button(dialog.primaryAction,
+      { x: x + buttonWidth + gap, y, w: buttonWidth, h: 46 }, dialog.primaryLabel || '确定',
+      { fontSize: 15, enabled: dialog.primaryEnabled !== false && !['working', 'loading'].includes(dialog.state) }, model.pressedId);
+  }
+
   drawRewardDialog(model) {
     const dialog = model.rewardDialog;
     if (!dialog) return;
@@ -2605,6 +2595,13 @@ class CanvasRenderer {
     const { width, height, safeTop, safeBottom } = this.platform.metrics;
     const ctx = this.ctx;
     this.interactionMap.clear();
+    // Only currency confirmation adopts the success-panel style. Other
+    // unlock conditions and unlock-success notices retain their existing UI.
+    if (dialog.mode === 'condition' && dialog.preview && dialog.preview.reward &&
+        dialog.preview.reward.conditionType === 'currency') {
+      this.drawPurchaseDialog(model);
+      return;
+    }
     ctx.save();
     ctx.fillStyle = '#000000';
     ctx.globalAlpha = 0.56;

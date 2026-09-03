@@ -10,6 +10,7 @@ const tests = [
   ['reward unlock service', require('./reward-unlock-service.test.js')],
   ['reward unlock app', require('./reward-unlock-app.test.js')],
   ['reward unlock renderer', require('./reward-unlock-renderer.test.js')],
+  ['shared result panel style', require('./result-panel-style.test.js')],
   ['daily authorized entry grants', require('./daily-entry-grant.test.js')],
   ['share service', require('./share-service.test.js')],
   ['share entry lifecycle', require('./share-entry.test.js')],

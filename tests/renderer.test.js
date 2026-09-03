@@ -24,6 +24,12 @@ function textCalls(context, value) {
   return context.calls.filter(call => call.method === 'fillText' && call.args[0] === value);
 }
 
+function resultPanelRect(context, metrics, height) {
+  const call = context.calls.find(item => item.method === 'fillRect' &&
+    item.args[0] === 0 && item.args[2] === metrics.width && item.args[3] === height);
+  return call && { x: call.args[0], y: call.args[1], w: call.args[2], h: call.args[3] };
+}
+
 function assertHitsInsideSafeArea(hits, metrics) {
   hits.forEach(hit => {
     assert(hit.rect.x >= 0 && hit.rect.x + hit.rect.w <= metrics.width,
@@ -325,7 +331,7 @@ function run() {
       `ordinary failure renders "${label}" exactly once`);
   });
   assertRectInsideSafeArea(
-    roundedRects.find(rect => rect.w === 342 && rect.h === 238),
+    resultPanelRect(platform.context, platform.metrics, 246),
     platform.metrics,
     'ordinary failure panel'
   );
@@ -389,7 +395,7 @@ function run() {
       `daily failure renders "${label}" exactly once`);
   });
   assertRectInsideSafeArea(
-    roundedRects.find(rect => rect.w === 342 && rect.h === 254),
+    resultPanelRect(platform.context, platform.metrics, 268),
     platform.metrics,
     'daily failure panel'
   );
@@ -412,8 +418,9 @@ function run() {
   ].forEach(metrics => {
     platform.metrics = metrics;
     roundedRects.length = 0;
+    platform.context.calls.length = 0;
     renderer.render(failureModel, failureVisibleAt + 180);
-    const ordinaryPanel = roundedRects.find(rect => rect.radius === 16 && rect.h === 238);
+    const ordinaryPanel = resultPanelRect(platform.context, metrics, 246);
     assertRectInsideSafeArea(ordinaryPanel, metrics, `ordinary failure panel at ${metrics.width}`);
     assertHitsInsideSafeArea(renderer.hits, metrics);
     renderer.hits.forEach(hit => {
@@ -421,8 +428,9 @@ function run() {
     });
 
     roundedRects.length = 0;
+    platform.context.calls.length = 0;
     renderer.render(dailyFailureModel, failureVisibleAt + 180);
-    const dailyPanel = roundedRects.find(rect => rect.radius === 16 && rect.h === 254);
+    const dailyPanel = resultPanelRect(platform.context, metrics, 268);
     assertRectInsideSafeArea(dailyPanel, metrics, `daily failure panel at ${metrics.width}`);
     assertHitsInsideSafeArea(renderer.hits, metrics);
   });
