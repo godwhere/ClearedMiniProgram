@@ -1,6 +1,6 @@
 # 微信小游戏用户身份、云存档、分享与广告奖励接入方案
 
-> 文档状态：Phase 0—2 客户端已实施；Phase 3—6 实施中，在线开关默认关闭
+> 文档状态：Phase 0—6 客户端已实施；在线开关默认关闭，后端及设备发布验收待执行
 > 目标仓库：`godwhere/ClearedMiniProgram`  
 > 设计基线：`main@cdab6c984f5749b7af47560fddd210f01642fce9`  
 > 微信 API 基线：`wechat-miniprogram/minigame-api-typings@4cae82af7f3c4339d1f11aea8e672fb16051d24a`（3.8.21）  
@@ -2382,3 +2382,5 @@ PR 7  feat: add server-attributed invite rewards
 - Phase 4：保留广告单例及加载重试，新增 attemptId、标准结果、销毁时结清 pending、广告间 busy 隔离与当前 run 提示 guard；51 组测试、包体与差异检查通过。官方 typings 的 disableFallbackSharePage 最低版本为 3.7.7，旧版保守过滤。正式广告位、完整观看/早关/无库存和后台回调的真机验证未执行。
 
 - Phase 5：RewardService、持久待结算队列、确认 grant 缓存、每日授权增次和恢复查询已接入。53 组测试与门禁通过；免费失败重试保持原行为。新增 `cleared:minigame:rewards:v1`，待结算上限 20、确认缓存上限 64；超限拒绝新请求，恢复仍以服务端 ledger 为准。GET daily-entitlements/{dateKey} 响应为 `{dayId, grants:[...]}`，grants 最多 50 条，每项沿用第 12.3 节完整 grant 结构。entriesUsed/Remaining 仅校验，不覆盖本地每日消耗；服务端配置更高每日 grant 上限前需升级缓存/分页合同。后端幂等账本和实际广告验收仍属外部发布门禁。
+
+- Phase 6：邀请意图可声明 `rewardAction: daily_extra_entry`，由服务端选定活动及奖励；query 始终仅有 sv/sid/scene。ShareService 不调用 reward-claims，忽略归因响应中的奖励字段；邀请者通过每日 entitlement 查询恢复 grant。明确 SELF_INVITE、SHARE_INTENT_EXPIRED、SHARE_INTENT_NOT_FOUND、INVITEE_INELIGIBLE、CAMPAIGN_CLOSED 错误终止对应归因，网络错误保持原 attributionId 重试。行为队列恢复和发送前均过滤字段，旧账号事件不随新账号 token 上传；分析事件不参与奖励结算。53 组测试及门禁通过，服务端事务/唯一约束与真实邀请闭环未宣称完成。

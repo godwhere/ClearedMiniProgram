@@ -44,10 +44,10 @@ class RewardService {
     let saved;
     try { saved = platform.getStorage(STORAGE_KEY); } catch (error) {}
     if (saved && saved.schemaVersion === 1) {
-      if (Array.isArray(saved.pending)) this.pending = saved.pending.filter(item => item && idValid(item.userId) && claimInput(item.input))
-        .slice(0, 20).map(item => ({ userId: item.userId, input: claimInput(item.input) }));
-      if (Array.isArray(saved.grants)) this.grants = saved.grants.filter(item => item && idValid(item.userId) && validContext(item.context) && grantData(item.grant, item.context))
-        .slice(-64).map(item => ({ userId: item.userId, context: copy(item.context), input: claimInput(item.input), grant: grantData(item.grant, item.context) }));
+      if (Array.isArray(saved.pending)) this.pending = saved.pending.slice(0, 20).filter(item => item && idValid(item.userId) && claimInput(item.input))
+        .map(item => ({ userId: item.userId, input: claimInput(item.input) }));
+      if (Array.isArray(saved.grants)) this.grants = saved.grants.slice(-64).filter(item => item && idValid(item.userId) && validContext(item.context) && grantData(item.grant, item.context))
+        .map(item => ({ userId: item.userId, context: { dateKey: item.context.dateKey, dayId: item.context.dayId }, input: claimInput(item.input), grant: grantData(item.grant, item.context) }));
     }
   }
 

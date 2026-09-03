@@ -45,6 +45,14 @@ class ShareService {
 
   isResultEnabled() { return this.config.resultEnabled === true; }
 
+  intentContext(context) {
+    const body = contextData(context);
+    // This selects a server campaign; the server still validates eligibility,
+    // limits, self-invites and its ledger. It is never a client reward amount.
+    if (this.config.rewardsEnabled === true) body.rewardAction = 'daily_extra_entry';
+    return body;
+  }
+
   install(contextProvider) {
     if (this.listener || this.config.menuEnabled !== true) return false;
     this.contextProvider = contextProvider;
@@ -72,7 +80,7 @@ class ShareService {
     if (this.config.attributionEnabled !== true || !this.api.isConfigured()) return Promise.resolve({ ok: false, reason: 'not-configured' });
     const session = this.auth.current();
     if (!session) return Promise.resolve({ ok: false, reason: 'unauthorized' });
-    const body = contextData(context);
+    const body = this.intentContext(context);
     const key = JSON.stringify(body);
     if (this.intent && this.intent.key === key && this.intent.userId === session.userId && this.intent.expiresAt > Date.now() + 30000) return Promise.resolve({ ok: true });
     if (this.intentRequest && this.intentRequest.key === key && this.intentRequest.userId === session.userId) return this.intentRequest.promise;
@@ -91,7 +99,7 @@ class ShareService {
   }
 
   buildPayload(context) {
-    const body = contextData(context);
+    const body = this.intentContext(context);
     const current = this.auth.current();
     const intent = this.intent;
     const sid = this.config.attributionEnabled === true && current && intent && intent.userId === current.userId &&
@@ -151,16 +159,32 @@ class ShareService {
       }
       const after = this.auth.current();
       if (!after || after.userId !== userId) return { ok: false, reason: 'account-mismatch' };
-      if (!result.ok) return { ok: false, reason: result.error.code };
+      if (!result.ok) {
+        if (['SELF_INVITE', 'SHARE_INTENT_EXPIRED', 'SHARE_INTENT_NOT_FOUND', 'INVITEE_INELIGIBLE', 'CAMPAIGN_CLOSED'].includes(result.error.code)) {
+          if (!this.acknowledge(item)) return { ok: false, reason: 'persist-failed' };
+          if (this.behavior) this.behavior.track('reward_rejected', { source: 'share_attribution', reason: result.error.code });
+          continue;
+        }
+        return { ok: false, reason: result.error.code };
+      }
       if (result.data.attributed !== true && result.data.alreadyAttributed !== true) return { ok: false, reason: 'invalid-response' };
-      const previousPending = this.pending;
-      const previousSeen = this.seen;
-      this.pending = this.pending.filter(entry => entry !== item);
-      this.seen = this.seen.concat(item.shareId).slice(-50);
-      if (!this.save()) { this.pending = previousPending; this.seen = previousSeen; return { ok: false, reason: 'persist-failed' }; }
+      if ((result.data.attributionId && result.data.attributionId !== item.attributionId) ||
+          (result.data.shareId && result.data.shareId !== item.shareId)) return { ok: false, reason: 'invalid-response' };
+      if (!this.acknowledge(item)) return { ok: false, reason: 'persist-failed' };
       if (this.behavior) this.behavior.track('share_attributed', { entryScene: item.entryScene });
     }
     return { ok: true };
+  }
+
+  acknowledge(item) {
+    const previousPending = this.pending;
+    const previousSeen = this.seen;
+    this.pending = this.pending.filter(entry => entry !== item);
+    this.seen = this.seen.concat(item.shareId).slice(-50);
+    if (this.save()) return true;
+    this.pending = previousPending;
+    this.seen = previousSeen;
+    return false;
   }
 }
 

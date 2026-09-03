@@ -64,6 +64,15 @@ async function run() {
   const active = e.requestDailyExtraEntry(context); assert.strictEqual((await e.requestDailyExtraEntry(context)).reason, 'busy');
   assert.strictEqual((await active).grantId, 'grt_1');
   assert.strictEqual((await e.requestDailyExtraEntry(context)).reason, 'DAILY_REWARD_LIMIT_REACHED'); assert.strictEqual(ads, 2);
+  const invite = fixture();
+  invite.api.request = async options => {
+    assert.strictEqual(options.method, 'GET', 'invitation grants are recovered from the server; never claimed from a share callback');
+    return { ok: true, data: { dayId: context.dayId, grants: [grant('grt_invite', 5, 2)] } };
+  };
+  const invitation = await invite.service.recover(context);
+  assert.strictEqual(invitation.grants[0].grantId, 'grt_invite');
+  assert.strictEqual(invitation.grants[0].entitlement.entryLimit, 5);
+  assert.strictEqual((await invite.service.claim(Object.assign({}, input, { source: 'share_attribution' }))).reason, 'invalid-claim');
 }
 run.fixture = fixture; run.context = context; run.input = input; run.grant = grant;
 module.exports = run;
