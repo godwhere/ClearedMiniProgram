@@ -2384,3 +2384,5 @@ PR 7  feat: add server-attributed invite rewards
 - Phase 5：RewardService、持久待结算队列、确认 grant 缓存、每日授权增次和恢复查询已接入。53 组测试与门禁通过；免费失败重试保持原行为。新增 `cleared:minigame:rewards:v1`，待结算上限 20、确认缓存上限 64；超限拒绝新请求，恢复仍以服务端 ledger 为准。GET daily-entitlements/{dateKey} 响应为 `{dayId, grants:[...]}`，grants 最多 50 条，每项沿用第 12.3 节完整 grant 结构。entriesUsed/Remaining 仅校验，不覆盖本地每日消耗；服务端配置更高每日 grant 上限前需升级缓存/分页合同。后端幂等账本和实际广告验收仍属外部发布门禁。
 
 - Phase 6：邀请意图可声明 `rewardAction: daily_extra_entry`，由服务端选定活动及奖励；query 始终仅有 sv/sid/scene。ShareService 不调用 reward-claims，忽略归因响应中的奖励字段；邀请者通过每日 entitlement 查询恢复 grant。明确 SELF_INVITE、SHARE_INTENT_EXPIRED、SHARE_INTENT_NOT_FOUND、INVITEE_INELIGIBLE、CAMPAIGN_CLOSED 错误终止对应归因，网络错误保持原 attributionId 重试。行为队列恢复和发送前均过滤字段，旧账号事件不随新账号 token 上传；分析事件不参与奖励结算。53 组测试及门禁通过，服务端事务/唯一约束与真实邀请闭环未宣称完成。
+
+- 最终身份复核：修复状态监听器同步重入 ensureSession 时重复登录的问题；先发布 single-flight Promise，再通知观察者。回归用例复现修改前 login=2，修改后 login=1 且 Promise 相同；53 组全量测试及包体门禁通过。

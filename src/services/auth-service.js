@@ -32,8 +32,12 @@ class AuthService {
     if (this.config.enabled !== true || !this.api.isConfigured()) {
       return Promise.resolve({ ok: false, status: 'offline', reason: 'not-configured' });
     }
+    const generation = this.generation;
+    // Publish the flight before notifying observers: a listener may itself
+    // ask for a session while rendering the new authenticating state.
+    this.inFlight = Promise.resolve().then(() => this.authenticate(generation))
+      .catch(() => this.fail('network')).finally(() => { this.inFlight = null; });
     this.status = 'authenticating'; this.notify();
-    this.inFlight = this.authenticate(this.generation).catch(() => this.fail('network')).finally(() => { this.inFlight = null; });
     return this.inFlight;
   }
 

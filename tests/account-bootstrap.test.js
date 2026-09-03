@@ -38,6 +38,18 @@ async function run() {
   } finally {
     global.wx = oldWx; Object.assign(backend, oldBackend); engagement.auth.enabled = oldAuth;
   }
+  const AuthService = require('../src/services/auth-service.js');
+  const SessionStore = require('../src/services/session-store.js');
+  let loginCount = 0; let nested; let entered = false;
+  const host = { getStorage: () => null, setStorage: () => true, login: async () => { loginCount++; return { code: 'temporary' }; } };
+  const sessions = new SessionStore(host);
+  const api = { isConfigured: () => true, request: async () => ({ ok: true, data: { user: { id: 'u1' },
+    session: { accessToken: 'test', issuedAt: Date.now(), expiresAt: Date.now() + 90000 } } }) };
+  const auth = new AuthService(host, api, sessions, { state: { installId: 'ins_test' } }, { enabled: true });
+  auth.onSessionChanged(() => { if (!entered) { entered = true; nested = auth.ensureSession(); } });
+  const parent = auth.ensureSession();
+  assert.strictEqual(parent, nested, 'session observers share the already-published authentication flight');
+  await parent; assert.strictEqual(loginCount, 1);
 }
 run.fakeApi = fakeApi;
 module.exports = run;
