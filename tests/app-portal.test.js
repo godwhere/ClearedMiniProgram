@@ -3,6 +3,7 @@
 const assert = require('assert');
 const WechatPlatform = require('../src/platform/wechat.js');
 const ClearedApp = require('../src/app.js');
+const { allOwnedRewardService } = require('./helpers/reward-fixture.js');
 const GameRunner = require('../core/game-runner.js');
 const catalog = require('../data/catalog-v2.js');
 const portalSolutions = require('../data/portal-solutions.js');
@@ -83,6 +84,7 @@ function run() {
   const api = createWxMock();
   const platform = new WechatPlatform(api);
   const app = new ClearedApp(platform, {
+    rewardUnlocks: allOwnedRewardService(),
     solutionCatalog: null,
     portalSolutions,
     progressionConfig: { unlockAllLevelsInDevTools: true }
@@ -310,6 +312,7 @@ function run() {
   // A custom solution manifest must not be shadowed by the built-in default.
   const customSolutions = { ByLevelId: { custom: [] } };
   const customApp = new ClearedApp(new WechatPlatform(createWxMock()), {
+    rewardUnlocks: allOwnedRewardService(),
     portalSolutions: customSolutions
   });
   assert.strictEqual(customApp.hints.portalSolutions, customSolutions);

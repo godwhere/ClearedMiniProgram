@@ -38,7 +38,7 @@
 - 主题功能本身不修改关卡规则；关卡数量调整属于独立的数据变更，`data/clearedset5/6` 与对应提示表必须保持同步，颜色身份和路径解法不变。
 - 不把主题判断、绘图回调或图片加载塞进规则层。
 - 不在本阶段重命名现有 `SkinService`、`src/skins` 或存档字段 `settings.skinId`，也不升存档 schema。
-- 不引入主题解锁、付费、网络存档同步、主题编辑器、CDN 或新的广告/经济系统；正式素材通过微信普通分包按需加载。
+- 主题 manifest 本身不承载解锁、付费、网络存档同步、主题编辑器或 CDN；本地奖励／货币由独立 RewardUnlockService 提供，正式素材仍通过微信普通分包按需加载。
 - 不以修改旧 `pages/*` 为实现路径。
 
 ## 3. 术语与兼容策略
@@ -72,7 +72,7 @@
 - manifest 顶层 `preview` 指向 `assets/theme-previews/<id>.png`：严格 128×128、最多 128 种实际 RGBA 颜色、每张不超过 8 KiB。每格为 64×64，预览仅用于画廊；失败时回退至已就绪正式图，再回退色块。详见 [`corridor-preview-assets.md`](corridor-preview-assets.md)。
 - 卡片命中 ID：`theme:<id>`；空槽不注册命中区域。
 - 点击有效卡片后调用统一的主题选择入口，立即重绘并留在当前页；用户通过“返回”回到回廊或主页（取决于进入来源）。
-- 主题初始均视为可用。若未来加入锁定，只增加 manifest 状态与显示，不改变分页和命中协议。
+- `classic` 始终可用；其余主题按奖励目录初始锁定。锁定卡片仍显示主包预览与具体条件；只有永久拥有后才能下载正式分包并应用。拥有、当前应用和素材下载是三个独立状态，详见 [`reward-unlock-system.md`](reward-unlock-system.md)。
 - 为复用关卡页的可发现性，左右箭头可作为滑动的辅助入口，使用 `themes:prev` / `themes:next`；若最终视觉稿隐藏箭头，分页状态机和滑动契约不变。
 
 ## 5. 分页、布局与触摸规则
@@ -203,6 +203,7 @@ tests/theme-assets.test.js                      # 10 套 manifest/正式图集�
 ## 8. 存档、回退与异常
 
 - 继续使用 `ProgressStore` 的 schema version 2 和 `settings.skinId`；旧存档无该字段时默认为 `classic`。
+- 保存了非默认 `skinId` 不代表已经拥有。启动恢复、直接 `SkinService.select()` 和 App action 都检查奖励拥有权；无权或选择写盘失败时保留／回退 `classic`。货币购买与获得主题由独立奖励存档同次提交，下载或应用失败不撤销拥有权。
 - `SkinService` 读取到未注册/损坏 ID 时，当前主题立即回退 `classic`，不影响关卡进度；是否回写修正值由实现阶段测试决定，但不得丢失其他存档字段。
 - 分包成功后才选择并保存；失败保留当前主题和 `settings.skinId`，清除 pending 后可点击重试。
 - 主题资源异步加载沿用现有 generation 检查：旧主题晚到的图片不得覆盖新主题；加载失败使用 manifest/经典回退绘制。

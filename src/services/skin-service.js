@@ -82,14 +82,18 @@ function nonEmptyString(value) {
 }
 
 class SkinService {
-  constructor(progressStore, extraSkins) {
+  constructor(progressStore, extraSkins, canUse) {
     this.progressStore = progressStore;
+    this.canUse = typeof canUse === 'function'
+      ? canUse
+      : (kind, itemId) => kind === 'theme' && itemId === 'classic';
     // A null-prototype map prevents an id such as "__proto__" from changing
     // lookup semantics while retaining normal Object.keys registration order.
     this.skins = Object.create(null);
     [classic].concat(extraSkins || []).forEach(skin => this.register(skin));
     const savedId = progressStore.getSetting('skinId', 'classic');
-    this.currentId = hasOwn(this.skins, savedId) ? savedId : 'classic';
+    this.currentId = hasOwn(this.skins, savedId) && this.canUse('theme', savedId)
+      ? savedId : 'classic';
   }
 
   register(skin) {
@@ -113,9 +117,11 @@ class SkinService {
   }
 
   select(skinId) {
-    if (!hasOwn(this.skins, skinId)) return false;
+    if (!hasOwn(this.skins, skinId) || !this.canUse('theme', skinId)) return false;
+    let persisted = false;
+    try { persisted = this.progressStore.setSetting('skinId', skinId) === true; } catch (error) {}
+    if (!persisted) return false;
     this.currentId = skinId;
-    this.progressStore.setSetting('skinId', skinId);
     return true;
   }
 

@@ -8,6 +8,11 @@ class MemoryPlatform {
     this.storage[key] = JSON.parse(JSON.stringify(value));
     return true;
   }
+  readStorageResult(key) {
+    return Object.prototype.hasOwnProperty.call(this.storage, key)
+      ? { ok: true, found: true, value: JSON.parse(JSON.stringify(this.storage[key])) }
+      : { ok: true, found: false };
+  }
 }
 
 function run() {
@@ -69,6 +74,10 @@ function run() {
   assert.strictEqual(finalLevel.rewardEligible, true);
   assert.strictEqual(store.isCompleted('2026-09-01', 'daily-2026-09-01-v1'), true);
   assert.strictEqual(store.getDay('2026-09-01').entriesUsed, 1);
+  assert.deepStrictEqual(store.exportRewardCompletions(), {
+    ok: true,
+    days: [{ dateKey: '2026-09-01', dayId: 'daily-2026-09-01-v1', levelIds: ['intro', 'extreme'] }]
+  });
 
   const first = store.recordCompletion({
     dateKey: '2026-08-31', challengeId: 'daily-2026-08-31-v1', elapsedMs: 12345

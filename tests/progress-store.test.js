@@ -8,6 +8,11 @@ class MemoryPlatform {
     this.storage[key] = JSON.parse(JSON.stringify(value));
     return true;
   }
+  readStorageResult(key) {
+    return Object.prototype.hasOwnProperty.call(this.storage, key)
+      ? { ok: true, found: true, value: JSON.parse(JSON.stringify(this.storage[key])) }
+      : { ok: true, found: false };
+  }
 }
 
 function run() {
@@ -36,6 +41,7 @@ function run() {
   assert.strictEqual(reloaded.bestTime(1, 2), 6000);
   assert.strictEqual(reloaded.getSetting('skinId'), 'classic');
   assert.strictEqual(reloaded.getSetting('clearEffectId'), 'none');
+  assert.deepStrictEqual(reloaded.exportRewardCompletions(), { ok: true, levelKeys: ['1:2'] });
 
   // Existing v2 saves may predate the effect setting. Normalization adds only
   // the new default and leaves the other settings/progress fields intact.
@@ -110,6 +116,11 @@ function run() {
   const retained = store.state; platform.setStorage = () => false;
   assert.strictEqual(store.mergeCloudSnapshot({ schemaVersion: 1, levels: { '0:1': { completed: true } } }).reason, 'persist-failed');
   assert.strictEqual(store.state, retained);
+  const previousSkin = store.getSetting('skinId');
+  assert.strictEqual(store.setSetting('skinId', 'gem'), false);
+  assert.strictEqual(store.getSetting('skinId'), previousSkin);
+  platform.readStorageResult = () => ({ ok: false, reason: 'storage-read-failed' });
+  assert.deepStrictEqual(store.exportRewardCompletions(), { ok: false, reason: 'storage-read-failed' });
 }
 
 module.exports = run;

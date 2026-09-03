@@ -184,6 +184,7 @@ class CanvasRenderer {
         break;
     }
     this.drawStaminaFeedback(model, now);
+    if (model.rewardDialog) this.drawRewardDialog(model);
   }
 
   begin(background) {
@@ -792,12 +793,14 @@ class CanvasRenderer {
     const ctx = this.ctx;
     this.begin(skin.colors.homeBackground);
     const topUi = safeTop + (skin.layout.homeTopUiOffset || 0) + 8;
-    this.iconButton('home:sound', { x: width - 130, y: topUi, w: 44, h: 44 },
+    const staminaRect = { x: width - 78, y: topUi, w: 64, h: 44 };
+    const currencyWidth = clamp(width * 0.2, 62, 78);
+    const currencyRect = { x: staminaRect.x - currencyWidth - 6, y: topUi, w: currencyWidth, h: 44 };
+    this.iconButton('home:sound', { x: currencyRect.x - 50, y: topUi, w: 44, h: 44 },
       model.soundEnabled ? 'sound' : 'mute', true, model.pressedId);
     this.drawHomeAvatar(model.accountProfile,
       { x: 18, y: topUi, w: 44, h: 44 }, model.pressedId);
     if (model.stamina && model.stamina.enabled) {
-      const staminaRect = { x: width - 78, y: topUi, w: 64, h: 44 };
       if (model.pressedId === 'home:stamina') {
         ctx.save();
         this.roundedRect(staminaRect.x, staminaRect.y, staminaRect.w, staminaRect.h, 8);
@@ -808,6 +811,12 @@ class CanvasRenderer {
       this.drawStaminaStatus(model.stamina, staminaRect,
         { compact: true, detailsBelow: true, showDetail: model.homeStaminaExpanded === true });
       this.addHit('home:stamina', staminaRect, true);
+    }
+    this.drawCurrency(model.currency, currencyRect);
+    if (!model.currency || model.currency.available !== true) {
+      this.addHit('reward:retry', currencyRect, true);
+      this.text('点击重试', currencyRect.x + currencyRect.w / 2, currencyRect.y + currencyRect.h + 8,
+        9, { alpha: 0.56 });
     }
 
     const buttonHeight = 54;
@@ -932,6 +941,32 @@ class CanvasRenderer {
     }, model.dailyExtraEntryPending ? '正在处理' : '看视频，增加一次挑战',
     { fontSize: 15, enabled: !model.dailyExtraEntryPending }, model.pressedId);
     if (model.dailyRewardMessage) this.text(model.dailyRewardMessage, width / 2, firstY - 29, 12, { maxWidth: buttonWidth });
+  }
+
+  drawCurrency(currency, rect) {
+    const skin = this.skinService.current();
+    const available = currency && currency.available === true && Number.isSafeInteger(currency.balance);
+    const balance = available ? currency.balance : null;
+    const label = balance === null ? '--' : balance >= 10000
+      ? `${Math.floor(balance / 1000) / 10}万` : String(balance);
+    const ctx = this.ctx;
+    ctx.save();
+    this.roundedRect(rect.x, rect.y, rect.w, rect.h, 8);
+    ctx.fillStyle = skin.colors.control || skin.colors.panel;
+    ctx.globalAlpha = 0.9;
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(rect.x + 14, rect.y + rect.h / 2, 7, 0, Math.PI * 2);
+    ctx.fillStyle = '#f1c75b';
+    ctx.fill();
+    ctx.strokeStyle = '#fff1b0';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.restore();
+    this.text(label, rect.x + rect.w - 7, rect.y + rect.h / 2, 12, {
+      align: 'right', weight: 500, alpha: available ? 0.9 : 0.55,
+      maxWidth: Math.max(20, rect.w - 29)
+    });
   }
 
   ensureAccountAvatar(profile) {
@@ -1307,9 +1342,16 @@ class CanvasRenderer {
       }
       ctx.restore();
 
-      const assetStatus = theme.assetState === 'idle' ? '点击下载'
+      const reward = theme.reward || { owned: true };
+      const conditionStatus = reward.owned === false
+        ? reward.conditionType === 'ordinary_level' ? `通关第 ${reward.displayLevel || '?'} 关解锁`
+          : reward.conditionType === 'currency' ? `${reward.cost || 0} 货币解锁`
+            : reward.conditionType === 'rewarded_ad' ? `观看 ${reward.requiredCount || 1} 次广告解锁`
+              : reward.conditionType === 'share' ? '分享解锁' : '暂未开放'
+        : '';
+      const assetStatus = conditionStatus || (theme.assetState === 'idle' ? '点击下载'
         : theme.assetState === 'loading' ? `下载 ${Math.round(clamp(Number(theme.assetProgress) || 0, 0, 100))}%`
-          : theme.assetState === 'failed' ? '加载失败，点击重试' : '';
+          : theme.assetState === 'failed' ? '加载失败，点击重试' : '');
       const statusHeight = assetStatus ? 14 : 0;
       const previewRect = {
         x: rect.x + previewPadding,
@@ -1701,7 +1743,8 @@ class CanvasRenderer {
       };
       const effect = effects[pageIndex * pageSize + slot];
       const valid = !!(effect && effect.id);
-      const selected = valid && currentEffectId !== undefined &&
+      const reward = effect && effect.reward || { owned: true };
+      const selected = valid && reward.owned !== false && currentEffectId !== undefined &&
         String(effect.id) === String(currentEffectId);
       ctx.save();
       this.roundedRect(rect.x, rect.y, rect.w, rect.h, skin.layout.buttonRadius || 8);
@@ -1722,6 +1765,12 @@ class CanvasRenderer {
       }
       ctx.restore();
 
+      const conditionStatus = reward.owned === false
+        ? reward.conditionType === 'ordinary_level' ? `通关第 ${reward.displayLevel || '?'} 关解锁`
+          : reward.conditionType === 'currency' ? `${reward.cost || 0} 货币解锁`
+            : reward.conditionType === 'rewarded_ad' ? `观看 ${reward.requiredCount || 1} 次广告解锁`
+              : reward.conditionType === 'share' ? '分享解锁' : '暂未开放'
+        : '';
       const previewRect = {
         x: rect.x + previewPadding,
         y: rect.y + previewPadding,
@@ -1733,8 +1782,10 @@ class CanvasRenderer {
         this.drawEffectFallbackPreview(previewRect, effect);
       }
       const name = effect.name || effect.title || effect.id;
-      this.text(name, rect.x + rect.w / 2, rect.y + cardHeight - labelHeight * 0.56,
+      this.text(name, rect.x + rect.w / 2, rect.y + cardHeight - labelHeight * 0.56 - (conditionStatus ? 14 : 0),
         clamp(cardWidth * 0.105, 13, 18), { weight: selected ? 500 : 300, maxWidth: rect.w - 18 });
+      if (conditionStatus) this.text(conditionStatus, rect.x + rect.w / 2,
+        rect.y + cardHeight - 7, 10, { baseline: 'bottom', alpha: 0.72, maxWidth: rect.w - 12 });
       if (selected) {
         this.text('✓', rect.x + rect.w - 14, rect.y + 14, 13, { weight: 500, alpha: 0.86 });
       }
@@ -2440,8 +2491,15 @@ class CanvasRenderer {
     const levelCount = Math.max(1, Number(model.dailyLevelCount || (model.levels && model.levels.length) || 1));
     this.text(`每日挑战完成  ${levelCount} / ${levelCount}`, width / 2, panelY + 92, 22, { weight: 300 });
     this.text(`用时 ${formatTime(result.elapsedMs || 0)}`, width / 2, panelY + 124, 13, { alpha: 0.72 });
+    if (result.currencyReward) this.text(result.currencyReward.status === 'granted'
+      ? `获得 ${result.currencyReward.amount} 货币`
+      : result.currencyReward.status === 'pending' ? '货币待保存' : '今日奖励已领取',
+    width / 2, panelY + 142, 12, { alpha: 0.72 });
+    if (result.currencyReward && result.currencyReward.status === 'pending') {
+      this.addHit('reward:retry', { x: width / 2 - 64, y: panelY + 128, w: 128, h: 28 }, true);
+    }
     if (model.dailyDateKey) {
-      this.text(model.dailyDateKey, width / 2, panelY + 147, 11, { alpha: 0.56 });
+      this.text(model.dailyDateKey, width / 2, panelY + 157, 11, { alpha: 0.56 });
     }
     if (model.dailyDebugUnlimited === true ||
         (model.dailyEntriesRemaining !== undefined && model.dailyEntryLimit !== undefined)) {
@@ -2450,7 +2508,7 @@ class CanvasRenderer {
           ? '次数不限'
           : `剩余次数 ${Math.max(0, Number(model.dailyEntriesRemaining) || 0)} / ${Math.max(1, Number(model.dailyEntryLimit) || 1)}`,
         width / 2,
-        panelY + 166,
+        panelY + 175,
         11,
         { alpha: 0.56 }
       );
@@ -2518,6 +2576,13 @@ class CanvasRenderer {
       width / 2, panelY + 92, 27, { weight: 300 });
     const resultText = `本次 ${formatTime(model.result.elapsedMs)} · 最佳 ${formatTime(model.result.bestMs)}`;
     this.text(resultText, width / 2, panelY + 124, 13, { alpha: 0.72 });
+    if (model.result.currencyReward) this.text(model.result.currencyReward.status === 'granted'
+      ? `获得 ${model.result.currencyReward.amount} 货币`
+      : model.result.currencyReward.status === 'pending' ? '货币待保存' : '本关奖励已领取',
+    width / 2, panelY + 146, 12, { alpha: 0.68 });
+    if (model.result.currencyReward && model.result.currencyReward.status === 'pending') {
+      this.addHit('reward:retry', { x: width / 2 - 64, y: panelY + 132, w: 128, h: 28 }, true);
+    }
 
     const gap = 10;
     const buttonWidth = Math.min(104, (width - 48 - gap * 2) / 3);
@@ -2531,6 +2596,58 @@ class CanvasRenderer {
       model.hasNext ? '下一关' : '关卡列表', { fontSize: 15 }, model.pressedId);
     if (sharing) this.button('result:share', { x, y: y + 52, w: totalWidth, h: 44 },
       '分享成绩', { fontSize: 16, enabled: !model.sharePending }, model.pressedId);
+  }
+
+  drawRewardDialog(model) {
+    const dialog = model.rewardDialog;
+    if (!dialog) return;
+    const skin = this.skinService.current();
+    const { width, height, safeTop, safeBottom } = this.platform.metrics;
+    const ctx = this.ctx;
+    this.interactionMap.clear();
+    ctx.save();
+    ctx.fillStyle = '#000000';
+    ctx.globalAlpha = 0.56;
+    ctx.fillRect(0, 0, width, height);
+    ctx.restore();
+    const panelWidth = Math.min(width - 32, 340);
+    const panelHeight = Math.min(300, safeBottom - safeTop - 24);
+    const panelX = (width - panelWidth) / 2;
+    const panelY = safeTop + (safeBottom - safeTop - panelHeight) / 2;
+    ctx.save();
+    this.roundedRect(panelX, panelY, panelWidth, panelHeight, 14);
+    ctx.fillStyle = skin.colors.strongPanel;
+    ctx.fill();
+    ctx.strokeStyle = skin.colors.hairline || skin.colors.primaryButtonStroke;
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.restore();
+    this.text(dialog.mode === 'unlocked' ? '解锁成功' : '解锁条件', width / 2, panelY + 35, 14, { alpha: 0.58 });
+    this.text(dialog.title || '', width / 2, panelY + 72, 25, { weight: 400, maxWidth: panelWidth - 32 });
+    const preview = dialog.preview;
+    const previewRect = { x: width / 2 - 32, y: panelY + 84, w: 64, h: 64 };
+    if (preview && dialog.rewardId.indexOf('theme:') === 0) {
+      this.drawThemeElementsPreview(preview, previewRect, skin);
+    } else if (preview && dialog.rewardId.indexOf('effect:') === 0) {
+      const image = this.ensureEffectPreviewImage(preview);
+      if (!image || !this.drawImageContain(image, previewRect, { fit: 'contain' })) {
+        this.drawEffectFallbackPreview(previewRect, preview);
+      }
+    } else {
+      this.drawIcon(dialog.mode === 'unlocked' ? 'check' : 'lock', width / 2, panelY + 116, 32);
+    }
+    this.drawIcon(dialog.mode === 'unlocked' ? 'check' : 'lock', width / 2 + 34, panelY + 137, 18);
+    this.text(dialog.message || '', width / 2, panelY + 174, 13, { maxWidth: panelWidth - 32, alpha: 0.8 });
+    const gap = 10;
+    const buttonWidth = (panelWidth - 42) / 2;
+    const buttonY = panelY + panelHeight - 66;
+    if (dialog.secondaryAction) this.button(dialog.secondaryAction,
+      { x: panelX + 16, y: buttonY, w: buttonWidth, h: 46 }, dialog.secondaryLabel || '关闭',
+      { fontSize: 15, fill: skin.colors.secondaryButton }, model.pressedId);
+    if (dialog.primaryAction) this.button(dialog.primaryAction,
+      { x: panelX + 26 + buttonWidth, y: buttonY, w: buttonWidth, h: 46 }, dialog.primaryLabel || '确定',
+      { fontSize: 15, enabled: dialog.primaryEnabled !== false && !['working', 'loading'].includes(dialog.state),
+        fill: skin.colors.primaryButton, stroke: skin.colors.primaryButtonStroke }, model.pressedId);
   }
 }
 

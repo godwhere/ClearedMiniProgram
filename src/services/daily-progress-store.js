@@ -301,6 +301,52 @@ class DailyProgressStore {
     return persisted;
   }
 
+  exportRewardCompletions() {
+    if (!this.platform || typeof this.platform.readStorageResult !== 'function') {
+      return { ok: false, reason: 'storage-read-failed' };
+    }
+    let read;
+    try { read = this.platform.readStorageResult(STORAGE_KEY); } catch (error) {}
+    if (!read || read.ok !== true) return { ok: false, reason: 'storage-read-failed' };
+    if (read.found === false) return { ok: true, days: [] };
+    if (read.found !== true) return { ok: false, reason: 'storage-read-failed' };
+    let saved = read.value;
+    if (typeof saved === 'string') {
+      try { saved = JSON.parse(saved); } catch (error) { return { ok: false, reason: 'invalid-storage' }; }
+    }
+    if (!isRecord(saved) || saved.schemaVersion !== SCHEMA_VERSION || !isRecord(saved.entries) ||
+        Object.keys(saved.entries).some(dateKey => !validDateKey(dateKey) || !isRecord(saved.entries[dateKey]))) {
+      return { ok: false, reason: 'invalid-storage' };
+    }
+    const days = [];
+    let invalid = false;
+    Object.keys(saved.entries).forEach(dateKey => {
+      const raw = saved.entries[dateKey];
+      if (!validDateKey(dateKey) || !isRecord(raw)) return;
+      if (!isRecord(raw.levels)) {
+        if (raw.dayId && raw.completed === true) invalid = true;
+        return;
+      }
+      const ids = Array.isArray(raw._levelIds) ? raw._levelIds.slice() : (Array.isArray(raw.levelIds) ? raw.levelIds.slice() : []);
+      const expected = raw._levelCount === undefined ? raw.levelCount : raw._levelCount;
+      if (!Object.keys(raw.levels).every(id => !['__proto__', 'constructor', 'prototype'].includes(id) &&
+          isRecord(raw.levels[id]) && typeof raw.levels[id].completed === 'boolean' &&
+          Number.isSafeInteger(raw.levels[id].levelIndex) && raw.levels[id].levelIndex >= 0)) {
+        invalid = true; return;
+      }
+      if (ids.length === 2 && (ids[0] === ids[1] || !ids.every((id, index) =>
+          typeof id === 'string' && /^[A-Za-z0-9_:-]{1,200}$/.test(id) && own(raw.levels, id) && raw.levels[id].levelIndex === index))) {
+        invalid = true; return;
+      }
+      if (expected !== 2 || ids.length !== 2 || ids[0] === ids[1] ||
+          !stringId(raw.dayId) || !ids.every((id, index) => typeof id === 'string' && /^[A-Za-z0-9_:-]{1,200}$/.test(id) &&
+            !['__proto__', 'constructor', 'prototype'].includes(id) && own(raw.levels, id) &&
+            isRecord(raw.levels[id]) && raw.levels[id].levelIndex === index && raw.levels[id].completed === true)) return;
+      days.push({ dateKey, dayId: raw.dayId, levelIds: ids });
+    });
+    return invalid ? { ok: false, reason: 'invalid-storage' } : { ok: true, days };
+  }
+
   /**
    * Return the canonical daily record. A valid but unseen date receives an
    * ephemeral zeroed record; it is not written until recordEntry/completion.

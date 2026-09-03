@@ -6,7 +6,7 @@ function run() {
   const settings = { skinId: 'night' };
   const progress = {
     getSetting(name, fallback) { return settings[name] === undefined ? fallback : settings[name]; },
-    setSetting(name, value) { settings[name] = value; }
+    setSetting(name, value) { settings[name] = value; return true; }
   };
   const skins = new SkinService(progress, [{
     id: 'night',
@@ -16,7 +16,7 @@ function run() {
     setStyles: {
       '5 x 5': { background: '#222222', palette: ['#abcdef'] }
     }
-  }]);
+  }], () => true);
 
   assert.strictEqual(skins.current().id, 'night');
   assert.strictEqual(skins.current().colors.text, '#111111');
@@ -27,6 +27,15 @@ function run() {
   assert.strictEqual(skins.select('classic'), true);
   assert.strictEqual(settings.skinId, 'classic');
   assert.strictEqual(skins.select('missing'), false);
+
+  const locked = new SkinService(progress, [{ id: 'locked', name: '锁定' }]);
+  assert.strictEqual(locked.select('locked'), false, 'selection requires explicit ownership');
+  let saveAllowed = false;
+  const unreliable = new SkinService({ getSetting: () => 'classic', setSetting: () => saveAllowed }, [{ id: 'night', name: '夜间' }], () => true);
+  assert.strictEqual(unreliable.select('night'), false);
+  assert.strictEqual(unreliable.current().id, 'classic');
+  saveAllowed = true;
+  assert.strictEqual(unreliable.select('night'), true);
 
   const loads = [];
   const renderer = new CanvasRenderer({

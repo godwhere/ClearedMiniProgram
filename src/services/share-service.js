@@ -126,6 +126,14 @@ class ShareService {
     return this.initiate({ title: '这道题你能解开吗？', query: 'sv=1&scene=home' });
   }
 
+  shareReward(context) {
+    if (!context || !['themes', 'effects'].includes(context.scene) ||
+        typeof context.rewardId !== 'string' || !/^(theme|effect):[a-z0-9-]{1,80}$/.test(context.rewardId)) {
+      return Promise.resolve({ initiated: false, reason: 'invalid-context' });
+    }
+    return this.initiate({ title: '来看看我在 CLEARED! 解锁的新外观', query: 'sv=1&scene=home' });
+  }
+
   initiate(payload) {
     let result;
     try { result = this.platform.shareAppMessage(payload); } catch (error) { result = { initiated: false, reason: 'not-supported' }; }

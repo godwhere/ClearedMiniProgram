@@ -77,6 +77,16 @@ function run() {
       `${file} must remain isolated from online engagement`);
   }));
 
+  const rewardConfig = require('../src/config/rewards.js');
+  assert.strictEqual(JSON.stringify(rewardConfig).includes('function'), false);
+  assert(rewardConfig.items.every(item => item && typeof item === 'object' &&
+    item.unlock && typeof item.unlock === 'object' &&
+    !Object.values(item.unlock).some(value => typeof value === 'function')),
+  'reward configuration stays data-only');
+  const rewardRendererSource = fs.readFileSync(path.join(SRC_DIR, 'ui', 'canvas-renderer.js'), 'utf8');
+  assert(!/RewardUnlockService|readStorageResult|setStorage\s*\(/.test(rewardRendererSource),
+    'renderer cannot access the reward service or persistence');
+
   assert(files.length > 0, 'core boundary test must inspect at least one JavaScript module');
 
   files.forEach(file => {

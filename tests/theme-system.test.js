@@ -17,6 +17,9 @@ const vehicles = require('../src/skins/vehicles.js');
 const SubpackageService = require('../src/services/subpackage-service.js');
 const { controlledPlatform } = require('./subpackage-service.test.js');
 const bootstrap = require('../src/bootstrap.js');
+const RewardUnlockService = require('../src/services/reward-unlock-service.js');
+const rewardConfig = require('../src/config/rewards.js');
+const { ownedState } = require('./helpers/reward-fixture.js');
 
 function fakeContext() {
   const calls = [];
@@ -46,12 +49,18 @@ function imageFor(source) {
 
 function createPlatform() {
   const context = fakeContext();
-  const storage = {};
+  const allOwned = rewardConfig.items.filter(item => item.unlock.type !== 'default').map(item => item.id);
+  const storage = { [RewardUnlockService.STORAGE_KEY]: ownedState(allOwned, 0) };
   const platform = {
     context,
     metrics: { width: 390, height: 844, safeTop: 44, safeBottom: 810 },
     sources: [],
     getStorage(key) { return storage[key] || null; },
+    readStorageResult(key) {
+      return Object.prototype.hasOwnProperty.call(storage, key)
+        ? { ok: true, found: true, value: JSON.parse(JSON.stringify(storage[key])) }
+        : { ok: true, found: false };
+    },
     setStorage(key, value) { storage[key] = JSON.parse(JSON.stringify(value)); return true; },
     createImage(source, callback) {
       this.sources.push(source);
@@ -74,13 +83,13 @@ function progressStub(settings) {
     getSetting(name, fallback) {
       return settings[name] === undefined ? fallback : settings[name];
     },
-    setSetting(name, value) { settings[name] = value; }
+    setSetting(name, value) { settings[name] = value; return true; }
   };
 }
 
 function runServiceChecks() {
   const settings = {};
-  const service = new SkinService(progressStub(settings), [gem, animals, fruits, desserts, space, ocean, spring, festival, music, vehicles]);
+  const service = new SkinService(progressStub(settings), [gem, animals, fruits, desserts, space, ocean, spring, festival, music, vehicles], () => true);
   const list = service.list();
   assert.deepStrictEqual(list.map(item => item.id),
     ['classic', 'gem', 'animals', 'fruits', 'desserts', 'space', 'ocean', 'spring', 'festival', 'music', 'vehicles']);
@@ -205,7 +214,7 @@ function runServiceChecks() {
 
 function runRendererChecks() {
   const platform = createPlatform();
-  const service = new SkinService(progressStub({}), [gem, animals, fruits, desserts, space, ocean, spring, festival, music, vehicles]);
+  const service = new SkinService(progressStub({}), [gem, animals, fruits, desserts, space, ocean, spring, festival, music, vehicles], () => true);
   const renderer = new CanvasRenderer(platform, service);
   const now = Date.now();
 
@@ -582,7 +591,7 @@ function runRendererChecks() {
 
 function runPreviewChecks() {
   const rect = { x: 0, y: 0, w: 132, h: 132 };
-  const service = new SkinService(progressStub({ skinId: 'gem' }), [gem]);
+  const service = new SkinService(progressStub({ skinId: 'gem' }), [gem], () => true);
   const coldPlatform = createPlatform();
   new CanvasRenderer(coldPlatform, service);
   assert(coldPlatform.sources.includes(gem.assets.tileSheet));
@@ -605,7 +614,7 @@ function runPreviewChecks() {
       return image;
     };
     const manifest = mode === 'missing' ? Object.assign({}, gem, { preview: undefined }) : gem;
-    const skins = new SkinService(progressStub({}), [manifest]);
+    const skins = new SkinService(progressStub({}), [manifest], () => true);
     const renderer = new CanvasRenderer(platform, skins, null, new SubpackageService({}));
     for (let frame = 0; frame < 3; frame++) {
       assert.doesNotThrow(() => renderer.drawThemeElementsPreview(manifest, rect, skins.current()));
@@ -982,6 +991,7 @@ async function runBootstrapSubpackageChecks() {
       createCanvas() { return canvas; },
       getWindowInfo() { return { windowWidth: 390, windowHeight: 844 }; },
       getStorageSync: key => platform.getStorage(key),
+      getStorageInfoSync: () => ({ keys: Object.keys(platform.storage) }),
       setStorageSync: (key, value) => platform.setStorage(key, value),
       createImage() {
         const image = { width: 2000, height: 800 };

@@ -5,7 +5,8 @@
 module.exports = {
   rewarded: {
     hint: '',
-    dailyExtraEntry: ''
+    dailyExtraEntry: '',
+    rewardUnlock: ''
   },
   interstitial: {
     levelComplete: ''
@@ -17,6 +18,7 @@ module.exports = {
     // Enable only after platform approval, a real hint ad unit and device QA.
     // Until then, the third and later new daily hint unlocks use sharing.
     hintRewardedEnabled: false,
+    rewardUnlockRewardedEnabled: false,
     dailyExtraEntryEnabled: false,
     dailyExtraEntryLimit: 1
   }

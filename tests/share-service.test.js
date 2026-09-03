@@ -33,6 +33,9 @@ async function run() {
   assert.strictEqual(initiated.initiated, true); assert.strictEqual(initiated.rewarded, undefined); assert.strictEqual(initiated.shared, undefined);
   assert(f.shares[0].query.length <= 256);
   assert.strictEqual(f.requests.some(item => item.path === ApiClient.PATHS.rewards), false);
+  assert.strictEqual((await f.service.shareReward({ scene: 'home', rewardId: 'theme:festival' })).initiated, false);
+  assert.strictEqual((await f.service.shareReward({ scene: 'themes', rewardId: 'theme:festival' })).initiated, true);
+  assert.strictEqual(f.shares[f.shares.length - 1].query, 'sv=1&scene=home');
   f.user(null); assert(!(await f.service.share(context)).rewarded); assert(!f.shares[1].query.includes('sid='));
   f.user('other'); assert(!f.service.buildPayload(context).query.includes('sid='));
   f.service.uninstall(); assert(f.service.install(() => context)); assert.strictEqual(f.installs(), 2);

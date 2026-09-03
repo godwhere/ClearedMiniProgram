@@ -14,7 +14,8 @@
 - 主线第 1 关在棋盘上方显示“连接两个相同的色块或物体”，第 2—5 关显示“别漏掉空白格，全部消除才能通关哦”。教学复用传送门提示的位置和 32px 留白，重玩仍显示；第 6 关起不再显示新手教学，后续 Portal 机制说明保持原规则，每日挑战不显示这组文案；
 - 关卡底部保留提示与回撤按钮；每天第一个新关卡的提示免费，第二个分享解锁，第三个起观看广告并达到平台发奖条件后解锁。提示广告默认关闭，因此当前第三个起仍使用分享。普通、Portal、每日两个小关共用当天新解锁关卡数；已解锁关卡当天可无限查看，每次显示 10 秒。免费保存成功立即预览；分享／广告解锁后再次点击才预览。分享采用“发起流程后解锁，取消也可能解锁”的口径。规则与代码边界见 [`docs/hint-tiered-unlock-and-ad-fallback.md`](docs/hint-tiered-unlock-and-ad-fallback.md)；
 - 本地完成进度和每关最佳时间；首页进度以 `23/92` 这样的格式显示在“继续游戏／开始游戏”按钮内右侧，主文案保持原位置居中；
-- 普通关卡体力：新安装和旧版升级初始 5 点，每关首次解锁消耗 1 点，解锁后重入免费；余额低于 5 时每 5 分钟恢复 1 点。体力统一显示“当前体力/5”（如 4/5、5/5，超额为 6/5）。首页体力在最右侧，音乐按钮在其左侧；默认收起详情，点击后低于 5 显示倒计时，大于等于 5 显示“体力已满”，再次点击或离开首页收起。选关页只显示闪电与数量，与标题和主页按钮水平对齐；关卡内及普通结果页顶部不显示体力 UI，结算面板不显示体力返还规则或状态文案。
+- 普通关卡体力：新安装和旧版升级初始 5 点，每关首次解锁消耗 1 点，解锁后重入免费；余额低于 5 时每 5 分钟恢复 1 点。体力统一显示“当前体力/5”（如 4/5、5/5，超额为 6/5）。首页顶部按“音乐按钮 → 货币余额 → 体力按钮”排列；体力详情默认收起，点击后低于 5 显示倒计时，大于等于 5 显示“体力已满”。选关页只显示闪电与数量，关卡内及普通结果页顶部不显示体力 UI。
+- 本地奖励与简易货币已接入：主线每关首次通关获得 100，完整完成当日两小关首次获得 500；新存档为 0，按稳定关卡坐标和上海日期去重。`classic`／`none` 始终可用，其余主题和 `fade` 按指定关卡、10000 货币、独立激励广告或奖励分享条件永久解锁；解锁与应用分开，保存失败可安全重试。真实广告位和专用开关仍为空／关闭。
 - 原版配色与 Logo；
 - 可插拔皮肤服务与无广告默认实现。
 - 账号接入基础层：独立 session／同步元数据／有限事件队列，由 bootstrap 显式注入；普通结算完成后才通知 EngagementService。后端相关开关默认关闭，提示分享可独立使用，原本地进度存档 key 与离线启动不变。完整实施合同见 [`docs/user-account-sharing-ads-integration.md`](docs/user-account-sharing-ads-integration.md)。
@@ -60,7 +61,7 @@
 [`docs/portal-level-design-guide.md`](docs/portal-level-design-guide.md)。全部内容仍需策划试玩和真机验收。
 
 “高难关卡”主页入口及“每日挑战”模式的棋盘、日期、镂空、存档和实现边界记录在
-[`docs/daily-challenge-mode.md`](docs/daily-challenge-mode.md)；额外进入次数通过 RewardService 接入，默认关闭；失败重试仍免费，未实现货币。
+ [`docs/daily-challenge-mode.md`](docs/daily-challenge-mode.md)；额外进入次数仍由服务端 `RewardService` 处理并默认关闭；失败重试免费。每日完整首胜的 500 本地货币由独立 `RewardUnlockService` 处理。
 
 ## 直接导入微信开发者工具
 
@@ -128,6 +129,8 @@ src/ui/board/board-renderer.js  普通/每日共用的纯 ViewModel 棋盘与消
 src/ui/board/portal-overlay.js  Portal 图标、状态光圈与资源回退
 src/services/progress-store.js  版本化本地存档
 src/services/stamina-service.js 普通体力独立存档、恢复、永久解锁与快通返还
+src/services/reward-unlock-service.js 本地货币、永久拥有权、领取去重和待展示通知
+src/config/rewards.js            奖励对象、条件、价格和次数的声明式配置
 src/config/stamina.js           初始体力、自然上限、恢复间隔、解锁成本和快通返还参数
 src/services/progression-service.js 顺序解锁策略
 src/services/skin-service.js    皮肤注册与切换

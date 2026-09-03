@@ -116,6 +116,27 @@ class ProgressStore {
     return { schemaVersion: 1, levels };
   }
 
+  exportRewardCompletions() {
+    if (!this.platform || typeof this.platform.readStorageResult !== 'function') {
+      return { ok: false, reason: 'storage-read-failed' };
+    }
+    let read;
+    try { read = this.platform.readStorageResult(STORAGE_KEY); } catch (error) {}
+    if (!read || read.ok !== true) return { ok: false, reason: 'storage-read-failed' };
+    if (read.found === false) return { ok: true, levelKeys: [] };
+    if (read.found !== true) return { ok: false, reason: 'storage-read-failed' };
+    let saved = read.value;
+    if (typeof saved === 'string') {
+      try { saved = JSON.parse(saved); } catch (error) { return { ok: false, reason: 'invalid-storage' }; }
+    }
+    if (!isRecord(saved) || saved.schemaVersion !== 2 || !isRecord(saved.completed) ||
+        Object.keys(saved.completed).some(key => BLOCKED_KEYS[key] || typeof saved.completed[key] !== 'boolean')) {
+      return { ok: false, reason: 'invalid-storage' };
+    }
+    return { ok: true, levelKeys: Object.keys(saved.completed)
+      .filter(key => validCloudKey(key) && saved.completed[key] === true) };
+  }
+
   mergeCloudSnapshot(snapshot) {
     if (!snapshot || snapshot.schemaVersion !== 1 || !isRecord(snapshot.levels)) return { ok: false, reason: 'invalid-snapshot' };
     const previous = this.state;
@@ -184,8 +205,15 @@ class ProgressStore {
   }
 
   setSetting(name, value) {
-    this.state.settings[name] = value;
-    this.save();
+    const previous = this.state;
+    const next = Object.assign({}, previous, {
+      settings: Object.assign({}, previous.settings, { [name]: value })
+    });
+    this.state = next;
+    let saved = false;
+    try { saved = this.save() === true; } catch (error) {}
+    if (!saved) this.state = previous;
+    return saved;
   }
 
   resumeTarget(sets) {

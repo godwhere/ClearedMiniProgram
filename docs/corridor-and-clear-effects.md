@@ -4,7 +4,7 @@
 > 最近更新：2026-09-01（适配 `BoardRenderer` 架构并新增 `none`）
 >
 > 需求状态：已确认（按分阶段契约实施）  
-> 实现状态：回廊/特效场景已接入，内置 `none` 与 `fade` 两种选择、独立预览素材和回归测试；真机视觉验收待完成
+> 实现状态：回廊/特效场景已接入；`none` 默认可用，`fade` 在主线第 10 关（`2:2`）完成后永久解锁；独立预览和自动回归已完成，真机视觉验收待完成
 >
 > 运行时：微信小游戏单 Canvas 链路 `game.js → src/bootstrap.js → src/app.js → src/ui/canvas-renderer.js → src/ui/board/board-renderer.js`
 
@@ -326,7 +326,7 @@ service.get('none');            // 无特效 manifest
 service.get('fade');            // 已注册 manifest 或 null
 service.list();                 // 画廊用的可序列化描述列表
 service.select('none');         // 选择后不创建清除动画
-service.select('fade');         // 成功写入 settings.clearEffectId
+service.select('fade');         // 已拥有且成功写入 settings.clearEffectId 时才成功
 service.resolve('missing');     // 返回 fade 回退，不抛出运行时错误
 ~~~
 
@@ -337,11 +337,11 @@ service.resolve('missing');     // 返回 fade 回退，不抛出运行时错误
 - 按 `src/effects/index.js` 顺序注册内置 `none`、`fade`，并保证可信的 `fade` 安全回退不会被同名扩展覆盖；
 - 拒绝空 ID、重复 ID、原型污染键和非普通对象；
 - 深拷贝/合并纯数据，不能让调用方修改内部 manifest；
-- 对未知或损坏的 `clearEffectId` 使用 `fade`，保留存档其他字段；
+- 实际选择恢复对未知、损坏或未拥有的 `clearEffectId` 使用 `none`；manifest 的未知动画参数仍可解析为可信 `fade` 视觉回退；
 - `list()` 不暴露图片对象、函数、平台句柄或任意脚本；
-- 选择成功后立即调用 `ProgressStore.setSetting('clearEffectId', id)`。
+- 选择先检查只读拥有权，再调用 `ProgressStore.setSetting('clearEffectId', id)`；只有明确写盘成功才更新当前 ID。
 
-服务不负责：Canvas 绘图、触摸命中、场景切换、路径求解、音效播放、广告、解锁和网络同步。
+服务不负责：Canvas 绘图、触摸命中、场景切换、路径求解、音效播放、发奖或网络同步。它通过注入的只读拥有权查询拒绝未拥有项目，并仅在设置写盘成功后更新当前选择。
 
 ## 8. 预览图与 ImageGen 边界
 
@@ -391,10 +391,10 @@ settings: {
 
 规则如下：
 
-- 全新安装默认 `none`；已有 v1 或已有 v2 缺少 `clearEffectId` 时继续读取为 `fade`，避免升级后静默改变视觉；显式保存的 `none` / `fade` 原样保留。
-- 存档中的未知/损坏 ID 回退 `fade`；是否立即回写修正值由测试决定，但不得覆盖 `completed`、`bestMs`、`lastPlayed`、`stats` 或 `skinId`。
+- 全新安装默认 `none`。已有进度存档可继续保留 `clearEffectId` 字段，但字段本身不证明拥有；未拥有 `fade` 时启动回退 `none`，完成 `2:2` 后才可恢复或选择。
+- 存档中的未知、损坏或未拥有 ID 在实际应用路径回退 `none`；manifest 解析仍可用可信 `fade` 作为未知动画参数的视觉兼容值，不因此绕过使用权限。
 - 特效选择是全局视觉设置，普通关卡和每日挑战共用；不写入 `DailyProgressStore`，不影响每日次数、完成状态或奖励资格。
-- 第一版不做特效解锁、付费、抽取、网络同步、运营时间窗或广告增益。
+- 本期特效仅支持 `none` 默认可用、`fade` 通过主线第 10 关解锁；暂不增加特效货币、广告或分享解锁，也不增加抽取、网络同步、运营时间窗或广告增益。
 - 更换特效不会重置当前棋盘、计时、撤销栈或提示状态。
 
 ## 10. 代码边界矩阵
@@ -453,7 +453,7 @@ effect:<id>              -- stay --> effects
 3. **回廊命中**：`corridor:home`、`corridor:themes`、`corridor:effects` 正确注册；4 个空槽无 hit；安全区和窄屏不重叠。
 4. **特效分页**：0、1、6、7 个特效的页数、槽位映射、空槽无 hit、边界 clamp；`effectPageIndex` 不影响 `themePageIndex`。
 5. **导航来源**：从回廊进入主题后返回回廊；旧 `home:themes → themes:home` 仍可用；`home:corridor` 是当前唯一可见回廊入口。
-6. **特效选择**：`effect:none` / `effect:fade` 点击后即时重绘、保持在 effects 场景并持久化；非法选择不改变当前 ID。
+6. **特效选择**：`effect:none` 始终可选；`effect:fade` 锁定时显示“通关第 10 关解锁”，拥有后点击即时重绘并可靠持久化；非法、未拥有或保存失败均不改变当前 ID。
 7. **清除视觉契约**：`none` 在普通、每日和 Portal 中均不创建快照、不绘制格子、不保留动画尾；`fade` 的 alpha 单调从 1 到 0；两者都不改变 GameRunner 状态和结算。
 8. **动画快照**：动画播放中切换特效不会改变已开始路径；reset/undo 会清除旧动画；duration 非法值会安全回退；未填满失败窗口不得早于最终动画结束出现。
 9. **预览回退与竞态**：ImageGen 预览懒加载；失败、缺图、晚到回调均不会阻塞页面或覆盖当前页面；棋盘不请求预览图。

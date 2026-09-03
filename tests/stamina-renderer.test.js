@@ -86,7 +86,8 @@ function run() {
       const homeBadge = renderer.hits.find(hit => hit.id === 'home:stamina');
       const sound = renderer.hits.find(hit => hit.id === 'home:sound');
       assert.deepStrictEqual(homeBadge.rect, { x: width - 78, y: sound.rect.y, w: 64, h: 44 });
-      assert.strictEqual(sound.rect.x + sound.rect.w + 8, homeBadge.rect.x);
+      assert(sound.rect.x + sound.rect.w < homeBadge.rect.x,
+        'the currency display sits between sound and stamina');
       for (const [snapshot, label] of cases) {
         const home = Object.assign({}, app.buildModel(), { stamina: snapshot });
         render(home);

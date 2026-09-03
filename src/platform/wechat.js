@@ -224,6 +224,23 @@ class WechatPlatform {
     }
   }
 
+  readStorageResult(key) {
+    try {
+      if (!this.api || typeof this.api.getStorageInfoSync !== 'function' ||
+          typeof this.api.getStorageSync !== 'function') {
+        return { ok: false, reason: 'storage-read-failed' };
+      }
+      const info = this.api.getStorageInfoSync();
+      if (!info || !Array.isArray(info.keys) || !info.keys.every(item => typeof item === 'string')) {
+        return { ok: false, reason: 'storage-read-failed' };
+      }
+      if (info.keys.indexOf(key) < 0) return { ok: true, found: false };
+      return { ok: true, found: true, value: this.api.getStorageSync(key) };
+    } catch (error) {
+      return { ok: false, reason: 'storage-read-failed' };
+    }
+  }
+
   setStorage(key, value) {
     try {
       this.api.setStorageSync(key, value);

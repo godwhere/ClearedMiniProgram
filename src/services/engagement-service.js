@@ -10,6 +10,9 @@ class EngagementService {
     this.dailyPending = null;
     this.hintAccess = opts.hintAccess || null;
     this.hintPending = null;
+    this.rewardUnlocks = opts.rewardUnlocks || null;
+    this.rewardUnlockPending = null;
+    this.rewardUnlockGeneration = 0;
   }
   hintState(context) {
     const mode = this.config.hintMode || 'free';
@@ -116,6 +119,67 @@ class EngagementService {
     this.dailyPending = this.dailyExtraEntry(context).catch(() => ({ ok: false, reason: 'error' }))
       .finally(() => { this.dailyPending = null; });
     return this.dailyPending;
+  }
+  rewardUnlockState(rewardId) {
+    const state = this.rewardUnlocks && this.rewardUnlocks.status
+      ? this.rewardUnlocks.status(rewardId)
+      : { ok: false, owned: false, action: 'unavailable', reason: 'not-configured' };
+    if (this.rewardUnlockPending) {
+      return Object.assign({}, state, { action: 'busy', actionEnabled: false, reason: 'busy' });
+    }
+    if (this.rewardUnlocks && this.rewardUnlocks.hasPendingExternal && this.rewardUnlocks.hasPendingExternal()) {
+      return Object.assign({}, state, { action: 'retry-save', actionEnabled: true, reason: 'pending-save' });
+    }
+    if (state.action === 'rewarded_ad') {
+      if (this.config.rewardUnlockRewardedEnabled !== true) return Object.assign({}, state, { actionEnabled: false, reason: 'ads-not-enabled' });
+      if (!this.ads || !this.ads.isRewardedConfigured('rewardUnlock')) return Object.assign({}, state, { actionEnabled: false, reason: 'ads-not-configured' });
+      if (typeof this.ads.isRewardedSupported !== 'function' || !this.ads.isRewardedSupported()) return Object.assign({}, state, { actionEnabled: false, reason: 'ads-not-supported' });
+    }
+    return Object.assign({}, state, { actionEnabled: state.action !== 'locked' && state.action !== 'unavailable' });
+  }
+  requestRewardUnlock(context) {
+    const rewardId = context && context.rewardId;
+    if (!this.rewardUnlocks) return Promise.resolve({ ok: false, reason: 'not-configured', newRewards: [] });
+    if (this.rewardUnlocks.hasPendingExternal && this.rewardUnlocks.hasPendingExternal()) {
+      return Promise.resolve(this.rewardUnlocks.retryPendingSave());
+    }
+    const state = this.rewardUnlockState(rewardId);
+    if (!state.ok || state.owned || !state.actionEnabled || !['rewarded_ad', 'share'].includes(state.action)) {
+      return Promise.resolve({ ok: false, reason: state.reason || (state.owned ? 'already-owned' : 'unavailable'), newRewards: [] });
+    }
+    if (this.rewardUnlockPending) return Promise.resolve({ ok: false, reason: 'busy', newRewards: [] });
+    const token = { generation: this.rewardUnlockGeneration, rewardId, action: state.action,
+      scene: context && context.scene };
+    this.rewardUnlockPending = token;
+    let task;
+    try {
+      if (token.action === 'share') {
+        task = this.share && this.share.shareReward ? this.share.shareReward(token) : { initiated: false, reason: 'not-configured' };
+      } else {
+        if (this.behavior) this.behavior.track('ad_requested', { placement: 'rewardUnlock', rewardId });
+        task = this.ads.showRewarded('rewardUnlock');
+      }
+    } catch (error) { task = { ok: false, reason: 'unavailable' }; }
+    return Promise.resolve(task).then(outcome => {
+      if (token.generation !== this.rewardUnlockGeneration) return { ok: false, reason: 'stale', newRewards: [] };
+      if (token.action === 'share') {
+        if (!outcome || outcome.initiated !== true) return { ok: false, reason: outcome && outcome.reason || 'unavailable', newRewards: [] };
+        if (this.behavior) this.behavior.track('share_initiated', { scene: token.scene, source: 'reward_unlock' });
+        return this.rewardUnlocks.recordShareInitiated({ rewardId: token.rewardId, initiated: true });
+      }
+      if (!outcome || outcome.rewarded !== true || outcome.placement !== 'rewardUnlock' ||
+          typeof outcome.attemptId !== 'string' || !/^[A-Za-z0-9_:-]{1,200}$/.test(outcome.attemptId)) {
+        return { ok: false, reason: outcome && outcome.reason || 'invalid-response', newRewards: [] };
+      }
+      if (this.behavior) this.behavior.track('ad_completed', { placement: 'rewardUnlock', rewardId });
+      return this.rewardUnlocks.recordAdCompletion({ rewardId: token.rewardId, attemptId: outcome.attemptId });
+    }).catch(() => ({ ok: false, reason: 'unavailable', newRewards: [] })).finally(() => {
+      if (this.rewardUnlockPending === token) this.rewardUnlockPending = null;
+    });
+  }
+  cancelRewardUnlocks() {
+    this.rewardUnlockGeneration += 1;
+    this.rewardUnlockPending = null;
   }
   async dailyExtraEntry(context) {
     const session = await this.auth.ensureSession();

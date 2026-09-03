@@ -30,6 +30,8 @@ const ProfileService = require('./services/profile-service.js');
 const ShareService = require('./services/share-service.js');
 const RewardService = require('./services/reward-service.js');
 const HintAccessService = require('./services/hint-access-service.js');
+const RewardUnlockService = require('./services/reward-unlock-service.js');
+const rewardConfig = require('./config/rewards.js');
 
 function start() {
   const platform = new WechatPlatform();
@@ -37,6 +39,7 @@ function start() {
   const progress = new ProgressStore(platform);
   const stamina = new StaminaService(platform, staminaConfig);
   const dailyStore = new DailyProgressStore(platform, { debugUnlimited: dailyConfig.debugUnlimitedEntries === true });
+  const rewardUnlocks = new RewardUnlockService(platform, rewardConfig);
   const sessions = new SessionStore(platform);
   const syncStore = new SyncStore(platform);
   const api = new ApiClient(platform, sessions, backendConfig);
@@ -49,7 +52,7 @@ function start() {
     { enabled: engagementConfig.rewards.dailyExtraEntryEnabled === true || engagementConfig.share.rewardsEnabled === true }, behavior);
   const share = new ShareService(platform, api, auth, syncStore, engagementConfig.share, behavior);
   const hintAccess = new HintAccessService(platform, { timeZone: dailyConfig.timeZone });
-  const engagement = new EngagementService({ ads, share, rewards, auth, behavior, hintAccess, config: Object.assign({}, adConfig.rules,
+  const engagement = new EngagementService({ ads, share, rewards, rewardUnlocks, auth, behavior, hintAccess, config: Object.assign({}, adConfig.rules,
     { dailyExtraEntryEnabled: adConfig.rules.dailyExtraEntryEnabled === true && engagementConfig.rewards.dailyExtraEntryEnabled === true }) });
   auth.onSessionChanged((session, state) => {
     if (session) behavior.identify(session.userId);
@@ -64,7 +67,7 @@ function start() {
       platform.isDevTools() === true
   });
   const app = new ClearedApp(platform, {
-    stamina,
+    stamina, rewardUnlocks,
     progress, dailyStore, auth, progressSync, behavior, ads, engagement, profile, share, rewards, hintAccess,
     subpackages,
     skins,

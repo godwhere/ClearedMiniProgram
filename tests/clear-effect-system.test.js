@@ -1,5 +1,6 @@
 const assert = require('assert');
 const ClearedApp = require('../src/app.js');
+const { allOwnedRewardService } = require('./helpers/reward-fixture.js');
 const ClearEffectService = require('../src/services/clear-effect-service.js');
 const CanvasRenderer = require('../src/ui/canvas-renderer.js');
 const classic = require('../src/skins/classic.js');
@@ -68,9 +69,13 @@ function customEffects(count) {
   return effects;
 }
 
+function createApp(platform, options) {
+  return new ClearedApp(platform, Object.assign({ rewardUnlocks: allOwnedRewardService() }, options || {}));
+}
+
 function run() {
   const platform = createPlatform();
-  const app = new ClearedApp(platform);
+  const app = createApp(platform);
   const now = Date.now();
 
   // The migration is opt-in: the default build keeps the existing visible
@@ -79,7 +84,7 @@ function run() {
   assert(app.renderer.hits.some(hit => hit.id === 'home:themes'));
   assert(!app.renderer.hits.some(hit => hit.id === 'home:corridor'));
   const legacyThemeRect = app.renderer.hits.find(hit => hit.id === 'home:themes').rect;
-  const migrated = new ClearedApp(createPlatform(), { homeMigration: true });
+  const migrated = createApp(createPlatform(), { homeMigration: true });
   migrated.tick(now);
   assert(migrated.renderer.hits.some(hit => hit.id === 'home:corridor'));
   assert(!migrated.renderer.hits.some(hit => hit.id === 'home:themes'));
@@ -149,7 +154,7 @@ function run() {
   app.onPointerEnd({ x: noneHit.rect.x + noneHit.rect.w / 2,
     y: noneHit.rect.y + noneHit.rect.h / 2, id: 12 });
   assert.strictEqual(app.progress.getSetting('clearEffectId'), 'none');
-  const persistedNone = new ClearedApp(platform);
+  const persistedNone = createApp(platform);
   assert.strictEqual(persistedNone.currentEffectId(), 'none',
     'selecting no effect survives a fresh app instance');
 
@@ -214,7 +219,7 @@ function run() {
 
   // Effect pagination has its own cursor and does not move the theme cursor.
   const pagedPlatform = createPlatform();
-  const paged = new ClearedApp(pagedPlatform, { effects: customEffects(7) });
+  const paged = createApp(pagedPlatform, { effects: customEffects(7) });
   paged.themePageIndex = 1;
   paged.effectPageIndex = 1;
   paged.performAction('home:corridor');
@@ -308,14 +313,14 @@ function run() {
   assert.strictEqual(dailyAdapterCalls, 1);
 
   const timedPlatform = createPlatform();
-  const timed = new ClearedApp(timedPlatform, {
+  const timed = createApp(timedPlatform, {
     effects: [{
       id: 'slow', name: '慢速', type: 'fade', durationMs: 480, preview: null,
       params: { alphaFrom: 1, alphaTo: 0, scaleFrom: 1, scaleTo: 1.01, staggerRatio: 0 }
     }]
   });
   timed.setClearEffect('slow');
-  const persistedSlow = new ClearedApp(timedPlatform, {
+  const persistedSlow = createApp(timedPlatform, {
     effects: [{ id: 'slow', name: '慢速', type: 'fade', durationMs: 480, preview: null }]
   });
   assert.strictEqual(persistedSlow.currentEffectId(), 'slow');
@@ -328,7 +333,7 @@ function run() {
     'snapshot duration remains active after changing the selected effect');
   assert.strictEqual(timed.isAnimating(animationStarted + 561), false,
     'snapshot duration and tail eventually expire');
-  const restoredTimed = new ClearedApp(timedPlatform, {
+  const restoredTimed = createApp(timedPlatform, {
     effects: [{ id: 'slow', name: '慢速', type: 'fade', durationMs: 480, preview: null }]
   });
   assert.strictEqual(restoredTimed.currentEffectId(), 'fade',

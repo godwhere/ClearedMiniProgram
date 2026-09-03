@@ -11,6 +11,7 @@ function fakeApi() {
   const canvas = { getContext: () => ctx, requestAnimationFrame() { events.push('frame'); return 1; }, cancelAnimationFrame() {}, createImage: () => ({}) };
   return { storage, events, createCanvas: () => canvas, getWindowInfo: () => ({ windowWidth: 390, windowHeight: 844 }),
     getStorageSync: key => storage[key], setStorageSync(key, value) { storage[key] = JSON.parse(JSON.stringify(value)); },
+    getStorageInfoSync: () => ({ keys: Object.keys(storage) }),
     onTouchStart() {}, onTouchMove() {}, onTouchEnd() {}, onShow(fn) { this.show = fn; }, onHide() {},
     login(opts) { events.push('login'); opts.fail({}); }, request() { throw Error('login failed'); } };
 }
@@ -22,6 +23,7 @@ async function run() {
     const api = fakeApi(); global.wx = api;
     const app = bootstrap.start();
     assert.strictEqual(app.scene, 'home'); assert.deepStrictEqual(api.events, ['frame']);
+    assert.strictEqual(app.rewardUnlocks.view().balance, 0);
     await app.resumeOnline();
     assert.strictEqual(api.events.filter(e => e === 'login').length, 1);
     assert.strictEqual(app.openLevel(0, 0), true);

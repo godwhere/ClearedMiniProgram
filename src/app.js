@@ -10,6 +10,8 @@ const ProgressionService = require('./services/progression-service.js');
 const AudioService = require('./services/audio-service.js');
 const HintService = require('./services/hint-service.js');
 const HintAccessService = require('./services/hint-access-service.js');
+const RewardUnlockService = require('./services/reward-unlock-service.js');
+const rewardConfig = require('./config/rewards.js');
 const adConfig = require('./config/ads.js');
 const progressionConfig = require('./config/progression.js');
 const audioConfig = require('./config/audio.js');
@@ -150,21 +152,22 @@ function cloneData(value) {
   return value;
 }
 
-function fallbackClearEffects(progress) {
-  let currentId = 'fade';
+function fallbackClearEffects(progress, canUse) {
+  const allowed = typeof canUse === 'function' ? canUse : (kind, id) => kind === 'effect' && id === 'none';
+  let currentId = 'none';
   try {
     const saved = progress && typeof progress.getSetting === 'function'
-      ? progress.getSetting('clearEffectId', 'fade')
-      : 'fade';
-    if (saved === 'none' || saved === 'fade') currentId = saved;
+      ? progress.getSetting('clearEffectId', 'none')
+      : 'none';
+    if ((saved === 'none' || saved === 'fade') && allowed('effect', saved)) currentId = saved;
   } catch (error) {
-    currentId = 'fade';
+    currentId = 'none';
   }
   const manifests = {
     none: DEFAULT_NONE_EFFECT,
     fade: DEFAULT_FADE_EFFECT
   };
-  const manifest = id => cloneData(manifests[id] || DEFAULT_FADE_EFFECT);
+  const manifest = id => cloneData(manifests[id] || DEFAULT_NONE_EFFECT);
   return {
     current() { return manifest(currentId); },
     get(id) { return manifests[id] ? manifest(id) : null; },
@@ -174,12 +177,14 @@ function fallbackClearEffects(progress) {
         return { id: effect.id, name: effect.name, type: effect.type, preview: effect.preview };
       });
     },
-    resolve(id) { return manifest(manifests[id] ? id : 'fade'); },
+    resolve(id) { return manifest(manifests[id] ? id : 'none'); },
     currentIdValue() { return currentId; },
     select(id) {
-      if (!manifests[id]) return false;
+      if (!manifests[id] || !allowed('effect', id)) return false;
+      try {
+        if (!progress || typeof progress.setSetting !== 'function' || progress.setSetting('clearEffectId', id) !== true) return false;
+      } catch (error) { return false; }
       currentId = id;
-      if (progress && typeof progress.setSetting === 'function') progress.setSetting('clearEffectId', currentId);
       return true;
     }
   };
@@ -228,27 +233,6 @@ class ClearedApp {
       catalog.sets,
       opts.progressionConfig || progressionConfig
     );
-    // Bootstrap passes the registry explicitly, but direct app construction
-    // (tests and lightweight hosts) should expose the same built-in themes.
-    // An explicit `skins` option remains an intentional override.
-    this.skins = new SkinService(
-      this.progress,
-      opts.skins === undefined ? defaultSkins : opts.skins
-    );
-    // Clear effects are a visual-only registry. Keep the service at the app
-    // boundary so selection/persistence remains an orchestration concern,
-    // while the renderer receives only read-only query methods.
-    this.clearEffects = opts.clearEffects || opts.clearEffectService || null;
-    if (!this.clearEffects && ClearEffectService) {
-      try {
-        this.clearEffects = new ClearEffectService(this.progress, opts.effects || []);
-      } catch (error) {
-        this.clearEffects = null;
-      }
-    }
-    if (!this.clearEffects || typeof this.clearEffects.current !== 'function') {
-      this.clearEffects = fallbackClearEffects(this.progress);
-    }
     this.ads = opts.ads || new AdsService(platform, opts.adConfig || adConfig);
     this.hintRequest = null;
     this.hintFeedback = null;
@@ -317,12 +301,28 @@ class ClearedApp {
     // internal short names remain compact in the orchestration code.
     this.dailyChallengeService = this.dailyService;
     this.dailyProgressStore = this.dailyProgress;
+    this.rewardUnlocks = opts.rewardUnlocks || new RewardUnlockService(platform, rewardConfig);
+    // Reconcile saved facts before restoring a selected appearance. No UI is
+    // accessed until the renderer, pointer and scene state have been created.
+    this.recoverRewardUnlocks();
+    const canUse = (kind, itemId) => this.rewardUnlocks.canUse(kind, itemId);
+    this.skins = new SkinService(this.progress,
+      opts.skins === undefined ? defaultSkins : opts.skins, canUse);
+    this.clearEffects = opts.clearEffects || opts.clearEffectService || null;
+    if (!this.clearEffects && ClearEffectService) {
+      try { this.clearEffects = new ClearEffectService(this.progress, opts.effects || [], canUse); }
+      catch (error) { this.clearEffects = null; }
+    }
+    if (!this.clearEffects || typeof this.clearEffects.current !== 'function') {
+      this.clearEffects = fallbackClearEffects(this.progress, canUse);
+    }
     this.hintAccess = opts.hintAccess || new HintAccessService(platform, {
       clock: this.dailyClock,
       timeZone: opts.dailyTimeZone || opts.timeZone || (this.dailyService && this.dailyService.timeZone) || 'Asia/Shanghai'
     });
     this.engagement = opts.engagement || new EngagementService({ ads: this.ads, share: this.share,
-      hintAccess: this.hintAccess, behavior: this.behavior, config: (opts.adConfig || adConfig).rules });
+      hintAccess: this.hintAccess, rewardUnlocks: this.rewardUnlocks,
+      behavior: this.behavior, config: (opts.adConfig || adConfig).rules });
     this.hints = new HintService(
       opts.solutionCatalog || null,
       this.dailySolutions,
@@ -381,6 +381,10 @@ class ClearedApp {
     this.dirty = true;
     this.wasAnimating = false;
     this.lastClockSecond = -1;
+    this.rewardDialog = null;
+    this.rewardDialogSequence = 0;
+    this.rewardRequestGeneration = 0;
+    this.dismissedRewardNotices = new Set();
   }
 
   start() {
@@ -405,6 +409,7 @@ class ClearedApp {
     });
     this.startLoop();
     this.prepareCurrentSkinAssets();
+    this.showNextRewardNotice();
   }
 
   startLoop() {
@@ -836,6 +841,7 @@ class ClearedApp {
 
   tick(now) {
     const timestamp = Number.isFinite(Number(now)) ? Number(now) : Date.now();
+    this.showNextRewardNotice(timestamp);
     this.refreshStamina(timestamp);
     if (this.hintPreview && timestamp >= this.hintPreview.until) {
       this.clearHintPreview(false);
@@ -1040,6 +1046,8 @@ class ClearedApp {
     const hintEnabled = this.isHintPreviewActive() || (!this.hintRequest && !['busy', 'unavailable'].includes(hintState.action));
     const base = {
       scene: this.scene,
+      currency: this.rewardUnlocks.view(),
+      rewardDialog: this.rewardDialog ? cloneData(this.rewardDialog) : null,
       stamina: Object.assign({}, this.staminaSnapshot),
       staminaFeedback: this.staminaFeedback ? Object.assign({}, this.staminaFeedback) : null,
       homeStaminaExpanded: this.scene === 'home' && this.homeStaminaExpanded,
@@ -1302,6 +1310,13 @@ class ClearedApp {
     if (!point || this.pointer || this.boardInput.isActive()) return;
     this.audio.unlock();
     const hit = this.renderer.hitTest(point.x, point.y);
+    if (this.rewardDialog) {
+      this.pointer = { mode: 'reward', id: point.id, start: point, last: point,
+        hit: hit && hit.indexOf('reward:') === 0 ? hit : null, dialogId: this.rewardDialog.dialogId };
+      this.pressedId = this.pointer.hit;
+      this.invalidate();
+      return;
+    }
     if (hit) {
       this.pointer = { mode: 'ui', id: point.id, start: point, last: point, hit };
       this.pressedId = hit;
@@ -1332,6 +1347,10 @@ class ClearedApp {
   }
 
   onPointerMove(point) {
+    if (this.rewardDialog) {
+      if (point && this.pointer && point.id === this.pointer.id) this.pointer.last = point;
+      return;
+    }
     if (point && this.boardInput.isActive()) {
       this.handleBoardInputEvents(this.boardInput.move(point));
       return;
@@ -1346,6 +1365,18 @@ class ClearedApp {
   }
 
   onPointerEnd(point) {
+    if (this.rewardDialog) {
+      const active = this.pointer;
+      if (!active || (point && point.id !== active.id)) return;
+      this.pointer = null;
+      this.pressedId = null;
+      const end = point || active.last;
+      if (active.mode === 'reward' && active.dialogId === this.rewardDialog.dialogId && active.hit &&
+          Math.abs(end.x - active.start.x) < 20 && Math.abs(end.y - active.start.y) < 20 &&
+          active.hit === this.renderer.hitTest(end.x, end.y)) this.performAction(active.hit);
+      this.invalidate();
+      return;
+    }
     if (this.boardInput.isActive()) {
       this.pressedId = null;
       this.handleBoardInputEvents(this.boardInput.end(point));
@@ -1494,6 +1525,12 @@ class ClearedApp {
     // The legacy local store retains in-memory progress on a write failure.
     // Confirm persistence before enqueueing anything for cloud delivery.
     try { completion.persisted = this.progress.save() === true; } catch (error) { completion.persisted = false; }
+    const rewardResult = completion.persisted ? this.recoverRewardUnlocks() : { ok: false };
+    const source = `ordinary:${this.runContext.setIndex}:${this.runContext.levelIndex}`;
+    completion.currencyReward = {
+      status: !rewardResult.ok ? 'pending' : (rewardResult.sources || []).includes(source) ? 'granted' : 'already-claimed',
+      amount: rewardResult.ok && (rewardResult.sources || []).includes(source) ? rewardConfig.currency.ordinaryFirstClear : 0
+    };
     if (completion.persisted && this.progressSync) {
       try { this.progressSync.enqueueCompletion({ setIndex: this.setIndex, levelIndex: this.levelIndex,
         elapsedMs: completion.elapsedMs, completedAtClient: now,
@@ -1670,6 +1707,12 @@ class ClearedApp {
     daily.result.firstClear = daily.dayFirstClear;
     daily.resultVisibleAt = Date.now() + this.skins.current().animation.resultDelayMs;
     this.scene = 'dailyResult';
+    const rewardResult = completion.persisted === true ? this.recoverRewardUnlocks() : { ok: false };
+    const source = `daily:${daily.dateKey}`;
+    daily.result.currencyReward = {
+      status: !rewardResult.ok ? 'pending' : (rewardResult.sources || []).includes(source) ? 'granted' : 'already-claimed',
+      amount: rewardResult.ok && (rewardResult.sources || []).includes(source) ? rewardConfig.currency.dailyFirstComplete : 0
+    };
     if (this.share) this.share.prepareContext(this.shareContext());
 
     // This is an event boundary only.  A future currency ledger owns reward
@@ -1769,6 +1812,32 @@ class ClearedApp {
 
   performAction(action) {
     if (typeof action !== 'string' || !action) return false;
+    if (this.disposed) return false;
+    if (this.rewardDialog) {
+      if (action === 'reward:unlock' || action === 'reward:retry') return this.requestRewardUnlock(action === 'reward:retry');
+      if (action === 'reward:apply') return this.applyReward();
+      if (action === 'reward:later' || action === 'reward:close') return this.dismissRewardDialog();
+      return false;
+    }
+    if (action === 'reward:retry') {
+      if (this.scene === 'result' && this.result && this.result.currencyReward &&
+          this.result.currencyReward.status === 'pending') {
+        let persisted = false;
+        try { persisted = this.progress.save() === true; } catch (error) {}
+        this.result.persisted = persisted;
+        if (!persisted) {
+          this.invalidate();
+          return false;
+        }
+      }
+      const result = this.recoverRewardUnlocks();
+      this.invalidate();
+      const activeResult = this.scene === 'result' ? this.result
+        : this.scene === 'dailyResult' && this.daily ? this.daily.result : null;
+      return result.ok && !(activeResult && activeResult.currencyReward &&
+        activeResult.currencyReward.status === 'pending');
+    }
+    if (action.indexOf('reward:') === 0) return false;
     if (action === 'home:stamina') {
       if (this.scene !== 'home') return false;
       this.homeStaminaExpanded = !this.homeStaminaExpanded;
@@ -1873,7 +1942,13 @@ class ClearedApp {
     } else if (action.indexOf('theme:') === 0) {
       // Theme selection intentionally leaves the gallery open.  setSkin is
       // the single persistence/loading entry point; failed IDs are ignored.
-      this.setSkin(action.slice('theme:'.length));
+      const id = action.slice('theme:'.length);
+      if (this.rewardUnlocks.canUse('theme', id)) {
+        if (!this.setSkin(id) && this.openRewardDialog(`theme:${id}`, 'unlocked')) {
+          this.rewardDialog.state = 'error'; this.rewardDialog.message = '应用保存失败，请重试';
+        }
+      }
+      else this.openRewardDialog(`theme:${id}`);
     } else if (action === 'corridor:home') {
       this.scene = 'home';
       this.galleryOrigin = 'home';
@@ -1910,7 +1985,13 @@ class ClearedApp {
     } else if (action.indexOf('effect:') === 0) {
       // Effect selection intentionally keeps the gallery open and leaves all
       // board/daily state untouched.
-      this.setClearEffect(action.slice('effect:'.length));
+      const id = action.slice('effect:'.length);
+      if (this.rewardUnlocks.canUse('effect', id)) {
+        if (!this.setClearEffect(id) && this.openRewardDialog(`effect:${id}`, 'unlocked')) {
+          this.rewardDialog.state = 'error'; this.rewardDialog.message = '应用保存失败，请重试';
+        }
+      }
+      else this.openRewardDialog(`effect:${id}`);
     } else if (action.indexOf('level:') === 0) {
       const parts = action.split(':');
       if (parts.length === 3) {
@@ -2009,6 +2090,9 @@ class ClearedApp {
     }
     if (previousScene === 'account' && this.scene !== 'account') this.leaveAccount();
     if (previousScene !== this.scene) {
+      ++this.skinLoadRequestId;
+      this.pendingSkinId = null;
+      if (this.scene === 'home') this.recoverRewardUnlocks();
       this.homeStaminaExpanded = false;
       this.clearHintRequest();
       if (this.share) this.share.prepareContext(this.shareContext());
@@ -2260,10 +2344,22 @@ class ClearedApp {
     return Array.isArray(themes) ? themes.map(theme => {
       const name = this.subpackages && this.subpackages.packageForTheme(theme.id);
       const state = name ? this.subpackages.getPackageState(name) : { status: 'loaded', progress: 100 };
+      const rewardId = `theme:${theme.id}`;
+      let reward = this.rewardUnlocks.status(rewardId);
+      if (['rewarded_ad', 'share'].includes(reward.conditionType) && this.engagement.rewardUnlockState) {
+        reward = this.engagement.rewardUnlockState(rewardId);
+      }
+      reward.id = rewardId;
+      reward.actionEnabled = reward.owned === true || reward.action === 'purchase' || reward.actionEnabled === true;
+      if (reward.levelKey) {
+        const parts = reward.levelKey.split(':').map(Number);
+        reward.displayLevel = this.catalogLevelPosition(parts[0], parts[1]) + 1;
+      }
       return Object.assign({}, theme, {
         assetState: state.status,
         assetProgress: state.progress,
-        pending: theme.id === this.pendingSkinId
+        pending: theme.id === this.pendingSkinId,
+        reward
       });
     }) : [];
   }
@@ -2340,6 +2436,18 @@ class ClearedApp {
       if (typeof item.type === 'string' && item.type) descriptor.type = item.type;
       if (typeof item.preview === 'string' && item.preview) descriptor.preview = item.preview;
       if (typeof item.category === 'string' && item.category) descriptor.category = item.category;
+      const rewardId = `effect:${id}`;
+      let reward = this.rewardUnlocks.status(rewardId);
+      if (['rewarded_ad', 'share'].includes(reward.conditionType) && this.engagement.rewardUnlockState) {
+        reward = this.engagement.rewardUnlockState(rewardId);
+      }
+      reward.id = rewardId;
+      reward.actionEnabled = reward.owned === true || reward.action === 'purchase' || reward.actionEnabled === true;
+      if (reward.levelKey) {
+        const parts = reward.levelKey.split(':').map(Number);
+        reward.displayLevel = this.catalogLevelPosition(parts[0], parts[1]) + 1;
+      }
+      descriptor.reward = reward;
       result.push(descriptor);
       return result;
     }, []);
@@ -2367,14 +2475,15 @@ class ClearedApp {
     try {
       if (this.clearEffects && typeof this.clearEffects.currentIdValue === 'function') {
         const id = this.clearEffects.currentIdValue();
-        if (typeof id === 'string' && id) return id;
+        if (typeof id === 'string' && id) return this.rewardUnlocks.canUse('effect', id) ? id : 'none';
       }
       const current = this.clearEffects && typeof this.clearEffects.current === 'function'
         ? this.clearEffects.current()
         : null;
-      return current && current.id ? String(current.id) : 'fade';
+      const id = current && current.id ? String(current.id) : 'none';
+      return this.rewardUnlocks.canUse('effect', id) ? id : 'none';
     } catch (error) {
-      return 'fade';
+      return 'none';
     }
   }
 
@@ -2389,10 +2498,10 @@ class ClearedApp {
     } catch (error) {
       effect = null;
     }
-    if (!plainObject(effect)) effect = DEFAULT_FADE_EFFECT;
+    if (!plainObject(effect) || !this.rewardUnlocks.canUse('effect', effectId)) effect = DEFAULT_NONE_EFFECT;
     const result = cloneData(effect);
-    if (!result.id) result.id = 'fade';
-    if (!result.type) result.type = 'fade';
+    if (!result.id) result.id = 'none';
+    if (!result.type) result.type = 'none';
     return result;
   }
 
@@ -2410,7 +2519,8 @@ class ClearedApp {
   }
 
   setClearEffect(effectId) {
-    if (!this.clearEffects || typeof this.clearEffects.select !== 'function') return false;
+    if (!this.clearEffects || typeof this.clearEffects.select !== 'function' ||
+        !this.rewardUnlocks.canUse('effect', effectId)) return false;
     let selected = false;
     try {
       selected = this.clearEffects.select(effectId) === true;
@@ -2434,8 +2544,203 @@ class ClearedApp {
     this.invalidate();
   }
 
+  recoverRewardUnlocks() {
+    if (!this.rewardUnlocks) return { ok: false, reason: 'not-configured', amountDelta: 0, newRewards: [] };
+    if (!this.rewardUnlocks.view().available) {
+      const loaded = this.rewardUnlocks.retryLoad();
+      if (!loaded.ok) return Object.assign({ amountDelta: 0, newRewards: [] }, loaded);
+    }
+    const ordinary = this.progress && typeof this.progress.exportRewardCompletions === 'function'
+      ? this.progress.exportRewardCompletions() : { ok: false, reason: 'storage-read-failed' };
+    const daily = this.dailyProgress && typeof this.dailyProgress.exportRewardCompletions === 'function'
+      ? this.dailyProgress.exportRewardCompletions() : { ok: false, reason: 'storage-read-failed' };
+    if (!ordinary.ok || !daily.ok) return { ok: false, reason: 'source-read-failed', amountDelta: 0, newRewards: [] };
+    const result = this.rewardUnlocks.reconcile({ ordinary, daily });
+    if (result.ok) {
+      // No new grant means "already claimed" only when the persisted
+      // snapshot actually contains this result's completed source.
+      if (this.result && this.result.currencyReward && this.result.currencyReward.status === 'pending' && this.runContext) {
+        const source = `ordinary:${this.runContext.setIndex}:${this.runContext.levelIndex}`;
+        const levelKey = `${this.runContext.setIndex}:${this.runContext.levelIndex}`;
+        if (ordinary.levelKeys.includes(levelKey)) {
+          const granted = (result.sources || []).includes(source);
+          this.result.currencyReward = { status: granted ? 'granted' : 'already-claimed',
+            amount: granted ? rewardConfig.currency.ordinaryFirstClear : 0 };
+        }
+      }
+      if (this.daily && this.daily.result && this.daily.result.currencyReward && this.daily.result.currencyReward.status === 'pending') {
+        const savedDay = daily.days.some(day => day.dateKey === this.daily.dateKey);
+        if (savedDay) {
+          const granted = (result.sources || []).includes(`daily:${this.daily.dateKey}`);
+          this.daily.result.currencyReward = { status: granted ? 'granted' : 'already-claimed',
+            amount: granted ? rewardConfig.currency.dailyFirstComplete : 0 };
+        }
+      }
+      this.invalidate();
+    }
+    return result;
+  }
+
+  openRewardDialog(rewardId, mode) {
+    if (typeof rewardId !== 'string') return false;
+    const parts = rewardId.split(':');
+    const list = parts[0] === 'theme' ? this.themeDescriptors() : this.effectDescriptors();
+    const preview = list.find(item => item.id === parts[1]);
+    if (!preview) return false;
+    const status = preview.reward;
+    const unlocked = status.owned === true;
+    const balance = this.rewardUnlocks.view().balance;
+    let message = status.conditionType === 'ordinary_level' ? `通关第 ${status.displayLevel || '?'} 关解锁`
+      : status.conditionType === 'currency' ? `${status.cost} 货币解锁（余额 ${balance === null ? '--' : balance}）`
+        : status.conditionType === 'rewarded_ad' ? `观看 ${status.requiredCount || 1} 次广告解锁`
+          : status.conditionType === 'share' ? '发起分享后解锁，取消也可能解锁' : '暂未开放';
+    if (status.reason === 'ads-not-enabled') message = '广告奖励尚未开放';
+    if (status.reason === 'ads-not-configured' || status.reason === 'ads-not-supported') message = '广告暂不可用，请稍后再试';
+    if (!this.rewardUnlocks.view().available) message = '奖励数据暂不可用，请重试';
+    if (status.action === 'retry-save') message = '已有奖励待保存，请重试保存';
+    this.rewardDialog = {
+      dialogId: ++this.rewardDialogSequence,
+      rewardId,
+      mode: unlocked ? 'unlocked' : 'condition',
+      state: 'idle',
+      title: preview && preview.name ? preview.name : rewardId,
+      message: unlocked ? '已永久解锁' : message,
+      primaryAction: unlocked ? 'reward:apply' :
+        (['currency', 'rewarded_ad', 'share'].includes(status.conditionType) ? 'reward:unlock' : null),
+      primaryLabel: unlocked ? '立即应用' : status.conditionType === 'currency' ? '确认购买'
+        : status.conditionType === 'rewarded_ad' ? '观看广告' : status.conditionType === 'share' ? '发起分享' : null,
+      primaryEnabled: unlocked || status.actionEnabled,
+      secondaryAction: unlocked ? 'reward:later' : 'reward:close',
+      secondaryLabel: unlocked ? '稍后再说' : '关闭',
+      preview
+    };
+    if (!this.rewardUnlocks.view().available || status.action === 'retry-save') {
+      this.rewardDialog.primaryAction = 'reward:retry';
+      this.rewardDialog.primaryLabel = !this.rewardUnlocks.view().available ? '重试读取' : '重试保存';
+      this.rewardDialog.primaryEnabled = true;
+    }
+    if (this.pendingSkinId && this.skins.current().id !== this.pendingSkinId) {
+      ++this.skinLoadRequestId;
+      this.pendingSkinId = null;
+    }
+    this.pointer = null;
+    this.pressedId = null;
+    if (this.boardInput && this.boardInput.isActive()) this.boardInput.cancel(null, 'reward-dialog');
+    if (this.renderer) this.renderer.clearInteractionHits();
+    this.invalidate();
+    return true;
+  }
+
+  requestRewardUnlock(retry) {
+    const dialog = this.rewardDialog;
+    if (!dialog || dialog.state === 'working' || dialog.state === 'loading') return false;
+    const rewardId = dialog.rewardId;
+    if (retry && !this.rewardUnlocks.view().available) {
+      const restored = this.recoverRewardUnlocks();
+      this.openRewardDialog(rewardId);
+      if (!restored.ok) this.rewardDialog.state = 'error';
+      return restored;
+    }
+    const status = this.rewardUnlocks.status(rewardId);
+    dialog.state = 'working';
+    dialog.message = retry ? '正在重试保存…' : '正在处理…';
+    const generation = ++this.rewardRequestGeneration;
+    this.pointer = null;
+    this.pressedId = null;
+    this.invalidate();
+    let task;
+    if (status.conditionType === 'currency') task = this.rewardUnlocks.purchase(rewardId);
+    else if (this.engagement && this.engagement.requestRewardUnlock) {
+      task = this.engagement.requestRewardUnlock({ rewardId, scene: this.scene });
+    } else task = { ok: false, reason: 'not-configured', newRewards: [] };
+    const finish = result => {
+      if (this.disposed || generation !== this.rewardRequestGeneration || !this.rewardDialog ||
+          this.rewardDialog.rewardId !== rewardId) return result;
+      if (result && result.ok && result.newRewards && result.newRewards.length) {
+        this.openRewardDialog(result.newRewards[0], 'unlocked');
+      } else if (result && result.ok && this.rewardUnlocks.canUse(status.kind, status.itemId)) {
+        this.openRewardDialog(rewardId, 'unlocked');
+      } else if (result && result.ok && status.conditionType === 'rewarded_ad') {
+        this.openRewardDialog(rewardId, 'condition');
+      } else {
+        this.rewardDialog.state = result && result.reason === 'persist-failed' ? 'retry-save' : 'error';
+        this.rewardDialog.message = result && result.reason === 'insufficient-balance' ? '余额不足'
+          : result && result.reason === 'ads-not-enabled' ? '广告奖励尚未开放'
+            : result && result.reason === 'closed' ? '未完整观看，尚未解锁'
+              : result && result.reason === 'busy' ? '另一项操作正在处理'
+                : result && result.reason === 'persist-failed' ? '保存失败，请重试保存' : '暂时无法解锁，请稍后重试';
+        this.rewardDialog.primaryAction = result && result.reason === 'persist-failed' ? 'reward:retry' : 'reward:unlock';
+        this.rewardDialog.primaryLabel = result && result.reason === 'persist-failed' ? '重试保存' : '重试';
+        this.rewardDialog.primaryEnabled = true;
+        this.invalidate();
+      }
+      return result;
+    };
+    if (task && typeof task.then === 'function') return Promise.resolve(task).then(finish).catch(() => finish({ ok: false, reason: 'unavailable' }));
+    return finish(task);
+  }
+
+  applyReward() {
+    const dialog = this.rewardDialog;
+    if (!dialog || !this.rewardUnlocks.owned(dialog.rewardId)) return false;
+    const item = this.rewardUnlocks.item(dialog.rewardId);
+    if (!item) return false;
+    const dialogId = dialog.dialogId;
+    if (item.kind === 'effect') {
+      const applied = this.setClearEffect(item.itemId);
+      if (applied) this.dismissRewardDialog();
+      else {
+        dialog.state = 'error'; dialog.message = '应用保存失败，请重试'; this.invalidate();
+      }
+      return applied;
+    }
+    dialog.state = 'loading';
+    dialog.message = '正在加载并应用…';
+    const accepted = this.setSkin(item.itemId);
+    if (!accepted) {
+      dialog.state = 'error'; dialog.message = '应用失败，请重试'; this.invalidate(); return false;
+    }
+    if (this.pendingSkinId !== item.itemId && this.rewardDialog && this.rewardDialog.dialogId === dialogId) {
+      if (this.skins.current().id === item.itemId) this.dismissRewardDialog();
+      else { dialog.state = 'error'; dialog.message = '应用失败，请重试'; this.invalidate(); }
+    }
+    return true;
+  }
+
+  dismissRewardDialog() {
+    if (!this.rewardDialog) return false;
+    if (this.rewardDialog.mode === 'unlocked') {
+      this.rewardUnlocks.acknowledgeNotice(this.rewardDialog.rewardId);
+      this.dismissedRewardNotices.add(this.rewardDialog.rewardId);
+    }
+    ++this.rewardRequestGeneration;
+    ++this.skinLoadRequestId;
+    this.pendingSkinId = null;
+    this.rewardDialog = null;
+    this.pointer = null;
+    this.pressedId = null;
+    if (this.renderer) this.renderer.clearInteractionHits();
+    this.invalidate();
+    return true;
+  }
+
+  showNextRewardNotice(now) {
+    if (this.disposed || this.hidden || this.rewardDialog || !this.rewardUnlocks ||
+        !['home', 'result', 'dailyResult'].includes(this.scene)) return false;
+    const timestamp = Number.isFinite(Number(now)) ? Number(now) : Date.now();
+    if (this.scene === 'result' && this.result && this.result.outcome === OUTCOME.FAILED) return false;
+    if (this.scene === 'dailyResult' && this.daily.result && this.daily.result.outcome === OUTCOME.FAILED) return false;
+    if (this.scene === 'result' && timestamp < this.resultVisibleAt) return false;
+    if (this.scene === 'dailyResult' && timestamp < this.daily.resultVisibleAt) return false;
+    const animation = this.scene === 'dailyResult' ? this.daily.clearAnimation : this.clearAnimation;
+    if (animation && timestamp < Number(animation.startedAt || 0) + Number(animation.durationMs || 0) + 80) return false;
+    const rewardId = this.rewardUnlocks.pendingNotices().find(id =>
+      !this.dismissedRewardNotices.has(id) && this.rewardUnlocks.item(id));
+    return rewardId ? this.openRewardDialog(rewardId, 'unlocked') : false;
+  }
+
   setSkin(skinId) {
-    if (typeof skinId !== 'string' || !this.skins.get(skinId)) return false;
+    if (typeof skinId !== 'string' || !this.skins.get(skinId) || !this.rewardUnlocks.canUse('theme', skinId)) return false;
     const requestId = ++this.skinLoadRequestId;
     const name = this.subpackages && this.subpackages.packageForTheme(skinId);
     if (name && !this.subpackages.isPackageReady(name)) {
@@ -2443,7 +2748,7 @@ class ClearedApp {
       return true;
     }
     this.pendingSkinId = null;
-    this.skins.select(skinId);
+    if (!this.skins.select(skinId)) return false;
     this.renderer.invalidateThemeAssets(skinId);
     this.renderer.loadSkinAssets();
     this.invalidate();
@@ -2453,6 +2758,7 @@ class ClearedApp {
   prepareCurrentSkinAssets() {
     if (!this.subpackages || this.pendingSkinId) return;
     const skinId = this.skins.current().id;
+    if (!this.rewardUnlocks.canUse('theme', skinId)) return;
     const name = this.subpackages.packageForTheme(skinId);
     if (name && !this.subpackages.isPackageReady(name)) {
       // Keep the saved theme's palette for the first frame, without rewriting
@@ -2462,22 +2768,37 @@ class ClearedApp {
   }
 
   loadSkinPackage(skinId, requestId, selectOnSuccess) {
+    const originScene = this.scene;
+    const dialogId = this.rewardDialog && this.rewardDialog.dialogId;
     this.pendingSkinId = skinId;
     this.invalidate();
-    this.subpackages.ensureTheme(skinId, () => this.invalidate()).then(() => {
-      if (requestId !== this.skinLoadRequestId) {
-        this.invalidate();
-        return;
-      }
+    this.subpackages.ensureTheme(skinId, () => {
+      if (!this.disposed && requestId === this.skinLoadRequestId) this.invalidate();
+    }).then(() => {
+      if (this.disposed || requestId !== this.skinLoadRequestId || !this.rewardUnlocks.canUse('theme', skinId) ||
+          (selectOnSuccess && (originScene !== this.scene || (dialogId && (!this.rewardDialog || this.rewardDialog.dialogId !== dialogId))))) return;
       this.pendingSkinId = null;
-      if (selectOnSuccess) this.skins.select(skinId);
+      const selected = !selectOnSuccess || this.skins.select(skinId);
       this.renderer.invalidateThemeAssets(skinId);
       this.renderer.loadSkinAssets();
+      if (selectOnSuccess && this.rewardDialog && this.rewardDialog.rewardId === `theme:${skinId}`) {
+        if (selected) this.dismissRewardDialog();
+        else { this.rewardDialog.state = 'error'; this.rewardDialog.message = '应用保存失败，请重试'; }
+      } else if (selectOnSuccess && !selected && this.openRewardDialog(`theme:${skinId}`, 'unlocked')) {
+        this.rewardDialog.state = 'error';
+        this.rewardDialog.message = '应用保存失败，请重试';
+      }
       this.invalidate();
     }).catch(() => {
+      if (this.disposed) return;
       // The service exposes a stable failed state. No saved setting changes
       // on failure, and an older download cannot clear the newest pending ID.
       if (requestId === this.skinLoadRequestId) this.pendingSkinId = null;
+      if (requestId === this.skinLoadRequestId && this.rewardDialog &&
+          this.rewardDialog.rewardId === `theme:${skinId}`) {
+        this.rewardDialog.state = 'error';
+        this.rewardDialog.message = '素材加载失败，拥有权已保留';
+      }
       this.invalidate();
     });
   }
@@ -2935,6 +3256,7 @@ class ClearedApp {
         this.staminaFeedback.reason === 'refund-persist-failed') this.clearStaminaFeedback();
     this.refreshStamina(this.clockNow().getTime());
     this.hidden = false;
+    this.recoverRewardUnlocks();
     if (this.share) this.share.captureEntry(options || (this.platform.getEnterOptions ? this.platform.getEnterOptions() : {}));
     const runner = this.activeRunner();
     if (runner) runner.resume();
@@ -2949,6 +3271,9 @@ class ClearedApp {
 
   dispose() {
     this.disposed = true;
+    ++this.rewardRequestGeneration;
+    ++this.skinLoadRequestId;
+    if (this.engagement && this.engagement.cancelRewardUnlocks) this.engagement.cancelRewardUnlocks();
     this.clearHintRequest();
     this.ads.dispose();
     this.leaveAccount();

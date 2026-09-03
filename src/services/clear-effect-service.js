@@ -271,11 +271,14 @@ function normalizeManifest(input, fallback) {
 }
 
 class ClearEffectService {
-  constructor(progressStore, effects) {
+  constructor(progressStore, effects, canUse) {
     this.progressStore = progressStore || {
-      getSetting() { return DEFAULT_ID; },
-      setSetting() {}
+      getSetting() { return 'none'; },
+      setSetting() { return true; }
     };
+    this.canUse = typeof canUse === 'function'
+      ? canUse
+      : (kind, itemId) => kind === 'effect' && itemId === 'none';
     this.effects = Object.create(null);
     this.effectOrder = [];
 
@@ -290,15 +293,16 @@ class ClearEffectService {
     const entries = Array.isArray(effects) ? effects : [];
     entries.forEach(effect => this.register(effect));
 
-    let savedId = DEFAULT_ID;
+    let savedId = 'none';
     try {
-      savedId = this.progressStore.getSetting('clearEffectId', DEFAULT_ID);
+      savedId = this.progressStore.getSetting('clearEffectId', 'none');
     } catch (error) {
-      savedId = DEFAULT_ID;
+      savedId = 'none';
     }
-    this.currentId = typeof savedId === 'string' && hasOwn(this.effects, savedId)
+    this.currentId = typeof savedId === 'string' && hasOwn(this.effects, savedId) &&
+      this.canUse('effect', savedId)
       ? savedId
-      : DEFAULT_ID;
+      : 'none';
   }
 
   register(effect) {
@@ -338,19 +342,13 @@ class ClearEffectService {
   }
 
   select(id) {
-    if (typeof id !== 'string' || !hasOwn(this.effects, id)) return false;
-    const previous = this.currentId;
-    this.currentId = id;
+    if (typeof id !== 'string' || !hasOwn(this.effects, id) || !this.canUse('effect', id)) return false;
+    let persisted = false;
     try {
-      const persisted = this.progressStore.setSetting('clearEffectId', id);
-      if (persisted === false) {
-        this.currentId = previous;
-        return false;
-      }
-    } catch (error) {
-      this.currentId = previous;
-      return false;
-    }
+      persisted = this.progressStore.setSetting('clearEffectId', id) === true;
+    } catch (error) {}
+    if (!persisted) return false;
+    this.currentId = id;
     return true;
   }
 

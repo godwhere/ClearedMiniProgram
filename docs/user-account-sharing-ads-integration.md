@@ -2594,3 +2594,8 @@ POST  /v1/events:batch
 职责边界保持在配置、平台广告能力查询、AdsService、HintAccessService、EngagementService 和 App 提示编排。未改变关卡／解答、Runner、棋盘输入／渲染、账号／同步、每日额度、RewardService、HTTP 合同或存档 schema；原主页头像改动保留。
 
 完整决策表、代码白名单、存储与方法合同、验收矩阵及广告开通步骤见 [`hint-tiered-unlock-and-ad-fallback.md`](hint-tiered-unlock-and-ad-fallback.md)。本次 56 组 Node 回归和源码包体预算通过；开发者工具与正式广告／真机证据按该文档第 13 节分别记录。
+## 39. 本地外观奖励与简易货币域
+
+`cleared:minigame:reward-unlocks:v1` 是独立的本地资产域，由 `RewardUnlockService` 唯一管理余额、主线／每日领取去重、永久拥有权、广告 attempt 和待展示通知。它不加入普通进度云合并，也不使用服务端 `RewardService` 的 `cleared:minigame:rewards:v1` 或 `/v1/rewards/claim`；当前不宣称跨设备同步或服务端防篡改。
+
+奖励广告复用现有 AdsService 单例的 `rewardUnlock` placement，并由独立 `rewardUnlockRewardedEnabled` 控制；当前真实广告位为空、开关为 false。结果只接受 `rewarded:true`、匹配 placement 和合法 attemptId。奖励分享使用 `ShareService.shareReward()` 共用原生 `initiate()`，但不调用 `shareHint()`、不改变提示许可、邀请归因或每日额外次数；采用已确认的 `initiated === true` 口径。

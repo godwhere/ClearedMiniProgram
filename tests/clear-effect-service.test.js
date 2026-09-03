@@ -17,18 +17,21 @@ class MemoryProgress {
   setSetting(name, value) {
     this.settings[name] = value;
     this.writes.push({ name, value });
+    return true;
   }
 }
 
 function run() {
   const progress = new MemoryProgress();
-  const service = new ClearEffectService(progress);
+  const service = new ClearEffectService(progress, [], () => true);
   assert.deepStrictEqual(effects.map(effect => effect.id), ['none', 'fade']);
-  assert.strictEqual(service.current().id, 'fade');
+  assert.strictEqual(service.current().id, 'none');
   assert.deepStrictEqual(service.get('none'), none);
   assert.deepStrictEqual(service.get('fade'), fade);
   assert.strictEqual(service.get('missing'), null);
   assert.strictEqual(service.resolve('missing').id, 'fade');
+  assert.strictEqual(new ClearEffectService(new MemoryProgress()).select('fade'), false,
+    'fade requires explicit ownership');
   assert.deepStrictEqual(service.list(), [
     {
       id: 'none',
@@ -46,10 +49,10 @@ function run() {
 
   // Returned manifests/descriptors must not mutate the registry.
   const current = service.current();
-  current.params.alphaFrom = 0;
+  current.params.changed = true;
   current.name = 'changed';
-  assert.strictEqual(service.current().params.alphaFrom, 1);
-  assert.strictEqual(service.current().name, '逐渐消失');
+  assert.strictEqual(service.current().params.changed, undefined);
+  assert.strictEqual(service.current().name, '无特效');
 
   const custom = {
     id: 'soft',
@@ -77,7 +80,7 @@ function run() {
     id: 'bad-function', name: '坏', type: 'fade', render() {}
   }, {
     id: '__proto__', name: '坏', type: 'fade'
-  }]);
+  }], () => true);
   assert.strictEqual(withCustom.get('soft').durationMs, 240);
   assert.strictEqual(withCustom.get('soft').preview, 'assets/effects/soft/preview.png');
   assert.deepStrictEqual(withCustom.list().map(item => item.id), ['none', 'fade', '0', 'soft'],
@@ -106,6 +109,11 @@ function run() {
   assert.strictEqual(progress.settings.clearEffectId, 'soft');
   assert.strictEqual(withCustom.select('missing'), false);
   assert.strictEqual(progress.settings.clearEffectId, 'soft');
+  const failingProgress = new MemoryProgress();
+  failingProgress.setSetting = () => false;
+  const failingSelection = new ClearEffectService(failingProgress, [], () => true);
+  assert.strictEqual(failingSelection.select('fade'), false);
+  assert.strictEqual(failingSelection.current().id, 'none');
 
   // A corrupt saved selection falls back without rewriting unrelated settings.
   const corruptProgress = new MemoryProgress({
@@ -113,7 +121,7 @@ function run() {
     skinId: 'classic'
   });
   const recovered = new ClearEffectService(corruptProgress, [custom]);
-  assert.strictEqual(recovered.current().id, 'fade');
+  assert.strictEqual(recovered.current().id, 'none');
   assert.strictEqual(corruptProgress.settings.skinId, 'classic');
   assert.strictEqual(corruptProgress.writes.length, 0);
 
