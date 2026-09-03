@@ -6,7 +6,38 @@ const accountLayout = require('../src/ui/account-layout.js');
 const { fakeApi } = require('./account-bootstrap.test.js');
 const { fixture } = require('./profile-service.test.js');
 
+async function homeProfileRefresh() {
+  const f = fixture();
+  const profile = { nickname: '玩家', avatarUrl: 'https://example.test/player.png' };
+  let finish; let requests = 0;
+  f.api.request = options => {
+    assert.strictEqual(options.method, 'GET');
+    requests++;
+    return new Promise(resolve => { finish = resolve; });
+  };
+  const app = new ClearedApp(new WechatPlatform(fakeApi()), { profile: f.profile, auth: f.auth });
+  app.start(); app.tick(Date.now());
+  assert.strictEqual(app.scene, 'home');
+  assert.strictEqual(app.buildModel().accountProfile, null);
+  let onlineFinished = false;
+  app.resumeOnline().then(() => { onlineFinished = true; });
+  await new Promise(resolve => setImmediate(resolve));
+  assert(onlineFinished, 'profile loading cannot hold up the normal online resume flow');
+  assert.strictEqual(requests, 1);
+  assert.strictEqual(f.buttons.length, 0, 'the homepage never mounts a native authorization button');
+  app.dirty = false;
+  finish({ ok: true, data: { profile } });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepStrictEqual(app.buildModel().accountProfile, profile);
+  assert.strictEqual(app.dirty, true, 'loaded profile data refreshes the home avatar');
+  f.setUser('other');
+  assert.strictEqual(app.buildModel().accountProfile, null, 'the previous account avatar cannot remain in the home model');
+  assert.strictEqual(f.buttons.length, 0);
+  app.dispose();
+}
+
 module.exports = async function run() {
+  await homeProfileRefresh();
   const previousWx = global.wx;
   try {
     global.wx = fakeApi();

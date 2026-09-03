@@ -11,7 +11,7 @@ function fakeContext() {
   [
     'save', 'restore', 'clearRect', 'fillRect', 'beginPath', 'moveTo', 'lineTo',
     'quadraticCurveTo', 'closePath', 'fill', 'stroke', 'arc', 'translate',
-    'drawImage', 'fillText'
+    'drawImage', 'fillText', 'clip'
   ].forEach(method => {
     context[method] = function () {
       calls.push({ method, args: Array.prototype.slice.call(arguments) });
@@ -93,7 +93,53 @@ function renderState(runner, options) {
   };
 }
 
+function testHomeAvatar() {
+  const context = fakeContext();
+  const loads = [];
+  const platform = { context, metrics: { width: 320, height: 568, safeTop: 44, safeBottom: 548 },
+    createImage(source, callback) {
+      if (source.startsWith('https://')) loads.push({ source, callback });
+      else callback(null, { source });
+    } };
+  const renderer = new CanvasRenderer(platform, { current: () => classic });
+  const first = { nickname: 'First', avatarUrl: 'https://example.test/a.png' };
+  const second = { nickname: 'Second', avatarUrl: 'https://example.test/b.png' };
+  renderer.drawHome({ accountProfile: first });
+  const target = renderer.hits.find(hit => hit.id === 'home:account');
+  assert.deepStrictEqual(target.rect, { x: 18, y: 44 + (classic.layout.homeTopUiOffset || 0) + 8, w: 44, h: 44 });
+  assert.strictEqual(textCalls(context, '账号').length, 0, 'the home entry no longer draws the account text');
+  assert(context.calls.some(call => call.method === 'arc' && call.args[0] === target.rect.x + 22), 'loading uses a visible default portrait');
+  assert.strictEqual(loads.length, 1);
+  const image = { width: 80, height: 120 };
+  loads[0].callback(null, image);
+  context.calls.length = 0;
+  renderer.drawHome({ accountProfile: first });
+  const drawn = context.calls.find(call => call.method === 'drawImage' && call.args[0] === image);
+  assert(drawn, 'the home entry renders the player image after it loads');
+  assert.strictEqual(drawn.args[3] / drawn.args[4], image.width / image.height, 'non-square avatars retain their proportions');
+  assert(context.calls.some(call => call.method === 'clip'), 'the image stays inside the circular avatar');
+  renderer.drawAccount({ accountProfile: first, accountStatus: 'local' });
+  assert.strictEqual(loads.length, 1, 'home and account scenes share the same avatar request');
+  renderer.drawHome({ accountProfile: second });
+  assert.strictEqual(loads.length, 2);
+  loads[0].callback(null, image);
+  context.calls.length = 0;
+  renderer.drawHome({ accountProfile: second });
+  assert(!context.calls.some(call => call.method === 'drawImage' && call.args[0] === image), 'late old-account images cannot replace the new avatar');
+  loads[1].callback(new Error('offline'));
+  context.calls.length = 0;
+  renderer.drawHome({ accountProfile: second });
+  assert.strictEqual(loads.length, 2, 'image failures do not retry on every frame');
+  assert(context.calls.some(call => call.method === 'arc' && call.args[0] === target.rect.x + 22));
+  renderer.drawHome({ accountProfile: null });
+  loads[1].callback(null, image);
+  context.calls.length = 0;
+  renderer.drawHome({ accountProfile: null });
+  assert(!context.calls.some(call => call.method === 'drawImage' && call.args[0] === image), 'cleared profile data invalidates pending avatar loads');
+}
+
 function run() {
+  testHomeAvatar();
   const platform = {
     context: fakeContext(),
     metrics: { width: 390, height: 844, safeTop: 44, safeBottom: 810 },

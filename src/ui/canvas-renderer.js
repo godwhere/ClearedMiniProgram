@@ -741,8 +741,8 @@ class CanvasRenderer {
     this.begin(skin.colors.homeBackground);
     this.iconButton('home:sound', { x: width - 58, y: safeTop + (skin.layout.homeTopUiOffset || 0) + 8, w: 44, h: 44 },
       model.soundEnabled ? 'sound' : 'mute', true, model.pressedId);
-    this.button('home:account', { x: 18, y: safeTop + (skin.layout.homeTopUiOffset || 0) + 8, w: 44, h: 44 },
-      '账号', { fontSize: 16 }, model.pressedId);
+    this.drawHomeAvatar(model.accountProfile,
+      { x: 18, y: safeTop + (skin.layout.homeTopUiOffset || 0) + 8, w: 44, h: 44 }, model.pressedId);
 
     const buttonHeight = 54;
     const buttonGap = 12;
@@ -866,18 +866,7 @@ class CanvasRenderer {
     if (model.dailyRewardMessage) this.text(model.dailyRewardMessage, width / 2, firstY - 29, 12, { maxWidth: buttonWidth });
   }
 
-  drawAccount(model) {
-    const skin = this.skinService.current();
-    const layout = accountLayout(this.platform.metrics);
-    this.begin(skin.colors.homeBackground);
-    this.iconButton('account:back', layout.backButton, 'back', true, model.pressedId);
-    const panel = layout.panel;
-    const center = panel.x + panel.w / 2;
-    this.text('账号', center, layout.backButton.y + 22, 22);
-    const space = layout.profileButton.y - panel.y;
-    const avatarSize = Math.min(64, space * 0.32);
-    const avatarRect = { x: center - avatarSize / 2, y: panel.y + 6, w: avatarSize, h: avatarSize };
-    const profile = model.accountProfile;
+  ensureAccountAvatar(profile) {
     const source = profile && profile.avatarUrl;
     if (!source) this.accountAvatar = null;
     else if (!this.accountAvatar || this.accountAvatar.source !== source) {
@@ -891,11 +880,63 @@ class CanvasRenderer {
         });
       } catch (error) {}
     }
+    return this.accountAvatar && this.accountAvatar.image;
+  }
+
+  drawHomeAvatar(profile, rect, pressedId) {
+    const ctx = this.ctx;
+    const skin = this.skinService.current();
+    const x = rect.x + rect.w / 2;
+    const y = rect.y + rect.h / 2;
+    this.button('home:account', rect, '', { radius: rect.w / 2 }, pressedId);
+    const avatar = this.ensureAccountAvatar(profile);
+    let drawn = false;
+    ctx.save();
+    ctx.globalAlpha = pressedId === 'home:account' ? 0.7 : 1;
+    if (avatar) {
+      ctx.save();
+      try {
+        ctx.beginPath();
+        ctx.arc(x, y, rect.w / 2 - 2, 0, Math.PI * 2);
+        ctx.clip();
+        drawn = this.drawImageContain(avatar, { x: rect.x + 2, y: rect.y + 2, w: rect.w - 4, h: rect.h - 4 },
+          { fit: 'cover', allowUnknownSize: false });
+      } catch (error) {} finally { ctx.restore(); }
+    }
+    if (!drawn) {
+      // A neutral portrait remains usable before authorization or on load failure.
+      ctx.fillStyle = skin.colors.icon;
+      ctx.beginPath();
+      ctx.arc(x, y - rect.h * 0.15, rect.w * 0.13, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(x, y + rect.h * 0.24, rect.w * 0.24, Math.PI, Math.PI * 2);
+      ctx.lineTo(x + rect.w * 0.24, y + rect.h * 0.32);
+      ctx.lineTo(x - rect.w * 0.24, y + rect.h * 0.32);
+      ctx.closePath();
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  drawAccount(model) {
+    const skin = this.skinService.current();
+    const layout = accountLayout(this.platform.metrics);
+    this.begin(skin.colors.homeBackground);
+    this.iconButton('account:back', layout.backButton, 'back', true, model.pressedId);
+    const panel = layout.panel;
+    const center = panel.x + panel.w / 2;
+    this.text('账号', center, layout.backButton.y + 22, 22);
+    const space = layout.profileButton.y - panel.y;
+    const avatarSize = Math.min(64, space * 0.32);
+    const avatarRect = { x: center - avatarSize / 2, y: panel.y + 6, w: avatarSize, h: avatarSize };
+    const profile = model.accountProfile;
+    const avatar = this.ensureAccountAvatar(profile);
     this.roundedRect(avatarRect.x, avatarRect.y, avatarRect.w, avatarRect.h, 12);
     this.ctx.fillStyle = skin.colors.levelCell;
     this.ctx.fill();
-    if (this.accountAvatar && this.accountAvatar.image) {
-      this.drawImageContain(this.accountAvatar.image, avatarRect);
+    if (avatar) {
+      this.drawImageContain(avatar, avatarRect);
     } else {
       this.text('我', center, avatarRect.y + avatarSize / 2, Math.min(24, avatarSize / 2));
     }

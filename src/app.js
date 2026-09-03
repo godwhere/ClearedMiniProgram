@@ -1023,6 +1023,7 @@ class ClearedApp {
     const base = {
       scene: this.scene,
       pressedId: this.pressedId,
+      accountProfile: (this.scene === 'home' || this.scene === 'account') && this.profile ? this.profile.current() : null,
       shareAvailable: !!(this.share && this.share.isResultEnabled() && this.shareContext().completed),
       sharePending: !!this.pendingShare,
       dailyExtraEntryAvailable: !!(this.engagement.canRequestDailyExtraEntry && this.engagement.canRequestDailyExtraEntry() &&
@@ -1063,7 +1064,6 @@ class ClearedApp {
           : sync.status === 'synced' ? 'synced' : sync.status === 'error' ? 'error' : 'local';
       return Object.assign(base, {
         accountStatus: status, accountMessage: this.accountMessage,
-        accountProfile: this.profile ? this.profile.current() : null,
         profileSupported: !!(this.profile && this.profile.isSupported()),
         profilePending: this.accountProfilePending,
         syncPending: !!this.accountSyncPending
@@ -2797,6 +2797,11 @@ class ClearedApp {
     if (!this.auth) return Promise.resolve({ ok: false, reason: 'not-configured' });
     return this.auth.ensureSession().then(result => {
       if (!result.ok) return result;
+      if (this.profile) {
+        Promise.resolve().then(() => this.profile.refresh()).then(() => {
+          if (!this.disposed) this.invalidate();
+        }).catch(function () {});
+      }
       const sync = this.progressSync ? this.progressSync.bootstrap(this.auth.current()) : Promise.resolve(result);
       return sync.then(synced => {
         if (!this.share) return synced;
