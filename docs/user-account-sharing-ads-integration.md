@@ -1,6 +1,6 @@
 # 微信小游戏用户身份、云存档、分享与广告奖励接入方案
 
-> 文档状态：设计冻结，尚未实施代码  
+> 文档状态：Phase 0—2 客户端已实施；Phase 3—6 实施中，在线开关默认关闭
 > 目标仓库：`godwhere/ClearedMiniProgram`  
 > 设计基线：`main@cdab6c984f5749b7af47560fddd210f01642fce9`  
 > 微信 API 基线：`wechat-miniprogram/minigame-api-typings@4cae82af7f3c4339d1f11aea8e672fb16051d24a`（3.8.21）  
@@ -1742,6 +1742,8 @@ code2Session 请求实现
 
 任何 PR 不得跨阶段顺手实现下一阶段。
 
+2026-09-03 用户确认补充：Phase 2/5 允许修改 `src/bootstrap.js`，仅用于对应服务构造和注入；允许同步本方案与相应专题文档。
+
 ### Phase 0：纯架构与解耦，不改变用户体验
 
 #### 新增
@@ -1874,6 +1876,7 @@ tests/account-app.test.js
 #### 修改
 
 ```text
+src/bootstrap.js                  仅对应服务构造与注入
 src/app.js
 src/ui/canvas-renderer.js
 src/platform/wechat.js
@@ -1972,6 +1975,7 @@ tests/daily-entry-grant.test.js
 #### 修改
 
 ```text
+src/bootstrap.js                  仅对应服务构造与注入
 src/services/engagement-service.js
 src/services/daily-progress-store.js
 src/config/ads.js
@@ -2365,3 +2369,10 @@ PR 7  feat: add server-attributed invite rewards
 - [`wechat-miniprogram/minigame-api-typings`](https://github.com/wechat-miniprogram/minigame-api-typings/tree/4cae82af7f3c4339d1f11aea8e672fb16051d24a)：本设计引用的官方类型快照。
 
 实施时若官方基础库或审核规则变化，应更新本文的 API 基线和兼容矩阵，但不得因此绕过本文定义的身份、奖励和存档信任边界。
+
+
+## 34. 实施验证记录
+
+- Phase 0：`586c3a9`，移除结算广告依赖，独立 online/session/events 存储及非阻塞启动；44 组测试、包体与差异检查通过。
+- Phase 1：`5859546`，身份 single-flight、账号冲突、云进度并集与最短时间、部分 ACK 和队列溢出恢复；46 组测试及门禁通过。旧存档缺少 bestMs 时，operation payload 省略 elapsedMs，服务端只合并 completed，禁止伪造最佳用时。
+- Phase 2：`1ad228a` 及后续注入提交，账号页、纯布局、原生资料按钮生命周期；49 组测试及门禁通过。开发者工具已编译并验证默认配置下账号页进入、离线重试和返回。真实资料与后端联调、原生授权、隐私、Android/iOS 验证尚未执行。

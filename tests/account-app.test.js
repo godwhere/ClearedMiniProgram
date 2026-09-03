@@ -7,6 +7,14 @@ const { fakeApi } = require('./account-bootstrap.test.js');
 const { fixture } = require('./profile-service.test.js');
 
 module.exports = async function run() {
+  const previousWx = global.wx;
+  try {
+    global.wx = fakeApi();
+    const composed = require('../src/bootstrap.js').start();
+    assert(composed.profile instanceof require('../src/services/profile-service.js'));
+    assert.strictEqual(composed.profile.isSupported(), false, 'profile remains disabled by default');
+    composed.dispose();
+  } finally { global.wx = previousWx; }
   const raw = fakeApi(); raw.onWindowResize = function (callback) { this.resize = callback; };
   const platform = new WechatPlatform(raw);
   const f = fixture(); f.platform.metrics = platform.metrics;

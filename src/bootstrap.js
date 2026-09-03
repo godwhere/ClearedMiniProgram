@@ -24,6 +24,7 @@ const EngagementService = require('./services/engagement-service.js');
 const AdsService = require('./services/ads-service.js');
 const backendConfig = require('./config/backend.js');
 const engagementConfig = require('./config/engagement.js');
+const ProfileService = require('./services/profile-service.js');
 
 function start() {
   const platform = new WechatPlatform();
@@ -35,6 +36,7 @@ function start() {
   const api = new ApiClient(platform, sessions, backendConfig);
   const auth = new AuthService(platform, api, sessions, syncStore, engagementConfig.auth);
   const behavior = new BehaviorService(platform, api, syncStore, engagementConfig.behavior);
+  const profile = new ProfileService(platform, api, auth, engagementConfig.profile, behavior);
   const progressSync = new ProgressSyncService(api, progress, syncStore, auth, engagementConfig.progressSync, behavior);
   const ads = new AdsService(platform, adConfig);
   const engagement = new EngagementService({ ads, behavior, config: adConfig.rules });
@@ -51,7 +53,7 @@ function start() {
       platform.isDevTools() === true
   });
   const app = new ClearedApp(platform, {
-    progress, dailyStore, auth, progressSync, behavior, ads, engagement,
+    progress, dailyStore, auth, progressSync, behavior, ads, engagement, profile,
     subpackages,
     skins,
     effects,
