@@ -1,7 +1,6 @@
 # Cleared 微信小游戏
 
-这是对 2017 年 Xamarin 游戏 [brainoffline/Cleared](https://github.com/brainoffline/Cleared)
-的轻量复刻。工程使用微信小游戏原生 JavaScript + Canvas 2D，不依赖 Cocos、Unity、npm
+工程使用微信小游戏原生 JavaScript + Canvas 2D，不依赖 Cocos、Unity、npm
 或网页运行环境。
 
 现有内容：
