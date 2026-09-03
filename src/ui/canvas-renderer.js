@@ -2287,7 +2287,7 @@ class CanvasRenderer {
 
   drawDailyResult(model, now) {
     const skin = this.skinService.current();
-    const { width, height } = this.platform.metrics;
+    const { width, height, safeTop, safeBottom } = this.platform.metrics;
     const visibleAt = Number(model.dailyResultVisibleAt || model.resultVisibleAt) || 0;
     const result = model.result || {};
     if (result.outcome === 'failed') {
@@ -2299,8 +2299,9 @@ class CanvasRenderer {
     // The daily result has one extra status line (round count and remaining
     // entries). Keep a minimum panel height so that line never overlaps the
     // action buttons on compact phones.
-    const panelHeight = Math.min(300, Math.max(246, height * 0.34));
-    const panelY = (height - panelHeight) / 2;
+    const sharing = model.shareAvailable === true;
+    const panelHeight = sharing ? Math.min(350, safeBottom - safeTop - 16) : Math.min(300, Math.max(246, height * 0.34));
+    const panelY = sharing ? safeTop + (safeBottom - safeTop - panelHeight) / 2 : (height - panelHeight) / 2;
     ctx.fillStyle = skin.colors.strongPanel;
     ctx.fillRect(0, panelY, width, panelHeight);
     this.drawIcon('check', width / 2, panelY + 47, 40);
@@ -2327,7 +2328,7 @@ class CanvasRenderer {
     const buttonWidth = Math.min(142, (width - 48 - gap) / 2);
     const totalWidth = buttonWidth * 2 + gap;
     const x = (width - totalWidth) / 2;
-    const y = panelY + panelHeight - 62;
+    const y = panelY + panelHeight - (sharing ? 114 : 62);
     this.button('dailyResult:home', { x, y, w: buttonWidth, h: 46 }, '返回主页', {
       fontSize: 15,
       fill: skin.colors.secondaryButton
@@ -2338,6 +2339,8 @@ class CanvasRenderer {
       stroke: skin.colors.primaryButtonStroke,
       enabled: model.dailyEntryAvailable !== false && model.dailyCanEnter !== false
     }, model.pressedId);
+    if (sharing) this.button('dailyResult:share', { x, y: y + 52, w: totalWidth, h: 44 },
+      '分享挑战', { fontSize: 16, enabled: !model.sharePending }, model.pressedId);
   }
 
   drawHintPath(hint, palette, now, portalCells) {
@@ -2361,7 +2364,7 @@ class CanvasRenderer {
 
   drawResult(model, now) {
     const skin = this.skinService.current();
-    const { width, height } = this.platform.metrics;
+    const { width, height, safeTop, safeBottom } = this.platform.metrics;
     if (model.result && model.result.outcome === 'failed') {
       this.drawFailureDialog(model, now, { daily: false, visibleAt: model.resultVisibleAt });
       return;
@@ -2369,8 +2372,9 @@ class CanvasRenderer {
     if (now < model.resultVisibleAt) return;
 
     const ctx = this.ctx;
-    const panelHeight = Math.min(246, height * 0.34);
-    const panelY = (height - panelHeight) / 2;
+    const sharing = model.shareAvailable === true;
+    const panelHeight = sharing ? Math.min(300, safeBottom - safeTop - 16) : Math.min(246, height * 0.34);
+    const panelY = sharing ? safeTop + (safeBottom - safeTop - panelHeight) / 2 : (height - panelHeight) / 2;
     ctx.fillStyle = skin.colors.strongPanel;
     ctx.fillRect(0, panelY, width, panelHeight);
     this.drawIcon('check', width / 2, panelY + 47, 40);
@@ -2383,12 +2387,14 @@ class CanvasRenderer {
     const buttonWidth = Math.min(104, (width - 48 - gap * 2) / 3);
     const totalWidth = buttonWidth * 3 + gap * 2;
     const x = (width - totalWidth) / 2;
-    const y = panelY + panelHeight - 72;
+    const y = panelY + panelHeight - (sharing ? 118 : 72);
     this.button('result:levels', { x, y, w: buttonWidth, h: 46 },
       '选关', { fontSize: 15 }, model.pressedId);
     this.button('result:replay', { x: x + buttonWidth + gap, y, w: buttonWidth, h: 46 }, '重玩', { fontSize: 15 }, model.pressedId);
     this.button('result:next', { x: x + (buttonWidth + gap) * 2, y, w: buttonWidth, h: 46 },
       model.hasNext ? '下一关' : '关卡列表', { fontSize: 15 }, model.pressedId);
+    if (sharing) this.button('result:share', { x, y: y + 52, w: totalWidth, h: 44 },
+      '分享成绩', { fontSize: 16, enabled: !model.sharePending }, model.pressedId);
   }
 }
 

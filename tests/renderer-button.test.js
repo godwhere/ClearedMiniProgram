@@ -53,6 +53,16 @@ function assertGroupInsideButton(fixture, action, label, measurement) {
 }
 
 function run() {
+  const share = createRenderer(320, 'native');
+  share.renderer.ctx.fillRect = function () {};
+  share.renderer.drawResult({ result: { elapsedMs: 1, bestMs: 1 }, resultVisibleAt: 0, shareAvailable: true }, 1);
+  assert(share.renderer.hits.some(hit => hit.id === 'result:share'));
+  share.renderer.clearInteractionHits();
+  share.renderer.drawResult({ result: { elapsedMs: 1 }, resultVisibleAt: 0, shareAvailable: true, sharePending: true }, 1);
+  assert(!share.renderer.hits.some(hit => hit.id === 'result:share'));
+  share.renderer.clearInteractionHits();
+  share.renderer.drawDailyResult({ result: {}, dailyResultVisibleAt: 0, shareAvailable: true }, 1);
+  assert(share.renderer.hits.some(hit => hit.id === 'dailyResult:share'));
   [280, 320, 390].forEach(width => {
     ['native', 'missing', 'throws'].forEach(measurement => {
       ['play', 'daily'].forEach(scene => {

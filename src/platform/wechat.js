@@ -241,6 +241,36 @@ class WechatPlatform {
     return !!(this.api && typeof this.api.createUserInfoButton === 'function');
   }
 
+  getLaunchOptions() {
+    try { return this.api.getLaunchOptionsSync ? this.api.getLaunchOptionsSync() : {}; } catch (error) { return {}; }
+  }
+
+  getEnterOptions() {
+    try { return this.api.getEnterOptionsSync ? this.api.getEnterOptionsSync() : {}; } catch (error) { return {}; }
+  }
+
+  showShareMenu() {
+    if (!this.api.showShareMenu) return false;
+    try { this.api.showShareMenu({ menus: ['shareAppMessage'], withShareTicket: false, fail: function () {} }); return true; } catch (error) { return false; }
+  }
+
+  onShareAppMessage(listener) {
+    if (!this.api.onShareAppMessage) return false;
+    try { this.api.onShareAppMessage(listener); return true; } catch (error) { return false; }
+  }
+
+  offShareAppMessage(listener) {
+    try { if (this.api.offShareAppMessage) this.api.offShareAppMessage(listener); } catch (error) {}
+  }
+
+  shareAppMessage(payload) {
+    if (!this.api.shareAppMessage) return { initiated: false, reason: 'not-supported' };
+    try {
+      this.api.shareAppMessage({ title: payload.title, query: payload.query });
+      return { initiated: true, reason: 'initiated' };
+    } catch (error) { return { initiated: false, reason: 'unavailable' }; }
+  }
+
   createUserInfoButton(options) {
     if (!this.supportsUserInfoButton()) return null;
     try {

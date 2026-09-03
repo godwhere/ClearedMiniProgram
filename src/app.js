@@ -209,6 +209,8 @@ class ClearedApp {
     this.progressSync = opts.progressSync || null;
     this.behavior = opts.behavior || null;
     this.profile = opts.profile || null;
+    this.share = opts.share || null;
+    this.pendingShare = null;
     this.accountGeneration = 0;
     this.accountMessage = '';
     this.accountProfilePending = false;
@@ -364,7 +366,7 @@ class ClearedApp {
     });
     this.platform.bindLifecycle({
       hide: () => this.onHide(),
-      show: () => this.onShow(),
+      show: options => this.onShow(options),
       resize: () => {
         this.renderer.ctx = this.platform.context;
         if (this.scene === 'account' && this.profile) {
@@ -1009,6 +1011,8 @@ class ClearedApp {
     const base = {
       scene: this.scene,
       pressedId: this.pressedId,
+      shareAvailable: !!(this.share && this.share.isResultEnabled() && this.shareContext().completed),
+      sharePending: !!this.pendingShare,
       // Count only published ordinary levels. Retired catalog coordinates may
       // remain in an upgraded player's save and must not inflate this total.
       completedCount: this.ordinaryCompletedCount(),
@@ -1432,6 +1436,7 @@ class ClearedApp {
     this.resultVisibleAt = now + this.skins.current().animation.resultDelayMs;
     this.scene = 'result';
     // Optional engagement starts only after the result and local completion.
+    if (this.share) this.share.prepareContext(this.shareContext());
     // The legacy local store retains in-memory progress on a write failure.
     // Confirm persistence before enqueueing anything for cloud delivery.
     try { completion.persisted = this.progress.save() === true; } catch (error) { completion.persisted = false; }
@@ -1609,6 +1614,7 @@ class ClearedApp {
     daily.result.firstClear = daily.dayFirstClear;
     daily.resultVisibleAt = Date.now() + this.skins.current().animation.resultDelayMs;
     this.scene = 'dailyResult';
+    if (this.share) this.share.prepareContext(this.shareContext());
 
     // This is an event boundary only.  A future currency ledger owns reward
     // idempotency; this callback never creates a balance itself.
@@ -1733,7 +1739,10 @@ class ClearedApp {
     }
     this.audio.unlock();
     this.audio.playSfx('click');
-    if (action === 'home:account' && this.scene === 'home') {
+    if ((action === 'result:share' && this.scene === 'result') ||
+        (action === 'dailyResult:share' && this.scene === 'dailyResult')) {
+      return this.shareResult();
+    } else if (action === 'home:account' && this.scene === 'home') {
       this.openAccount();
     } else if (action === 'account:back' && this.scene === 'account') {
       this.scene = 'home';
@@ -1956,6 +1965,32 @@ class ClearedApp {
       });
     }
     this.invalidate();
+  }
+
+  shareContext() {
+    if (this.scene === 'result' && this.result && this.result.outcome !== OUTCOME.FAILED) {
+      return { scene: 'ordinary_result', levelKey: `${this.setIndex}:${this.levelIndex}`,
+        elapsedMs: this.result.elapsedMs, completed: true };
+    }
+    if (this.scene === 'dailyResult' && this.daily.result && this.daily.result.outcome !== OUTCOME.FAILED) {
+      return { scene: 'daily_result', dailyDateKey: this.daily.dateKey,
+        elapsedMs: this.daily.result.elapsedMs, completed: true };
+    }
+    return { scene: 'home', completed: false };
+  }
+
+  shareResult() {
+    const context = this.shareContext();
+    if (this.pendingShare || !context.completed || !this.share || !this.share.isResultEnabled()) return false;
+    const token = { scene: this.scene, result: this.scene === 'result' ? this.result : this.daily.result };
+    this.pendingShare = token;
+    this.invalidate();
+    this.engagement.shareResult(context).catch(() => ({ initiated: false })).finally(() => {
+      if (this.pendingShare !== token) return;
+      this.pendingShare = null;
+      if (this.scene === token.scene && token.result === (this.scene === 'result' ? this.result : this.daily.result)) this.invalidate();
+    });
+    return true;
   }
 
   mountAccountProfile() {
@@ -2614,13 +2649,19 @@ class ClearedApp {
     if (!this.auth) return Promise.resolve({ ok: false, reason: 'not-configured' });
     return this.auth.ensureSession().then(result => {
       if (!result.ok) return result;
-      return this.progressSync ? this.progressSync.bootstrap(this.auth.current()) : result;
+      const sync = this.progressSync ? this.progressSync.bootstrap(this.auth.current()) : Promise.resolve(result);
+      return sync.then(synced => {
+        if (!this.share) return synced;
+        this.share.prepareContext(this.shareContext());
+        return this.share.consumePendingAttribution(this.auth.current()).then(() => synced);
+      });
     }).then(result => { this.invalidate(); return result; }).catch(() => ({ ok: false, reason: 'network' }));
   }
 
-  onShow() {
+  onShow(options) {
     if (this.disposed) return;
     this.hidden = false;
+    if (this.share) this.share.captureEntry(options || (this.platform.getEnterOptions ? this.platform.getEnterOptions() : {}));
     const runner = this.activeRunner();
     if (runner) runner.resume();
     this.audio.resumeAll();
@@ -2636,6 +2677,7 @@ class ClearedApp {
     this.disposed = true;
     this.leaveAccount();
     if (this.profile) this.profile.dispose();
+    if (this.share) this.share.uninstall();
     if (this.unbindPointer) this.unbindPointer();
     this.platform.stopLoop();
     this.audio.pauseAll();

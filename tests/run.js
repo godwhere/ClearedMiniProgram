@@ -1,4 +1,6 @@
 const tests = [
+  ['share service', require('./share-service.test.js')],
+  ['share entry lifecycle', require('./share-entry.test.js')],
   ['profile service', require('./profile-service.test.js')],
   ['account layout', require('./account-layout.test.js')],
   ['account app', require('./account-app.test.js')],

@@ -25,6 +25,7 @@ const AdsService = require('./services/ads-service.js');
 const backendConfig = require('./config/backend.js');
 const engagementConfig = require('./config/engagement.js');
 const ProfileService = require('./services/profile-service.js');
+const ShareService = require('./services/share-service.js');
 
 function start() {
   const platform = new WechatPlatform();
@@ -39,7 +40,8 @@ function start() {
   const profile = new ProfileService(platform, api, auth, engagementConfig.profile, behavior);
   const progressSync = new ProgressSyncService(api, progress, syncStore, auth, engagementConfig.progressSync, behavior);
   const ads = new AdsService(platform, adConfig);
-  const engagement = new EngagementService({ ads, behavior, config: adConfig.rules });
+  const share = new ShareService(platform, api, auth, syncStore, engagementConfig.share, behavior);
+  const engagement = new EngagementService({ ads, share, behavior, config: adConfig.rules });
   auth.onSessionChanged((session, state) => {
     if (session) behavior.identify(session.userId);
     else behavior.clearUser();
@@ -53,7 +55,7 @@ function start() {
       platform.isDevTools() === true
   });
   const app = new ClearedApp(platform, {
-    progress, dailyStore, auth, progressSync, behavior, ads, engagement, profile,
+    progress, dailyStore, auth, progressSync, behavior, ads, engagement, profile, share,
     subpackages,
     skins,
     effects,
@@ -75,6 +77,8 @@ function start() {
     dailyDebugUnlimited: dailyConfig.debugUnlimitedEntries === true
   });
   app.start();
+  share.install(() => app.shareContext());
+  share.captureEntry(platform.getLaunchOptions());
   // Local boot is synchronous. Online work is always scheduled afterwards.
   behavior.track('app_launch', { scene: 'home' });
   Promise.resolve().then(() => app.resumeOnline()).then(() => behavior.flush('launch')).catch(function () {});

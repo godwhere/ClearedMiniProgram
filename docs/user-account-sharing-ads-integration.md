@@ -2376,3 +2376,5 @@ PR 7  feat: add server-attributed invite rewards
 - Phase 0：`586c3a9`，移除结算广告依赖，独立 online/session/events 存储及非阻塞启动；44 组测试、包体与差异检查通过。
 - Phase 1：`5859546`，身份 single-flight、账号冲突、云进度并集与最短时间、部分 ACK 和队列溢出恢复；46 组测试及门禁通过。旧存档缺少 bestMs 时，operation payload 省略 elapsedMs，服务端只合并 completed，禁止伪造最佳用时。
 - Phase 2：`1ad228a` 及后续注入提交，账号页、纯布局、原生资料按钮生命周期；49 组测试及门禁通过。开发者工具已编译并验证默认配置下账号页进入、离线重试和返回。真实资料与后端联调、原生授权、隐私、Android/iOS 验证尚未执行。
+
+- Phase 3：菜单/成功结果分享、冷/热启动归因、有限持久队列及纯分享 payload 已接入，51 组测试及门禁通过。意图异步预取，点击时不等待网络；使用游戏截图。归因响应约定 `attributed:true` 或 `alreadyAttributed:true`，仅 ACK 删除对应项。分享和归因默认关闭，真实卡片冷启动与后端拒绝自邀/过期验证仍待执行。
