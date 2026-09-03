@@ -37,6 +37,20 @@ function homeModel(balance) {
 }
 
 function run() {
+  const bareCurrency = renderer(390);
+  let currencyPanels = 0;
+  let currencyFontSize = null;
+  bareCurrency.renderer.roundedRect = () => { currencyPanels++; };
+  const drawText = bareCurrency.renderer.text.bind(bareCurrency.renderer);
+  bareCurrency.renderer.text = (value, x, y, size, options) => {
+    currencyFontSize = size;
+    drawText(value, x, y, size, options);
+  };
+  bareCurrency.renderer.drawCurrency({ available: true, balance: 2400 }, { x: 100, y: 40, w: 78, h: 44 });
+  assert.strictEqual(currencyPanels, 0, 'home currency has no gray backing panel');
+  assert.strictEqual(currencyFontSize, 17, 'currency amount matches the compact stamina font size');
+  assert(bareCurrency.ctx.calls.some(call => call.op === 'fillText' && call.args[0] === '2400'));
+
   [[320, 0, '0'], [375, 9999, '9999'], [390, 10000, '1万'], [390, 100000, '10万']].forEach(entry => {
     const test = renderer(entry[0]);
     test.renderer.render(homeModel(entry[1]), 1);

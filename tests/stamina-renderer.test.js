@@ -57,7 +57,9 @@ function run() {
     const hits = clone(f.renderer.hits);
     f.renderer.drawStaminaStatus(Object.freeze(snapshot), rect, { compact: true });
     assert(f.texts.some(call => call.value === label));
-    assert(f.texts.some(call => call.value === `${snapshot.balance}/5`));
+    assert(f.texts.some(call => call.value === String(snapshot.balance)));
+    assert(!f.texts.some(call => call.value.includes('/')),
+      'stamina shows the current amount without a natural-cap denominator');
     assert(!f.texts.some(call => call.value.startsWith('额外 +')));
     assert.deepStrictEqual(f.renderer.hits, hits);
   }
@@ -104,8 +106,10 @@ function run() {
       assert(!texts.some(call => call.value === '03:04' || call.value === '体力已满'),
         'level selection shows only the stamina amount');
       const title = texts.find(call => call.value === '选择关卡');
-      const selectorStamina = texts.find(call => call.value === '0/5');
+      const selectorStamina = texts.find(call => call.value === '0');
       const homeControl = renderer.hits.find(hit => hit.id === 'levels:home');
+      assert.deepStrictEqual(badges[0], { x: width - 78, y: homeControl.rect.y, w: 64, h: 44 },
+        'level selection uses the compact current-amount badge');
       assert.strictEqual(selectorStamina.y, title.y);
       assert.strictEqual(selectorStamina.y, homeControl.rect.y + homeControl.rect.h / 2,
         'selector title, home button and stamina share the same center line');
@@ -130,7 +134,7 @@ function run() {
             const promptRects = clone(prompts);
             render(model);
             assert.strictEqual(badges.length, 0, 'ordinary play and result headers do not show stamina');
-            assert(!texts.some(call => call.value === '19/5'));
+            assert(!texts.some(call => call.value === '19'));
             assert(!texts.some(call => call.value === '05:00' || call.value === '体力已满'),
               'ordinary play and result headers hide stamina details');
             const refundRule = texts.find(call => call.value === '本关首次在1分钟内通关，返还1点体力');

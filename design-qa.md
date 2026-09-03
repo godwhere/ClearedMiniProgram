@@ -8,15 +8,22 @@ final result: passed
 ## 目标与证据
 
 - Source visual truth: `/var/folders/d4/vlsfy7fd51vgb9ymqtc_zs8m0000gn/T/codex-clipboard-8677ca2e-bc5c-4e46-ac20-0482e57c5450.png`
+  （目标样式）；`/var/folders/d4/vlsfy7fd51vgb9ymqtc_zs8m0000gn/T/codex-clipboard-be4ea7bb-fb54-4d63-9435-e47850ea562d.png`、
+  `/var/folders/d4/vlsfy7fd51vgb9ymqtc_zs8m0000gn/T/codex-clipboard-e0feb6e7-99f0-45de-82cd-ba27c8f83417.png`、
+  `/var/folders/d4/vlsfy7fd51vgb9ymqtc_zs8m0000gn/T/codex-clipboard-547e37ff-54df-48a8-9e51-d05557112b91.png`
+  （未覆盖的关卡、广告、分享条件弹窗证据）。
 - Full-view comparison: `/tmp/cleared-panel-qa.VZ1Zkm/comparison.png`（原附件与五种结果同图比对）。
 - Narrow comparison: `/tmp/cleared-panel-qa.VZ1Zkm/narrow-comparison.png`。
 - Purchase in actual gallery layout: `/tmp/cleared-panel-qa.VZ1Zkm/purchase-in-gallery.png`。
+- All remaining reward dialogs: `/tmp/cleared-condition-qa.QZCWeR/condition-comparison.png`、
+  `/tmp/cleared-condition-qa.QZCWeR/condition-gallery.png`、`/tmp/cleared-condition-qa.QZCWeR/condition-narrow.png`。
 - Implementation screenshots: `/tmp/cleared-panel-qa.VZ1Zkm/{ordinary-success,ordinary-failure,daily-success,daily-failure,purchase}-{280,320,390,768}.png`。
 - 原附件为 644×400；其游戏内容宽约 568px，按现有 390px 逻辑宽度的 1.456 倍对齐。
   实现原图为 280×568、320×568、390×844、768×1024，离屏密度 1；对照图仅等比放大面板，
   不把外侧灰边或截图裁剪当作游戏布局。截图中的青色仅用于关卡面板对照，购买页保留真实橙色背景。
-- States: 购买确认；普通失败；每日失败；普通新纪录；每日两关完成。
-  回归另覆盖购买禁用、处理中、错误、保存重试，及每日分享／增次入口与重玩禁用。
+- States: 购买确认；关卡、广告、分享解锁条件；主题与特效解锁成功；普通失败；每日失败；
+  普通新纪录；每日两关完成。回归另覆盖奖励按钮禁用、处理中、加载、错误、保存重试，
+  及每日分享／增次入口与重玩禁用。
 - Focused evidence: 对照图本身就是完整面板裁剪，标题、说明、图标和按钮清晰可读；
   另检查真实主题页上的购买面板，避免只用纯色背景掩盖透字问题。
 
@@ -29,6 +36,10 @@ final result: passed
    在购买面板矩形内部先绘制画廊底色，再应用原 `strongPanel`；不遮盖面板外页面。
    复核 `purchase-in-gallery.png`：名称、金额和按钮不再与下层卡片叠字。
 3. 修正后重新生成并查看原附件／五面板同图对照及真实画廊截图，无剩余 P0／P1／P2 布局问题。
+4. [P1，已修复] 用户真机截图确认关卡、广告、分享条件仍走旧圆角奖励卡片；原因是首轮只让
+   `conditionType === 'currency'` 进入新模板。入口改为覆盖所有 `mode === 'condition'`，随后按用户要求
+   同步覆盖剩余 `mode === 'unlocked'` 通知。重新捕获水果、交通工具、节日限定、宝石与逐渐消失五种
+   实际 App 状态，并在 280／390 宽度验证关闭、禁用、分享、立即应用命中与拥有权不变。
 
 ## 五项核对
 
@@ -40,7 +51,7 @@ final result: passed
 - 颜色：复用 `strongPanel` 和普通成功按钮的 `levelCell`，不新增主题色；购买使用画廊原底色。
 - 图像／图标：复用现有成功、警告、锁图标及商品预览资源；未生成或替换任何美术素材。
 - 文案／内容：保留各场景原有名称、金额、结果、剩余格数、每日次数和按钮动作；
-  关卡、广告、分享条件与解锁成功通知仍保留原圆角样式。
+  关卡、广告、分享条件及解锁成功通知均已进入同一全宽模板。
 
 ## 验证与余项
 
