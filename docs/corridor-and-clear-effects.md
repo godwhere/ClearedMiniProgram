@@ -94,6 +94,8 @@
 
 顶部返回按钮的命中 ID 必须和 `model.backAction` 一致，不能同一帧同时注册 `themes:home` 与 `themes:corridor` 两个重叠 hit。
 
+主题页和特效页左上角使用返回箭头，触摸区域围绕原按钮中心由 44×44 扩大为 56×56，箭头同步放大；保留安全区和卡片间距。音效、页标题和网格不移动，回廊入口页的主页按钮保持原样。从回廊进入时仍返回回廊，旧直达主题流程仍沿用 `themes:home` 返回主页。
+
 ## 4. 回廊页面契约
 
 ### 4.1 网格
@@ -467,6 +469,7 @@ effect:<id>              -- stay --> effects
 - `drawHome()` 继续使用现有首页按钮栈和安全区计算；回廊按钮复用当前主题按钮的矩形、圆角、字体和层级；
 - 可见命中已从 `home:themes` 改为 `home:corridor`，没有重叠的双 hit；
 - `home:dailyChallenge`、`home:start` 的文案、位置和可用条件未因迁移改变；
+- 首页关卡进度放入 `home:start` 按钮内右侧，以 `已完成数量/总关卡数` 的数值形式展示，例如 `23/92`，不显示“已完成”前缀。按钮主文案“继续游戏／开始游戏”继续位于原矩形中心，Logo 下方不再重复显示进度；进度文本共用原按钮命中区域。
 - `performAction('home:themes')`、`themes:home` 兼容别名继续保留，并已同步相关测试/文档；
 - `docs/theme-system.md` 继续作为主题 manifest/tile 的权威文档，只需补充“回廊为上游入口”的交叉说明，不把回廊逻辑塞入 SkinService；
 - 直接构造 `ClearedApp` 时仍可用 `homeMigration: false` 做兼容测试；正式 `src/bootstrap.js` 已设为 `true`。

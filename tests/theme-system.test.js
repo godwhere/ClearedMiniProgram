@@ -268,8 +268,8 @@ function runRendererChecks() {
   }, now);
   assert(renderer.hits.some(hit => hit.id === 'themes:home'));
   const themeHomeHit = renderer.hits.find(hit => hit.id === 'themes:home');
-  assert.strictEqual(themeHomeHit.rect.y,
-    platform.metrics.safeTop + 4 + 8 + 16, 'theme top UI is lowered by its layout offset');
+  assert.strictEqual(themeHomeHit.rect.y + themeHomeHit.rect.h / 2,
+    platform.metrics.safeTop + 4 + 8 + 16 + 22, 'enlarged back button retains the original toolbar center');
   assert(renderer.hits.some(hit => hit.id === 'theme:classic'));
   assert(renderer.hits.some(hit => hit.id === 'theme:gem'));
   assert(renderer.hits.some(hit => hit.id === 'theme:animals'));

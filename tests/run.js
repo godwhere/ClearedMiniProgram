@@ -1,4 +1,5 @@
 const tests = [
+  ['level records, gallery navigation and beginner instructions', require('./level-ui.test.js')],
   ['stamina service', require('./stamina-service.test.js')],
   ['stamina app', require('./stamina-app.test.js')],
   ['stamina renderer', require('./stamina-renderer.test.js')],

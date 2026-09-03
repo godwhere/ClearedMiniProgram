@@ -18,8 +18,8 @@ function formatStaminaCountdown(milliseconds) {
   return `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
 }
 
-const PORTAL_PROMPT_BAND_HEIGHT = 32;
-const PORTAL_PROMPT_CYCLE_MS = 1800;
+const PLAY_PROMPT_BAND_HEIGHT = 32;
+const PLAY_PROMPT_CYCLE_MS = 1800;
 const CANVAS_FONT_FAMILY = '-apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif';
 
 class CanvasRenderer {
@@ -825,7 +825,7 @@ class CanvasRenderer {
 
     // Keep the available logo area responsive with the three home actions.
     // Preserve the familiar composition on normal devices, but shift
-    // the logo upward (and only then scale it down) so its completion text
+    // the logo upward (and only then scale it down) so its caption
     // never collides with the button stack.
     let logoSize = Math.min(width * 0.58, height * 0.32, 260);
     const logoBottomLimit = firstY - 18;
@@ -857,9 +857,6 @@ class CanvasRenderer {
     }
 
     this.text('CLEARED!', width / 2, logoY + logoSize * 0.63, 21, { weight: 300, alpha: 0.78 });
-    this.text(`已完成 ${model.completedCount} / ${model.totalLevels}`, width / 2, logoY + logoSize * 0.79, 14, {
-      alpha: 0.62
-    });
 
     const buttonWidth = Math.min(width - 56, 360);
     // Keep the bottom inset while stacking both rows. The stack is derived
@@ -915,16 +912,21 @@ class CanvasRenderer {
       stroke: skin.colors.primaryButtonStroke,
       fontSize: 18
     }, model.pressedId);
-    this.button('home:start', {
+    const startButtonRect = {
       x: buttonX,
       y: firstY + buttonHeight + buttonGap,
       w: buttonWidth,
       h: buttonHeight
-    }, model.completedCount ? '继续游戏' : '开始游戏', {
+    };
+    this.button('home:start', startButtonRect, model.completedCount ? '继续游戏' : '开始游戏', {
       fill: skin.colors.primaryButton,
       stroke: skin.colors.primaryButtonStroke,
       fontSize: 19
     }, model.pressedId);
+    this.text(`${model.completedCount}/${model.totalLevels}`,
+      startButtonRect.x + startButtonRect.w - 16, startButtonRect.y + startButtonRect.h / 2, 12, {
+        align: 'right', alpha: 0.68, maxWidth: Math.max(1, startButtonRect.w / 2 - 56)
+      });
     if (model.dailyExtraEntryAvailable) this.button('daily:extraEntry', {
       x: buttonX, y: firstY + buttonHeight * 2 + buttonGap + 10, w: buttonWidth, h: 42
     }, model.dailyExtraEntryPending ? '正在处理' : '看视频，增加一次挑战',
@@ -1234,9 +1236,8 @@ class CanvasRenderer {
     const headerTop = safeTop + 4;
     const headerHeight = 68;
     const requestedThemesOffset = Number(skin.layout.themesTopUiOffset);
-    // The base button position is headerTop + 8 and the header is 68px tall;
-    // cap the configurable offset so the 44px button remains inside the
-    // header band and cannot overlap the card grid.
+    // Keep the 44px sound button inside the header. The larger back button
+    // shares its center and uses six pixels of padding before the card grid.
     const themesTopUiOffset = clamp(
       Number.isFinite(requestedThemesOffset) ? requestedThemesOffset : 0,
       0,
@@ -1246,8 +1247,9 @@ class CanvasRenderer {
     const backAction = model && (model.backAction === 'themes:corridor' || model.backAction === 'themes:home')
       ? model.backAction
       : 'themes:home';
-    this.iconButton(backAction, { x: 10, y: topButtonY, w: 44, h: 44 },
-      'home', true, model && model.pressedId);
+    // Expand around the existing center, retaining a gap before the card grid.
+    this.iconButton(backAction, { x: 4, y: topButtonY - 6, w: 56, h: 56 },
+      'back', true, model && model.pressedId);
     // Keep the sound affordance available on the gallery just like the home
     // and play scenes.  Apps that do not route this action can simply ignore
     // the optional hit; the required gallery IDs remain unchanged.
@@ -1666,8 +1668,8 @@ class CanvasRenderer {
     const topButtonY = headerTop + 8 + topOffset;
     const backAction = model && (model.backAction === 'effects:corridor' || model.backAction === 'effects:home')
       ? model.backAction : 'effects:corridor';
-    this.iconButton(backAction, { x: 10, y: topButtonY, w: 44, h: 44 },
-      'home', true, model && model.pressedId);
+    this.iconButton(backAction, { x: 4, y: topButtonY - 6, w: 56, h: 56 },
+      'back', true, model && model.pressedId);
     this.iconButton('effects:sound', { x: width - 58, y: topButtonY, w: 44, h: 44 },
       model && model.soundEnabled === false ? 'mute' : 'sound', true,
       model && model.pressedId);
@@ -1817,6 +1819,7 @@ class CanvasRenderer {
         ? item.action : `level:${slotIndex}`;
       const completed = item.completed === true;
       const unlocked = item.unlocked !== false;
+      const hasBestTime = completed && unlocked && Number.isFinite(item.bestMs) && item.bestMs > 0;
       const pressed = model.pressedId === action;
       ctx.save();
       this.roundedRect(rect.x, rect.y, rect.w, rect.h, 4);
@@ -1834,17 +1837,24 @@ class CanvasRenderer {
         ctx.fill();
       }
       ctx.restore();
-      this.text(item.displayNumber, rect.x + rect.w / 2, rect.y + rect.h / 2 - (!unlocked ? 7 : (completed ? 3 : 0)), clamp(cell * 0.31, 15, 23), {
+      const numberY = hasBestTime ? rect.y + rect.h * 0.35
+        : rect.y + rect.h / 2 - (!unlocked ? 7 : (completed ? 3 : 0));
+      this.text(item.displayNumber, rect.x + rect.w / 2, numberY, clamp(cell * 0.31, 15, 23), {
         weight: 300,
         alpha: unlocked ? 1 : 0.36
       });
+      if (hasBestTime) {
+        this.text(formatTime(item.bestMs), rect.x + rect.w / 2, rect.y + rect.h * 0.73,
+          clamp(cell * 0.2, 10, 14), { alpha: 0.82, maxWidth: Math.max(1, rect.w - 10) });
+      }
       if (!unlocked) {
         ctx.save();
         ctx.globalAlpha = 0.42;
         this.drawIcon('lock', rect.x + rect.w / 2, rect.y + rect.h / 2 + 15, clamp(cell * 0.25, 11, 17));
         ctx.restore();
       } else if (completed) {
-        this.text('✓', rect.x + rect.w - 9, rect.y + 10, 11, { alpha: 0.75, weight: 500 });
+        this.text('✓', rect.x + rect.w - (hasBestTime ? 7 : 9), rect.y + (hasBestTime ? 7 : 10),
+          hasBestTime ? 9 : 11, { alpha: 0.75, weight: 500 });
       }
       this.addHit(action, rect, unlocked);
     });
@@ -1964,10 +1974,10 @@ class CanvasRenderer {
     } : model;
   }
 
-  drawPortalInstruction(instruction, rect, now) {
+  drawPlayInstruction(instruction, rect, now) {
     if (typeof instruction !== 'string' || !instruction || !rect) return;
     const timestamp = Number.isFinite(Number(now)) ? Number(now) : 0;
-    const phase = (timestamp % PORTAL_PROMPT_CYCLE_MS) / PORTAL_PROMPT_CYCLE_MS;
+    const phase = (timestamp % PLAY_PROMPT_CYCLE_MS) / PLAY_PROMPT_CYCLE_MS;
     const breath = 0.5 + Math.sin(phase * Math.PI * 2) * 0.5;
     const baseSize = clamp(this.platform.metrics.width * 0.041, 14, 16);
     this.text(
@@ -1991,6 +2001,9 @@ class CanvasRenderer {
     const renderModel = this.renderBoardViewModel(model, game, now);
     const board = renderModel && renderModel.board;
     const portal = renderModel && renderModel.mechanic && renderModel.mechanic.portal;
+    const instruction = portal ? portal.instruction : model.beginnerInstruction;
+    // Portal keeps its band even after the phase-specific copy disappears.
+    const hasPromptBand = !!portal || !!model.beginnerInstruction;
     this.begin(setStyle.background);
 
     const headerTop = safeTop;
@@ -2041,14 +2054,14 @@ class CanvasRenderer {
     const actionHeight = showActions ? 78 : 0;
     const actionTop = safeBottom - actionHeight;
     const defaultBoardTop = headerTop + headerHeight + 16;
-    const boardTop = portal
+    const boardTop = hasPromptBand
       ? Math.max(defaultBoardTop, topUi + headerHeight + 8)
       : defaultBoardTop;
     const boardBottom = actionTop - (showActions ? 14 : 20);
     if (board) {
       const cols = Number(board.width) || game.Width;
       const rows = Number(board.height) || game.Height;
-      const promptBandHeight = portal ? PORTAL_PROMPT_BAND_HEIGHT : 0;
+      const promptBandHeight = hasPromptBand ? PLAY_PROMPT_BAND_HEIGHT : 0;
       const availableHeight = Math.max(0, boardBottom - boardTop);
       const cell = Math.min(
         (width - 24) / cols,
@@ -2062,8 +2075,8 @@ class CanvasRenderer {
       const boardX = (width - boardWidth) / 2;
       const boardY = groupY + promptBandHeight;
       this.boardLayout = { x: boardX, y: boardY, cell, cols, rows };
-      if (portal) {
-        this.drawPortalInstruction(portal.instruction, {
+      if (hasPromptBand) {
+        this.drawPlayInstruction(instruction, {
           x: 24,
           y: groupY,
           w: Math.max(1, width - 48),

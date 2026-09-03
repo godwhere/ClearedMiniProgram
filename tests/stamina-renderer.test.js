@@ -23,8 +23,8 @@ function fixture(width, skin) {
     texts.push({ value: String(value), x, y, size, options: options || {} });
     text(value, x, y, size, options);
   };
-  const prompt = renderer.drawPortalInstruction.bind(renderer);
-  renderer.drawPortalInstruction = (instruction, rect, now) => {
+  const prompt = renderer.drawPlayInstruction.bind(renderer);
+  renderer.drawPlayInstruction = (instruction, rect, now) => {
     prompts.push(clone(rect)); prompt(instruction, rect, now);
   };
   const render = (model, now) => {

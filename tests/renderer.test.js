@@ -176,6 +176,23 @@ function run() {
   const soundHit = renderer.hits.find(hit => hit.id === 'home:sound');
   assert.strictEqual(soundHit.rect.y, platform.metrics.safeTop + classic.layout.homeTopUiOffset + 8);
 
+  for (const width of [320, 390]) {
+    platform.metrics.width = width;
+    platform.context.calls.length = 0;
+    renderer.render({ scene: 'home', completedCount: 23, totalLevels: 92 }, Date.now());
+    const start = renderer.hits.find(hit => hit.id === 'home:start').rect;
+    const label = textCalls(platform.context, '继续游戏')[0].args;
+    const progress = textCalls(platform.context, '23/92');
+    assert.strictEqual(label[1], start.x + start.w / 2, 'continue label keeps its horizontal center');
+    assert.strictEqual(label[2], start.y + start.h / 2, 'continue label keeps its vertical center');
+    assert.strictEqual(start.h, 54);
+    assert.strictEqual(progress.length, 1, 'progress is no longer repeated below the logo');
+    assert(progress[0].args[1] > label[1] && progress[0].args[1] < start.x + start.w);
+    assert.strictEqual(progress[0].args[2], label[2]);
+    assert.strictEqual(renderer.hitTest(progress[0].args[1] - 1, progress[0].args[2]), 'home:start');
+    assert(!platform.context.calls.some(call => call.method === 'fillText' && String(call.args[0]).startsWith('已完成')));
+  }
+
   const set = {
     Name: '5 x 5',
     Color: '#00aba9',

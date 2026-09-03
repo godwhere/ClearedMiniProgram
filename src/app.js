@@ -1162,6 +1162,7 @@ class ClearedApp {
             setIndex: entry.setIndex,
             levelIndex: entry.levelIndex,
             completed: this.progress.isCompleted(entry.setIndex, entry.levelIndex),
+            bestMs: this.progress.bestTime(entry.setIndex, entry.levelIndex),
             unlocked: this.progression.isUnlocked(entry.setIndex, entry.levelIndex),
             mechanicId: typeof mechanicId === 'string' && mechanicId ? mechanicId : null
           };
@@ -1252,6 +1253,8 @@ class ClearedApp {
         levelIndex: activeLevelIndex,
         ordinaryLevelNumber: ordinaryPosition >= 0 ? ordinaryPosition + 1 : null,
         ordinaryLevelCount: catalog.levels.length,
+        beginnerInstruction: ordinaryPosition >= 0 && ordinaryPosition < 5
+          ? (ordinaryPosition === 0 ? '连接两个相同的色块或物体' : '别漏掉空白格，全部消除才能通关哦') : null,
         board: boardView && boardView.board,
         mechanic: boardView ? boardView.mechanic : { portal: null },
         elapsedText: boardView ? boardView.elapsedText : '0:00',
