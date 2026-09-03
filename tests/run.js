@@ -1,4 +1,5 @@
 const tests = [
+  ['tiered daily hint unlocks', require('./hint-tiered.test.js')],
   ['daily hint access', require('./hint-access-service.test.js')],
   ['hint share unlock flow', require('./hint-share.test.js')],
   ['reward service', require('./reward-service.test.js')],

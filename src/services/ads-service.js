@@ -12,7 +12,12 @@ class AdsService {
   }
 
   isRewardedConfigured(placement) {
-    return !!(this.config.rewarded && this.config.rewarded[placement]);
+    const id = this.config.rewarded && this.config.rewarded[placement];
+    return typeof id === 'string' && id.length > 0 && id.trim() === id;
+  }
+
+  isRewardedSupported() {
+    return typeof this.platform.supportsRewardedVideoAd === 'function' && this.platform.supportsRewardedVideoAd() === true;
   }
 
   showRewarded(placement) {
@@ -20,7 +25,7 @@ class AdsService {
       : `adatt_${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}_${++this.sequence}`, startedAt: Date.now() };
     const denied = reason => Promise.resolve(this.rewardedResult(attempt, false, reason));
     const adUnitId = this.config.rewarded && this.config.rewarded[placement];
-    if (!adUnitId) return denied('not-configured');
+    if (!this.isRewardedConfigured(placement)) return denied('not-configured');
     if (this.disposed || !attempt.attemptId) return denied('not-supported');
     if (this.interstitialPending || (this.rewarded && this.rewarded.pending)) {
       return denied('busy');

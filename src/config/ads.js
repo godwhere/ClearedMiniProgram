@@ -13,7 +13,10 @@ module.exports = {
   rules: {
     interstitialEveryClears: 4,
     interstitialMinIntervalMs: 180000,
-    hintMode: 'share',
+    hintMode: 'tiered',
+    // Enable only after platform approval, a real hint ad unit and device QA.
+    // Until then, the third and later new daily hint unlocks use sharing.
+    hintRewardedEnabled: false,
     dailyExtraEntryEnabled: false,
     dailyExtraEntryLimit: 1
   }

@@ -14,4 +14,7 @@ module.exports = async function run() {
   assert.strictEqual((await rewarded.requestHint({ scene: 'play' })).granted, false);
   rewarded.ads.showRewarded = async () => ({ rewarded: true, reason: 'completed', attemptId: 'adatt_2' });
   assert.strictEqual((await rewarded.requestHint({ scene: 'play' })).attemptId, 'adatt_2');
+  service.config.hintMode = 'unknown-mode';
+  assert.strictEqual((await service.requestHint({})).reason, 'invalid-mode');
+  assert.strictEqual(service.hintState({}).action, 'unavailable');
 };

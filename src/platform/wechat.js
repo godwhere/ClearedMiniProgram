@@ -233,8 +233,12 @@ class WechatPlatform {
     }
   }
 
+  supportsRewardedVideoAd() {
+    return !!(this.api && typeof this.api.createRewardedVideoAd === 'function');
+  }
+
   createRewardedVideoAd(options) {
-    if (!this.api.createRewardedVideoAd) return null;
+    if (!this.supportsRewardedVideoAd()) return null;
     const safe = { adUnitId: options.adUnitId };
     try {
       const info = this.api.getAppBaseInfo ? this.api.getAppBaseInfo() : this.api.getSystemInfoSync();

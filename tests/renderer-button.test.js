@@ -74,7 +74,7 @@ function run() {
     ['native', 'missing', 'throws'].forEach(measurement => {
       ['play', 'daily'].forEach(scene => {
         let normalRect;
-        ['提示', '分享解锁', '查看提示', '重试保存', '分享不可用', '处理中', '隐藏提示'].forEach(label => {
+        ['提示', '免费提示', '分享解锁', '广告解锁', '查看提示', '重试广告', '重试保存', '分享不可用', '提示不可用', '处理中', '隐藏提示'].forEach(label => {
           const previewActive = label === '隐藏提示';
           const fixture = createRenderer(width, measurement);
           const model = {

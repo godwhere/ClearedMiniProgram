@@ -96,6 +96,22 @@ async function run() {
   assert.strictEqual((await abandoned).rewarded, false, 'dispose settles pending callers');
 
   const WechatPlatform = require('../src/platform/wechat.js');
+  let capabilityCreates = 0; let capabilityAttempts = 0;
+  const capabilityPlatform = Object.create(WechatPlatform.prototype);
+  capabilityPlatform.api = { createRewardedVideoAd() { capabilityCreates++; return {}; } };
+  const capability = new AdsService(capabilityPlatform, { rewarded: { hint: 'test-unit' } },
+    { nextAttemptId: () => `adatt_cap_${++capabilityAttempts}` });
+  assert.strictEqual(capability.isRewardedSupported(), true);
+  assert.strictEqual(capability.isRewardedConfigured('hint'), true);
+  assert.strictEqual(capabilityCreates + capabilityAttempts, 0, 'capability checks never create ads or allocate attempts');
+  for (const value of ['', ' ', ' unit', 'unit ', 123, {}]) {
+    capability.config.rewarded.hint = value;
+    assert.strictEqual(capability.isRewardedConfigured('hint'), false);
+    assert.strictEqual((await capability.showRewarded('hint')).reason, 'not-configured');
+  }
+  assert.strictEqual(capabilityCreates, 0);
+  capabilityPlatform.api = {};
+  assert.strictEqual(capability.isRewardedSupported(), false);
   const options = Object.freeze({ adUnitId: 'unit', disableFallbackSharePage: true });
   for (const version of ['3.7.6', '3.7.7', '3.8.21', 'invalid']) {
     let received; const adapter = Object.create(WechatPlatform.prototype);

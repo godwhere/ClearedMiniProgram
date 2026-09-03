@@ -77,15 +77,29 @@ class HintAccessService {
     if (!context || context.dateKey !== today || !validLevelKey(context.levelKey)) {
       return { ok: false, reason: 'invalid-context', unlocked: false, unlockCount: this.state.unlockedLevelKeys.length };
     }
-    return { ok: true, unlocked: this.state.unlockedLevelKeys.includes(context.levelKey),
-      pendingSave: this.pendingSave.has(context.levelKey), unlockCount: this.state.unlockedLevelKeys.length };
+    const pendingKey = this.pendingSave.values().next().value;
+    const unlocked = this.state.unlockedLevelKeys.includes(context.levelKey);
+    const pendingSave = this.pendingSave.has(context.levelKey);
+    return { ok: true, unlocked, pendingSave,
+      pendingSaveContext: pendingKey ? { dateKey: today, levelKey: pendingKey } : null,
+      canUnlock: unlocked || pendingSave || this.state.unlockedLevelKeys.length + this.pendingSave.size < MAX_UNLOCKS,
+      unlockCount: this.state.unlockedLevelKeys.length };
+  }
+
+  retryPendingSave() {
+    const key = this.pendingSave.values().next().value;
+    if (!key) return { ok: false, reason: 'no-pending-save' };
+    const context = { dateKey: this.state.dateKey, levelKey: key };
+    // unlock rechecks the current day. A midnight retry cannot carry an old
+    // qualification into the new day's free slot.
+    return Object.assign({}, this.unlock(context), context);
   }
 
   unlock(context) {
     const status = this.status(context);
     if (!status.ok) return { ok: false, reason: status.reason };
     if (status.unlocked) return { ok: true, alreadyUnlocked: true };
-    if (this.state.unlockedLevelKeys.length + this.pendingSave.size >= MAX_UNLOCKS && !status.pendingSave) {
+    if (!status.canUnlock) {
       return { ok: false, reason: 'unlock-limit' };
     }
     // Remember qualification in memory so a failed disk write can be retried

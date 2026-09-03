@@ -1,6 +1,6 @@
 # 微信小游戏用户身份、云存档、分享与广告奖励接入方案
 
-> 文档状态：Phase 0—6 客户端已实施；6e7e1b0 交付复核的四项修复见第 36 节，当前提示分享规则见第 37 节。后端相关开关默认关闭，后端及设备发布验收待执行
+> 文档状态：Phase 0—6 客户端已实施；6e7e1b0 交付复核的四项修复见第 36 节，提示分享基础见第 37 节，当前每日分级提示见第 38 节。后端与提示广告默认关闭，后端及设备发布验收待执行
 > 目标仓库：`godwhere/ClearedMiniProgram`  
 > 设计基线：`main@cdab6c984f5749b7af47560fddd210f01642fce9`  
 > 微信 API 基线：`wechat-miniprogram/minigame-api-typings@4cae82af7f3c4339d1f11aea8e672fb16051d24a`（3.8.21）  
@@ -879,16 +879,18 @@ module.exports = {
   rules: {
     interstitialEveryClears: 4,
     interstitialMinIntervalMs: 180000,
-    hintMode: 'share',
+    hintMode: 'tiered',
+    hintRewardedEnabled: false,
     dailyExtraEntryEnabled: false,
     dailyExtraEntryLimit: 1
   }
 };
 ```
 
-首次实施时：
+当前交付配置：
 
-- Phase 0—6 首次实施时 `hintMode` 为 `free`；当前按第 37 节授权切为 `share`，保留显式 free 回滚。
+- Phase 0—6 首次实施时 `hintMode` 为 `free`，第 37 节使用 `share`；当前按第 38 节切为 `tiered`，保留显式旧模式。
+- `hintRewardedEnabled` 为 false，第三个及以后新提示使用分享；开通广告后配置有效广告位并显式设为 true。
 - `dailyExtraEntryEnabled` 必须为 false。
 - 广告 ID 为空时保持 no-op。
 - 若 `hint` 和 `dailyExtraEntry` 使用不同 adUnitId，则不得沿用当前单例实现；第一版要求两个 placement 指向同一个激励视频单元。
@@ -1026,15 +1028,18 @@ rewardService.claim(input, ownerUserId)
 
 ### 12.4 低价值提示访问与预览
 
-提示预览属于低价值、不可交易的本地功能。当前允许三种模式：
+提示预览属于低价值、不可交易的本地功能。当前允许四种模式：
 
 ```text
+tiered     当前默认：每天第一个新关免费、第二个分享、第三个起广告；广告未启用时分享
 free       直接展示，保留原免费回滚行为
-share      发起分享后保存本关当日许可；再次点击查看，当前默认
+share      发起分享后保存本关当日许可；再次点击查看
 rewarded   观看广告并达到平台发奖条件后解锁，在当前 run 内展示
 ```
 
 即使是 rewarded hint，也不能增加永久货币。若广告完成后用户已离开当前关卡，迟到回调不得把提示应用到新关卡。
+
+tiered 继续使用本地当日关卡集合，同关重复查看不计数。免费保存成功立即展示；分享／广告新许可与保存重试只更新按钮，下一次点击再预览。持久保存失败时，其他未解锁关先重试原目标，不得重复领取首次免费。
 
 ### 12.5 高价值奖励限制
 
@@ -1139,6 +1144,13 @@ class EngagementService {
 ### 14.1 requestHint
 
 ```text
+hintMode == tiered
+  -> hintState 唯一决策：view / retry-save / busy / unavailable / free / share / rewarded
+  -> 第一个新关免费，第二个分享；第三个起按广告开关、有效配置与接口能力选择广告或分享
+  -> 分享／广告达标后保存原日期、关卡；保存失败期间全局阻止其他新资格
+  -> free 保存成功或 view 返回 granted:true；新分享／广告和 retry-save 返回 granted:false
+  -> 结果携带 mode/action/dateKey/levelKey；广告运行失败不自动切换到分享
+
 hintMode == free
   -> 返回 { granted:true, mode:'free' }
 
@@ -1154,7 +1166,7 @@ hintMode == rewarded
   -> 达到平台发奖条件：返回 { granted:true, mode:'rewarded', attemptId }
 ```
 
-EngagementService 不调用 HintService。App 收到 granted 且 run guard 仍匹配后，才调用原有提示展示逻辑。
+EngagementService 不调用 HintService。App 收到 granted 且场景、run、Runner 仍匹配后，才调用原有提示展示逻辑；share/tiered 还须匹配原日期和关卡键。未知策略显式拒绝，不隐式转为 rewarded。
 
 ### 14.2 requestDailyExtraEntry
 
@@ -2565,10 +2577,20 @@ POST  /v1/events:batch
 
 ## 37. 提示分享与本地当日许可
 
-在 `f39fee1` 基础上新增提示分享：用户已接受“发起分享流程后解锁，取消也可能解锁”的客户端口径。`hintMode` 当前为 share，新的 HintAccessService 使用 `cleared:minigame:hint-access:v1` 保存当天已解锁的关卡集合；普通、Portal、每日小关共享记录，同关当天可重复查看。首次解锁只更新按钮，再次点击才展示原有完整路径。
+在 `f39fee1` 基础上新增提示分享：用户已接受“发起分享流程后解锁，取消也可能解锁”的客户端口径。当时 `hintMode` 为 share，新的 HintAccessService 使用 `cleared:minigame:hint-access:v1` 保存当天已解锁的关卡集合；普通、Portal、每日小关共享记录，同关当天可重复查看。首次分享解锁只更新按钮，再次点击才展示原有完整路径。
 
 提示分享独立于菜单/结果分享开关、认证、share intent、归因和 RewardService。它不发送身份、sid 或存档，不增加每日进入次数。原账号、同步、奖励合同与广告位配置保持不变。
 
-后续分级策略尚未实施：当天第一个新关免费、第二个分享、第三个及以后“观看广告并达到平台发奖条件后解锁”。广告条件沿用 `isEnded === true`，包含允许跳过后仍满足条件的情况。
+这一步的后续分级策略现已按第 38 节实施。广告条件沿用 `isEnded === true`，包含允许跳过后仍满足条件的情况。
 
 完整规则、原生分享能力限制、存储容量、异步边界、文件清单与回归范围见 [`hint-access-and-sharing.md`](hint-access-and-sharing.md)。本期在既有测试入口新增两组，55 组 Node 测试通过；设备证据与发布检查需单独记录，不能把 Node 结果当成真实发送或正式广告验收。
+
+## 38. 每日分级提示与广告未开通时的分享替代
+
+2026-09-03 基于 `main@cdd3dc7` 实施，工作分支为 `codex/hint-tiered-unlock`。默认 `hintMode: 'tiered'`、`hintRewardedEnabled: false`、广告位留空，实际为每天第一个新关免费，第二个及以后分享；普通、主线 Portal、每日两个小关共用已成功保存的去重关卡数。旧当日许可直接保留，切换策略不额外补发首次免费。
+
+广告发布开关、有效广告位与平台接口同时可用时，第三个及以后新关使用广告。平台达到发奖条件且返回有效 attemptId 才保存本地许可；提前关闭、缺失结果、无库存、加载／展示错误、busy 和广告位不一致不会自动拉起分享。保存失败时保留原目标，任何新关只可先重试该目标，避免重复领取首次免费或重复索取广告。
+
+职责边界保持在配置、平台广告能力查询、AdsService、HintAccessService、EngagementService 和 App 提示编排。未改变关卡／解答、Runner、棋盘输入／渲染、账号／同步、每日额度、RewardService、HTTP 合同或存档 schema；原主页头像改动保留。
+
+完整决策表、代码白名单、存储与方法合同、验收矩阵及广告开通步骤见 [`hint-tiered-unlock-and-ad-fallback.md`](hint-tiered-unlock-and-ad-fallback.md)。本次 56 组 Node 回归和源码包体预算通过；开发者工具与正式广告／真机证据按该文档第 13 节分别记录。

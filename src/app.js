@@ -1020,6 +1020,9 @@ class ClearedApp {
         challenge: activeDaily.challenge
       })
       : homeDaily;
+    const hintContext = this.hintContext();
+    const hintState = this.engagement.hintState ? this.engagement.hintState(hintContext) : { mode: 'free', action: 'view' };
+    const hintEnabled = this.isHintPreviewActive() || (!this.hintRequest && !['busy', 'unavailable'].includes(hintState.action));
     const base = {
       scene: this.scene,
       pressedId: this.pressedId,
@@ -1040,7 +1043,7 @@ class ClearedApp {
       hint: this.hint,
       hintUntil: this.hintUntil,
       hintPreview: this.hintPreview,
-      hintLabel: this.hintButtonLabel(),
+      hintLabel: this.hintButtonLabel(hintState, hintContext),
       dailyAvailable: !!(homeDaily && homeDaily.status === 'available'),
       dailyEntryAvailable: !!homeDailyEntry.allowed,
       dailyCanEnter: !!homeDailyEntry.allowed,
@@ -1102,7 +1105,7 @@ class ClearedApp {
         canUndo: !!(boardView && boardView.canUndo),
         levelEnteredAt: activeDaily.enteredAt,
         clearAnimation: activeDaily.clearAnimation,
-        hintAvailable: !!boardView && !boardView.terminal && !this.hintRequest,
+        hintAvailable: !!boardView && !boardView.terminal && hintEnabled,
         result: activeDaily.result,
         resultVisibleAt: activeDaily.resultVisibleAt,
         runStartedAt: activeDaily.runStartedAt,
@@ -1237,7 +1240,7 @@ class ClearedApp {
         canUndo: !!(boardView && boardView.canUndo),
         levelEnteredAt: this.levelEnteredAt,
         clearAnimation: this.clearAnimation,
-        hintAvailable: !!boardView && !boardView.terminal && !this.hintRequest,
+        hintAvailable: !!boardView && !boardView.terminal && hintEnabled,
         result: this.result,
         resultVisibleAt: this.resultVisibleAt,
         hasNext: !!(context && this.progression.nextLevel(context.setIndex, activeLevelIndex)),
@@ -2022,16 +2025,19 @@ class ClearedApp {
     return levelKey ? { scene: this.scene, levelKey, dateKey: this.hintAccess.dateKey() } : null;
   }
 
-  hintButtonLabel() {
+  hintButtonLabel(state, context) {
     if (this.hintRequest) return '处理中';
-    const context = this.hintContext();
-    const state = this.engagement.hintState ? this.engagement.hintState(context) : { mode: 'free' };
-    if (state.mode !== 'share') return '提示';
-    if (state.unlocked) return '查看提示';
-    if (state.pendingSave) return '重试保存';
+    if (!state) {
+      context = this.hintContext();
+      state = this.engagement.hintState ? this.engagement.hintState(context) : { mode: 'free' };
+    }
+    if (state.action === 'unavailable') return '提示不可用';
+    if (state.mode !== 'share' && state.mode !== 'tiered') return '提示';
+    if (state.action === 'busy') return '处理中';
+    if (state.action === 'retry-save') return '重试保存';
     if (context && this.hintFeedback && context.dateKey === this.hintFeedback.dateKey &&
-        context.levelKey === this.hintFeedback.levelKey) return this.hintFeedback.label;
-    return '分享解锁';
+        context.levelKey === this.hintFeedback.levelKey && state.action === this.hintFeedback.action) return this.hintFeedback.label;
+    return { view: '查看提示', free: '免费提示', share: '分享解锁', rewarded: '广告解锁' }[state.action] || '提示不可用';
   }
 
   dailyRewardContext() {
@@ -2094,31 +2100,39 @@ class ClearedApp {
     const runner = this.activeRunner();
     if (!runner || this.runnerTerminal(runner) || !['play', 'daily'].includes(this.scene)) return false;
     if (this.isHintPreviewActive()) return this.scene === 'daily' ? this.showDailyHint() : this.showHint();
-    if (this.hintRequest || this.boardInput.isActive()) return false;
+    if (this.hintRequest) return false;
     const context = this.hintContext();
-    // Validate the existing complete solution before asking for any unlock
-    // action. The temporary view is never installed or used to mutate play.
-    const hint = this.resolveCompleteHint(runner);
-    if (!hint || !this.createHintPreview(runner, hint, 0)) {
-      this.hintFeedback = Object.assign({}, context, { label: '暂无提示' });
-      this.audio.playSfx('error');
-      this.invalidate();
-      return false;
+    const state = this.engagement.hintState ? this.engagement.hintState(context) : { mode: 'free', action: 'view' };
+    if (state.action === 'busy' || state.action === 'unavailable') { this.invalidate(); return false; }
+    // Retrying an earned permission may concern a previous level. Repair it
+    // before validating the current level, without touching the current board.
+    if (state.action !== 'retry-save') {
+      if (this.boardInput.isActive()) return false;
+      const hint = this.resolveCompleteHint(runner);
+      if (!hint || !this.createHintPreview(runner, hint, 0)) {
+        this.hintFeedback = Object.assign({}, context, { action: state.action, label: '暂无提示' });
+        this.audio.playSfx('error');
+        this.invalidate();
+        return false;
+      }
     }
     const token = { scene: this.scene, runKey: this.runSequence, runner, context };
     this.hintRequest = token;
     this.hintFeedback = null;
     const apply = result => {
+      // A completed global request may re-enable the button in another run.
+      if (!this.disposed) this.invalidate();
       if (this.hintRequest !== token) return false;
       this.hintRequest = null;
-      this.invalidate();
       if (this.disposed || this.scene !== token.scene || this.runSequence !== token.runKey || this.activeRunner() !== runner || this.runnerTerminal(runner)) return false;
-      if (result && result.mode === 'share') {
+      if (result && (result.mode === 'share' || result.mode === 'tiered')) {
         if (!context || context.dateKey !== this.hintAccess.dateKey()) return false;
+        if (result.dateKey !== context.dateKey || result.levelKey !== context.levelKey) return false;
         if (!result.granted && !result.unlocked) {
           const label = result.reason === 'persist-failed' ? '重试保存'
-            : ['not-supported', 'not-configured'].includes(result.reason) ? '分享不可用' : '重试分享';
-          this.hintFeedback = Object.assign({}, context, { label });
+            : result.action === 'rewarded' ? (result.reason === 'closed' ? '广告解锁' : '重试广告')
+              : ['not-supported', 'not-configured'].includes(result.reason) ? '分享不可用' : '重试分享';
+          this.hintFeedback = Object.assign({}, context, { action: result.action, label });
         }
       }
       return result && result.granted === true && (this.scene === 'daily' ? this.showDailyHint() : this.showHint());

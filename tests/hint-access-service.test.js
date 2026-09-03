@@ -45,10 +45,13 @@ module.exports = function run() {
   assert.strictEqual(access.unlock(next).reason, 'persist-failed');
   assert.strictEqual(access.status(next).unlocked, false);
   assert.strictEqual(access.status(next).pendingSave, true);
+  assert.deepStrictEqual(access.status(context).pendingSaveContext, next);
   assert.strictEqual(access.status(next).unlockCount, 3);
   assert.deepStrictEqual(storage[HintAccess.STORAGE_KEY], durable);
   fail = false;
-  assert(access.unlock(next).ok);
+  const repaired = access.retryPendingSave();
+  assert(repaired.ok); assert.strictEqual(repaired.levelKey, next.levelKey);
+  assert.strictEqual(access.status(context).pendingSaveContext, null);
   assert.strictEqual(create().status(next).unlocked, true);
   assert.strictEqual(access.status(next).unlockCount, 4);
   assert.deepStrictEqual(storage['cleared:minigame:progress:v2'], ordinaryBefore);

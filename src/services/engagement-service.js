@@ -13,14 +13,32 @@ class EngagementService {
   }
   hintState(context) {
     const mode = this.config.hintMode || 'free';
-    if (mode !== 'share') return { mode, unlocked: mode === 'free' };
-    return Object.assign({ mode }, this.hintAccess ? this.hintAccess.status(context)
+    if (mode === 'free') return { ok: true, mode, unlocked: true, action: 'view' };
+    if (mode === 'rewarded') return { ok: true, mode, unlocked: false, action: 'rewarded' };
+    if (mode !== 'share' && mode !== 'tiered') return { ok: false, mode, unlocked: false, action: 'unavailable', reason: 'invalid-mode' };
+    const state = Object.assign({ mode }, this.hintAccess ? this.hintAccess.status(context)
       : { ok: false, reason: 'not-configured', unlocked: false });
+    if (!state.ok) return Object.assign(state, { action: 'unavailable' });
+    if (state.unlocked) return Object.assign(state, { action: 'view' });
+    if ((mode === 'tiered' && state.pendingSaveContext) || (mode === 'share' && state.pendingSave)) {
+      return Object.assign(state, { action: 'retry-save' });
+    }
+    if (this.hintPending) return Object.assign(state, { action: 'busy', reason: 'busy' });
+    if (!state.canUnlock) return Object.assign(state, { action: 'unavailable', reason: 'unlock-limit' });
+    const requiredAction = mode === 'share' ? 'share' : state.unlockCount === 0 ? 'free' : state.unlockCount === 1 ? 'share' : 'rewarded';
+    let fallbackReason = null;
+    if (requiredAction === 'rewarded') {
+      if (this.config.hintRewardedEnabled !== true) fallbackReason = 'ads-not-enabled';
+      else if (!this.ads || !this.ads.isRewardedConfigured('hint')) fallbackReason = 'ads-not-configured';
+      else if (typeof this.ads.isRewardedSupported !== 'function' || !this.ads.isRewardedSupported()) fallbackReason = 'ads-not-supported';
+    }
+    return Object.assign(state, { requiredAction, action: fallbackReason ? 'share' : requiredAction, fallbackReason });
   }
   requestHint(context) {
     const mode = this.config.hintMode || 'free';
     if (mode === 'free') return { granted: true, mode: 'free' };
-    if (mode === 'share') return this.requestHintShare(context);
+    if (mode === 'share' || mode === 'tiered') return this.requestHintUnlock(context);
+    if (mode !== 'rewarded') return { ok: false, granted: false, mode, reason: 'invalid-mode' };
     if (!this.ads) return Promise.resolve({ granted: false, reason: 'not-configured' });
     if (this.behavior) this.behavior.track('ad_requested', { placement: 'hint', scene: context && context.scene });
     return this.ads.showRewarded('hint').then(result => {
@@ -29,30 +47,61 @@ class EngagementService {
         : { granted: false, mode: 'rewarded', reason: result.reason };
     }).catch(() => ({ granted: false, mode: 'rewarded', reason: 'error' }));
   }
-  requestHintShare(context) {
+  requestHintUnlock(context) {
     const state = this.hintState(context);
-    const denied = reason => ({ granted: false, mode: 'share', reason });
-    if (!state.ok) return denied(state.reason);
-    if (state.unlocked) return { granted: true, mode: 'share', alreadyUnlocked: true };
-    if (this.hintPending) return denied('busy');
-    const finish = () => {
-      const saved = this.hintAccess.unlock(context);
-      // Newly unlocked hints require a second tap; the preview timer must not
-      // run while the native share interface covers the game.
-      return saved.ok ? { granted: false, mode: 'share', unlocked: true } : denied(saved.reason);
+    const token = { mode: state.mode, action: state.action, dateKey: context && context.dateKey,
+      levelKey: context && context.levelKey, scene: context && context.scene };
+    const result = extra => Object.assign({ ok: false, granted: false, unlocked: false,
+      mode: token.mode, action: token.action, dateKey: token.dateKey, levelKey: token.levelKey }, extra);
+    const denied = reason => result({ reason });
+    if (!state.ok || state.action === 'unavailable') return denied(state.reason);
+    if (state.action === 'view') return result({ ok: true, granted: true, unlocked: true, alreadyUnlocked: true });
+    if (this.hintPending || state.action === 'busy') return denied('busy');
+    const commit = show => {
+      const saved = token.action === 'retry-save' && token.mode === 'tiered'
+        ? this.hintAccess.retryPendingSave() : this.hintAccess.unlock(token);
+      return result({ ok: saved.ok, granted: saved.ok && show, unlocked: saved.ok,
+        dateKey: saved.dateKey || token.dateKey, levelKey: saved.levelKey || token.levelKey,
+        reason: saved.reason });
     };
-    if (state.pendingSave) return finish();
-    if (!this.share || typeof this.share.shareHint !== 'function') return denied('not-configured');
-    const token = { dateKey: context.dateKey, levelKey: context.levelKey, scene: context.scene };
-    context = token;
+    // The single flight includes local commits. After a disk failure the
+    // access service's pending target reserves the slot across navigation.
     this.hintPending = token;
+    if (token.action === 'free' || token.action === 'retry-save') {
+      try { return commit(token.action === 'free'); }
+      finally { if (this.hintPending === token) this.hintPending = null; }
+    }
+    const track = (name, properties) => {
+      try { if (this.behavior) this.behavior.track(name, properties); } catch (error) {}
+    };
     let task;
-    // Keep the native call in the user's gesture, before any Promise await.
-    try { task = this.share.shareHint(token); } catch (error) { task = { initiated: false, reason: 'not-supported' }; }
-    return Promise.resolve(task).then(result => {
-      if (!result || result.initiated !== true) return denied((result && result.reason) || 'unavailable');
-      if (this.behavior) this.behavior.track('share_initiated', { scene: token.scene, source: 'hint' });
-      return finish();
+    try {
+      if (token.action === 'share') {
+        if (!this.share || typeof this.share.shareHint !== 'function') {
+          this.hintPending = null; return denied('not-configured');
+        }
+        // Sharing stays in the user's gesture; eligibility never awaits a
+        // network call or a deliberately failing advertisement first.
+        task = this.share.shareHint(token);
+      } else {
+        track('ad_requested', { placement: 'hint', scene: token.scene });
+        task = this.ads.showRewarded('hint');
+      }
+    } catch (error) { this.hintPending = null; return denied('not-supported'); }
+    return Promise.resolve(task).then(outcome => {
+      if (token.action === 'share') {
+        if (!outcome || outcome.initiated !== true) return denied((outcome && outcome.reason) || 'unavailable');
+        track('share_initiated', { scene: token.scene, source: 'hint' });
+      } else {
+        const granted = outcome && outcome.rewarded === true;
+        track(granted ? 'ad_completed' : outcome && outcome.reason === 'closed' ? 'ad_closed_early' : 'ad_error',
+          { placement: 'hint', reason: outcome && outcome.reason });
+        if (!granted) return denied((outcome && outcome.reason) || 'error');
+        if (typeof outcome.attemptId !== 'string' || !/^[A-Za-z0-9_:-]{1,200}$/.test(outcome.attemptId)) return denied('invalid-response');
+      }
+      // Only the admission-time target receives the permission; the App
+      // decides whether that target still belongs to its visible run.
+      return commit(false);
     }).catch(() => denied('unavailable')).finally(() => {
       if (this.hintPending === token) this.hintPending = null;
     });

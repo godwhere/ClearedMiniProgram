@@ -154,17 +154,8 @@ module.exports = async function run() {
     if (change !== 'dispose') late.app.dispose();
   }
 
-  const previousWx = global.wx;
-  try {
-    const raw = fakeApi(); let shares = 0;
-    raw.shareAppMessage = () => { shares++; }; global.wx = raw;
-    const booted = require('../src/bootstrap.js').start();
-    assert.strictEqual(booted.engagement.config.hintMode, 'share', 'production bootstrap enables the approved share policy');
-    assert.strictEqual(booted.engagement.hintAccess, booted.hintAccess);
-    booted.openLevel(0, 0); booted.performAction('play:hint');
-    assert.strictEqual(shares, 1); await settle();
-    assert.strictEqual(booted.hintPreview, null); booted.performAction('play:hint'); assert(booted.hintPreview);
-    assert(!raw.events.includes('login'), 'hint sharing works with backend authentication disabled');
-    booted.dispose();
-  } finally { global.wx = previousWx; }
+  // Production bootstrap now exercises the tiered policy in hint-tiered.test.
+  // This group intentionally retains the explicit share-mode contract.
 };
+
+module.exports.finishDailyLevel = finishDailyLevel;
