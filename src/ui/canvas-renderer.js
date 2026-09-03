@@ -752,14 +752,15 @@ class CanvasRenderer {
   drawStaminaStatus(stamina, rect, options) {
     if (!stamina || !stamina.enabled) return;
     const compact = options && options.compact;
+    const detailsBelow = options && options.detailsBelow;
     const center = rect.x + rect.w / 2;
-    this.drawIcon('stamina', center - 13, rect.y + 12, compact ? 15 : 18);
-    this.text(stamina.balance, center + 9, rect.y + 12, compact ? 17 : 20,
-      { weight: 500, maxWidth: Math.max(1, rect.w - 26) });
-    const label = stamina.balance > stamina.naturalCap
-      ? `额外 +${stamina.overflow}`
-      : stamina.recovering ? formatStaminaCountdown(stamina.remainingMs) : '已满';
-    this.text(label, center, rect.y + 33, compact ? 10 : 11,
+    const mainY = rect.y + (detailsBelow || (options && options.showDetail === false) ? rect.h / 2 : 12);
+    this.drawIcon('stamina', center - 18, mainY, compact ? 22 : 24);
+    this.text(`${stamina.balance}/${stamina.naturalCap}`, center - 4, mainY, compact ? 17 : 20,
+      { weight: 500, align: 'left', maxWidth: Math.max(1, rect.w / 2) });
+    if (options && options.showDetail === false) return;
+    const label = stamina.balance >= stamina.naturalCap ? '体力已满' : formatStaminaCountdown(stamina.remainingMs);
+    this.text(label, center, rect.y + (detailsBelow ? rect.h + 10 : 33), compact ? 10 : 11,
       { alpha: 0.78, maxWidth: Math.max(1, rect.w - 4) });
   }
 
@@ -769,7 +770,9 @@ class CanvasRenderer {
     const skin = this.skinService.current();
     const { width, safeBottom } = this.platform.metrics;
     const stamina = model.stamina;
-    const label = feedback.reason === 'persist-failed' ? '体力状态保存失败，请重试'
+    const label = feedback.reason === 'quick-clear-refund' ? `1分钟内通关，体力 +${feedback.amount}`
+      : feedback.reason === 'refund-persist-failed' ? '体力返还待保存'
+      : feedback.reason === 'persist-failed' ? '体力状态保存失败，请重试'
       : stamina && stamina.recovering && Number.isFinite(stamina.remainingMs)
         ? `体力不足，${formatStaminaCountdown(stamina.remainingMs)} 后恢复 1 点`
         : '体力不足，请稍后再试';
@@ -788,12 +791,24 @@ class CanvasRenderer {
     const { width, height, safeTop, safeBottom } = this.platform.metrics;
     const ctx = this.ctx;
     this.begin(skin.colors.homeBackground);
-    this.iconButton('home:sound', { x: width - 58, y: safeTop + (skin.layout.homeTopUiOffset || 0) + 8, w: 44, h: 44 },
+    const topUi = safeTop + (skin.layout.homeTopUiOffset || 0) + 8;
+    this.iconButton('home:sound', { x: width - 130, y: topUi, w: 44, h: 44 },
       model.soundEnabled ? 'sound' : 'mute', true, model.pressedId);
     this.drawHomeAvatar(model.accountProfile,
-      { x: 18, y: safeTop + (skin.layout.homeTopUiOffset || 0) + 8, w: 44, h: 44 }, model.pressedId);
-    this.drawStaminaStatus(model.stamina,
-      { x: (width - 104) / 2, y: safeTop + (skin.layout.homeTopUiOffset || 0) + 8, w: 104, h: 44 });
+      { x: 18, y: topUi, w: 44, h: 44 }, model.pressedId);
+    if (model.stamina && model.stamina.enabled) {
+      const staminaRect = { x: width - 78, y: topUi, w: 64, h: 44 };
+      if (model.pressedId === 'home:stamina') {
+        ctx.save();
+        this.roundedRect(staminaRect.x, staminaRect.y, staminaRect.w, staminaRect.h, 8);
+        ctx.fillStyle = skin.colors.controlPressed;
+        ctx.fill();
+        ctx.restore();
+      }
+      this.drawStaminaStatus(model.stamina, staminaRect,
+        { compact: true, detailsBelow: true, showDetail: model.homeStaminaExpanded === true });
+      this.addHit('home:stamina', staminaRect, true);
+    }
 
     const buttonHeight = 54;
     const buttonGap = 12;
@@ -1763,12 +1778,13 @@ class CanvasRenderer {
 
     const headerTop = safeTop + 4;
     const headerHeight = 72;
-    this.iconButton('levels:home', { x: 10, y: headerTop + 8, w: 44, h: 44 }, 'home', true, model.pressedId);
+    const controlTop = headerTop + 4;
+    this.iconButton('levels:home', { x: 10, y: controlTop, w: 44, h: 44 }, 'home', true, model.pressedId);
     this.text('选择关卡', width / 2, headerTop + 26, 26, { weight: 300 });
     this.text(items.length ? `${rangeStart}–${rangeEnd} / ${totalLevels}` : `0 / ${totalLevels}`,
       width / 2, headerTop + 53, 12, { alpha: 0.58 });
     this.drawStaminaStatus(model.stamina,
-      { x: width - 100, y: headerTop + 8, w: 86, h: 44 });
+      { x: width - 100, y: controlTop, w: 86, h: 44 }, { showDetail: false });
 
     const columns = items.length <= 5 ? Math.max(1, items.length) : 5;
     const rows = Math.ceil(items.length / columns);
@@ -1981,6 +1997,8 @@ class CanvasRenderer {
     const headerHeight = 70;
     const topUi = headerTop + (skin.layout.playTopUiOffset || 0);
     const controlSize = 42;
+    // Center the single-row controls on the level title; time stays below it.
+    const controlTop = topUi + 5;
     // Preserve the pre-theme control positions.  A manifest can opt into the
     // newer margin/gap tokens, but classic continues to use playRightShift so
     // existing layouts and touch targets remain unchanged.
@@ -1996,13 +2014,11 @@ class CanvasRenderer {
     const ctx = this.ctx;
     ctx.fillStyle = skin.colors.panel;
     ctx.fillRect(0, 0, width, topUi + headerHeight);
-    this.iconButton('play:back', { x: 8, y: topUi + 12, w: 44, h: 44 }, 'back', true, model.pressedId);
-    this.drawStaminaStatus(model.stamina,
-      { x: 56, y: topUi + 12, w: 52, h: 44 }, { compact: true });
-    this.iconButton('play:sound', { x: soundX, y: topUi + 12, w: controlSize, h: 44 },
+    this.iconButton('play:back', { x: 8, y: controlTop, w: 44, h: 44 }, 'back', true, model.pressedId);
+    this.iconButton('play:sound', { x: soundX, y: controlTop, w: controlSize, h: 44 },
       model.soundEnabled ? 'sound' : 'mute', true, model.pressedId);
     const hintPreviewActive = !!(model.hintPreview && now < model.hintPreview.until);
-    this.iconButton('play:reset', { x: resetX, y: topUi + 12, w: controlSize, h: 44 }, 'reset', model.scene !== 'result' && !hintPreviewActive, model.pressedId);
+    this.iconButton('play:reset', { x: resetX, y: controlTop, w: controlSize, h: 44 }, 'reset', model.scene !== 'result' && !hintPreviewActive, model.pressedId);
 
     const ordinaryNumber = Number(model.ordinaryLevelNumber);
     const ordinaryCount = Number(model.ordinaryLevelCount);
@@ -2480,7 +2496,7 @@ class CanvasRenderer {
 
     const ctx = this.ctx;
     const sharing = model.shareAvailable === true;
-    const panelHeight = sharing ? Math.min(300, safeBottom - safeTop - 16) : Math.min(246, height * 0.34);
+    const panelHeight = Math.min(sharing ? 300 : 246, safeBottom - safeTop - 16);
     const panelY = sharing ? safeTop + (safeBottom - safeTop - panelHeight) / 2 : (height - panelHeight) / 2;
     ctx.fillStyle = skin.colors.strongPanel;
     ctx.fillRect(0, panelY, width, panelHeight);

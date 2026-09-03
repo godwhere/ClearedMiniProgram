@@ -35,10 +35,12 @@ function createStaminaFixture(saved, options) {
 // Only old tests inject this; production always uses the finite service.
 function createUnlimitedStaminaFixture() {
   const snapshot = () => ({ enabled: true, balance: 5, naturalCap: 5,
-    ordinaryAttemptCost: 1, recovering: false, nextRecoveryAt: null,
-    remainingMs: 0, overflow: 0, canStartOrdinaryAttempt: true, persisted: true });
-  return { snapshot, flush: () => true,
-    consumeOrdinaryAttempt: () => ({ ok: true, spent: 1, before: 5, after: 5, snapshot: snapshot() }) };
+    ordinaryUnlockCost: 1, recovering: false, nextRecoveryAt: null,
+    remainingMs: 0, overflow: 0, canUnlockOrdinaryLevel: true, persisted: true });
+  return { snapshot, flush: () => true, restoreUnlockedLevels: () => true,
+    refundQuickClear: () => ({ ok: true, refunded: 0, snapshot: snapshot() }),
+    quickClearRefundState: () => ({ status: 'unavailable', amount: 1 }),
+    unlockOrdinaryLevel: () => ({ ok: true, spent: 0, before: 5, after: 5, snapshot: snapshot() }) };
 }
 
 module.exports = { createStaminaFixture, createUnlimitedStaminaFixture, STORAGE_KEY, NOW, INTERVAL, clone };

@@ -246,7 +246,7 @@ function run() {
   assert.deepStrictEqual(renderer.getBoardLayout(), renderer.boardLayout,
     'legacy boardLayout access and the locator API share one layout');
   const backHit = renderer.hits.find(hit => hit.id === 'play:back');
-  assert.strictEqual(backHit.rect.y, platform.metrics.safeTop + classic.layout.playTopUiOffset + 12);
+  assert.strictEqual(backHit.rect.y + backHit.rect.h / 2, platform.metrics.safeTop + classic.layout.playTopUiOffset + 27);
   const soundTopHit = renderer.hits.find(hit => hit.id === 'play:sound');
   const resetTopHit = renderer.hits.find(hit => hit.id === 'play:reset');
   assert(soundTopHit.rect.x > backHit.rect.x);

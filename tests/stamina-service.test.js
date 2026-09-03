@@ -4,25 +4,27 @@ const assert = require('assert');
 const StaminaService = require('../src/services/stamina-service.js');
 const config = require('../src/config/stamina.js');
 const { createStaminaFixture, STORAGE_KEY, NOW, INTERVAL, clone } = require('./helpers/stamina-fixture.js');
-const saved = (balance, nextRecoveryAt) => ({ schemaVersion: 1, balance, nextRecoveryAt });
+const saved = (balance, nextRecoveryAt, unlockedLevels = [], refundedLevels = []) =>
+  ({ schemaVersion: 1, balance, nextRecoveryAt, unlockedLevels, refundedLevels });
 
 function run() {
-  assert.deepStrictEqual(config, { initialBalance: 5, naturalCap: 5, recoveryIntervalMs: INTERVAL, ordinaryAttemptCost: 1 });
+  assert.deepStrictEqual(config, { initialBalance: 5, naturalCap: 5, recoveryIntervalMs: INTERVAL,
+    ordinaryUnlockCost: 1, quickClearLimitMs: 60000, quickClearRefundAmount: 1 });
   assert(Object.isFrozen(config));
   const f = createStaminaFixture();
   assert.deepStrictEqual(f.service.snapshot(), { enabled: true, balance: 5, naturalCap: 5,
-    ordinaryAttemptCost: 1, recovering: false, nextRecoveryAt: null, remainingMs: 0,
-    overflow: 0, canStartOrdinaryAttempt: true, persisted: true });
+    ordinaryUnlockCost: 1, recovering: false, nextRecoveryAt: null, remainingMs: 0,
+    overflow: 0, canUnlockOrdinaryLevel: true, persisted: true });
   assert.deepStrictEqual(f.raw.storage[STORAGE_KEY], saved(5, null));
   f.setNow(NOW + 30 * INTERVAL);
   assert.strictEqual(f.service.snapshot().balance, 5);
   assert.strictEqual(f.writes.length, 1, 'full stamina does not bank time or write on reads');
   f.setNow(NOW);
-  const first = f.service.consumeOrdinaryAttempt();
+  const first = f.service.unlockOrdinaryLevel('0:0');
   assert.deepStrictEqual([first.ok, first.spent, first.before, first.after], [true, 1, 5, 4]);
   assert.strictEqual(first.snapshot.nextRecoveryAt, NOW + INTERVAL);
   f.setNow(NOW + 120000);
-  const second = f.service.consumeOrdinaryAttempt();
+  const second = f.service.unlockOrdinaryLevel('0:1');
   assert.strictEqual(second.after, 3);
   assert.strictEqual(second.snapshot.nextRecoveryAt, NOW + INTERVAL);
   assert.strictEqual(f.service.snapshot(NOW + INTERVAL - 1).balance, 3);
@@ -33,7 +35,7 @@ function run() {
   assert.strictEqual(f.writes.length, beforeReads, 'frame/second reads do not persist');
   assert.strictEqual(f.service.snapshot(NOW + 2 * INTERVAL).nextRecoveryAt, null);
   assert.strictEqual(f.service.snapshot(NOW + 100 * INTERVAL).balance, 5);
-  assert.strictEqual(f.service.consumeOrdinaryAttempt(NOW + 100 * INTERVAL).snapshot.nextRecoveryAt, NOW + 101 * INTERVAL);
+  assert.strictEqual(f.service.unlockOrdinaryLevel('0:2', NOW + 100 * INTERVAL).snapshot.nextRecoveryAt, NOW + 101 * INTERVAL);
 
   const offline = createStaminaFixture(saved(2, NOW + INTERVAL));
   const recovered = offline.service.snapshot(NOW + 720000);
@@ -52,32 +54,32 @@ function run() {
     assert.strictEqual(snapshot.nextRecoveryAt, null);
   }
   const extra = createStaminaFixture(saved(7, NOW + 1));
-  assert.strictEqual(extra.service.consumeOrdinaryAttempt(NOW).snapshot.nextRecoveryAt, null);
-  assert.strictEqual(extra.service.consumeOrdinaryAttempt(NOW + INTERVAL).snapshot.nextRecoveryAt, null);
-  const crossing = extra.service.consumeOrdinaryAttempt(NOW + 2 * INTERVAL);
+  assert.strictEqual(extra.service.unlockOrdinaryLevel('0:0', NOW).snapshot.nextRecoveryAt, null);
+  assert.strictEqual(extra.service.unlockOrdinaryLevel('0:1', NOW + INTERVAL).snapshot.nextRecoveryAt, null);
+  const crossing = extra.service.unlockOrdinaryLevel('0:2', NOW + 2 * INTERVAL);
   assert.strictEqual(crossing.after, 4);
   assert.strictEqual(crossing.snapshot.nextRecoveryAt, NOW + 3 * INTERVAL);
 
   const zero = createStaminaFixture(saved(0, NOW + INTERVAL));
-  assert.strictEqual(zero.service.consumeOrdinaryAttempt().reason, 'insufficient-stamina');
+  assert.strictEqual(zero.service.unlockOrdinaryLevel('0:0').reason, 'insufficient-stamina');
   assert.strictEqual(zero.writes.length, 0);
-  assert.strictEqual(zero.service.snapshot().canStartOrdinaryAttempt, false);
+  assert.strictEqual(zero.service.snapshot().canUnlockOrdinaryLevel, false);
 
   const disk = createStaminaFixture(saved(5, null));
   disk.service.snapshot(); disk.failStorage(true);
-  assert.strictEqual(disk.service.consumeOrdinaryAttempt().reason, 'persist-failed');
+  assert.strictEqual(disk.service.unlockOrdinaryLevel('0:0').reason, 'persist-failed');
   assert.strictEqual(disk.service.snapshot().balance, 5);
   assert.strictEqual(disk.service.snapshot().nextRecoveryAt, null);
   assert.deepStrictEqual(disk.raw.storage[STORAGE_KEY], saved(5, null));
   disk.failStorage(false);
-  assert.strictEqual(disk.service.consumeOrdinaryAttempt().after, 4);
+  assert.strictEqual(disk.service.unlockOrdinaryLevel('0:0').after, 4);
 
   const pending = createStaminaFixture(saved(2, NOW + INTERVAL));
   pending.failStorage(true);
   const unpersisted = pending.service.snapshot(NOW + 720000);
   assert.strictEqual(unpersisted.balance, 4);
   assert.strictEqual(unpersisted.persisted, false);
-  assert.strictEqual(pending.service.consumeOrdinaryAttempt(NOW + 720000).reason, 'persist-failed');
+  assert.strictEqual(pending.service.unlockOrdinaryLevel('0:0', NOW + 720000).reason, 'persist-failed');
   assert.strictEqual(pending.service.snapshot(NOW + 720000).balance, 4, 'failed spending preserves recovered stamina');
   const attempts = pending.writes.length;
   for (let i = 0; i < 100; i++) pending.service.snapshot(NOW + 720000 + i);
@@ -104,13 +106,13 @@ function run() {
   const backwards = createStaminaFixture(saved(2, NOW + INTERVAL));
   assert.strictEqual(backwards.service.snapshot(NOW - INTERVAL).balance, 2);
   assert.strictEqual(backwards.service.snapshot(NOW - INTERVAL).remainingMs, 2 * INTERVAL);
-  backwards.service.consumeOrdinaryAttempt(NOW - INTERVAL);
+  backwards.service.unlockOrdinaryLevel('0:0', NOW - INTERVAL);
   assert.strictEqual(backwards.service.snapshot(NOW).nextRecoveryAt, NOW + INTERVAL);
 
   const independent = createStaminaFixture(saved(4, NOW + INTERVAL));
   const view = independent.service.snapshot(); view.balance = 999; view.nextRecoveryAt = 0;
   assert.strictEqual(independent.service.snapshot().balance, 4);
-  independent.service.consumeOrdinaryAttempt().snapshot.balance = 100;
+  independent.service.unlockOrdinaryLevel('0:0').snapshot.balance = 100;
   assert.strictEqual(independent.service.snapshot().balance, 3);
   const storageCopy = clone(independent.raw.storage[STORAGE_KEY]);
   independent.raw.storage[STORAGE_KEY].balance = 100;
@@ -118,18 +120,115 @@ function run() {
 
   for (const value of [-1, 1.5, Infinity, NaN, '5', Number.MAX_SAFE_INTEGER + 1]) {
     const invalidConfig = createStaminaFixture(undefined, { initialBalance: value, naturalCap: value,
-      ordinaryAttemptCost: value, recoveryIntervalMs: value });
+      ordinaryUnlockCost: value, recoveryIntervalMs: value });
     assert.deepStrictEqual(invalidConfig.service.config, config);
   }
   const nearLimit = createStaminaFixture(saved(5, null));
-  const edge = nearLimit.service.consumeOrdinaryAttempt(8640000000000000);
+  const edge = nearLimit.service.unlockOrdinaryLevel('0:0', 8640000000000000);
   assert.strictEqual(edge.snapshot.nextRecoveryAt, 8640000000000000);
   assert(Number.isSafeInteger(edge.snapshot.nextRecoveryAt));
   assert.strictEqual(nearLimit.service.snapshot(NaN).balance, 4);
   const initialFailure = createStaminaFixture(); initialFailure.failStorage(true);
   assert.strictEqual(initialFailure.service.snapshot().persisted, false);
-  assert.strictEqual(initialFailure.service.consumeOrdinaryAttempt().ok, false);
+  assert.strictEqual(initialFailure.service.unlockOrdinaryLevel('0:0').ok, false);
   initialFailure.failStorage(false); assert(initialFailure.service.flush());
+
+  const access = createStaminaFixture(saved(1, NOW + INTERVAL));
+  assert.strictEqual(access.service.unlockOrdinaryLevel('1:4').spent, 1);
+  assert.deepStrictEqual(access.raw.storage[STORAGE_KEY], saved(0, NOW + INTERVAL, ['1:4']));
+  access.failStorage(true);
+  assert.strictEqual(access.service.unlockOrdinaryLevel('1:4').spent, 0, 'unlocked levels work at zero even when storage is unavailable');
+  assert.strictEqual(access.service.unlockOrdinaryLevel('1:3').reason, 'insufficient-stamina');
+  assert.strictEqual(access.writes.length, 1, 'free reentry does not write storage');
+  const reloaded = new StaminaService(access.platform, { clock: access.clock });
+  assert.strictEqual(reloaded.unlockOrdinaryLevel('1:4').spent, 0, 'unlocks survive process restarts');
+  assert.strictEqual(reloaded.snapshot().balance, 0);
+
+  const transaction = createStaminaFixture(saved(5, null));
+  transaction.failStorage(true);
+  assert.strictEqual(transaction.service.unlockOrdinaryLevel('0:1').reason, 'persist-failed');
+  assert.deepStrictEqual(transaction.raw.storage[STORAGE_KEY], saved(5, null));
+  transaction.failStorage(false);
+  assert.strictEqual(transaction.service.unlockOrdinaryLevel('0:1').spent, 1, 'a failed debit never grants access');
+  assert.strictEqual(transaction.service.unlockOrdinaryLevel('0:1').spent, 0);
+  transaction.raw.storage[STORAGE_KEY].unlockedLevels.push('0:2');
+  assert.strictEqual(transaction.service.unlockOrdinaryLevel('0:2').spent, 1, 'storage objects cannot mutate in-memory unlocks');
+  for (const key of [null, '', '__proto__', '01:2', '-1:0', '1.5:2', '0:9007199254740992']) {
+    const balance = transaction.service.snapshot().balance;
+    assert.strictEqual(transaction.service.unlockOrdinaryLevel(key).reason, 'invalid-level');
+    assert.strictEqual(transaction.service.snapshot().balance, balance);
+  }
+
+  const migrated = createStaminaFixture({ schemaVersion: 1, balance: 0, nextRecoveryAt: NOW + INTERVAL });
+  assert(migrated.service.restoreUnlockedLevels(['0:0', '0:1', '0:0', '__proto__']));
+  assert.deepStrictEqual(migrated.raw.storage[STORAGE_KEY], saved(0, NOW + INTERVAL, ['0:0', '0:1']));
+  assert.strictEqual(migrated.writes.length, 1, 'migration preserves balance and commits unlocks together');
+  assert.strictEqual(migrated.service.unlockOrdinaryLevel('0:1').spent, 0);
+  migrated.service.restoreUnlockedLevels(['0:0']);
+  assert.strictEqual(migrated.writes.length, 1);
+  const repairUnlocks = createStaminaFixture(saved(4, NOW + INTERVAL, ['0:1', '0:1', {}, '__proto__']));
+  repairUnlocks.service.snapshot();
+  assert.deepStrictEqual(repairUnlocks.raw.storage[STORAGE_KEY].unlockedLevels, ['0:1']);
+
+  for (const elapsedMs of [0, 59999, 60000, 60001]) {
+    const quick = createStaminaFixture(saved(5, null));
+    quick.service.unlockOrdinaryLevel('0:0');
+    const refund = quick.service.refundQuickClear('0:0', elapsedMs);
+    assert.strictEqual(refund.refunded, elapsedMs <= 60000 ? 1 : 0);
+    assert.strictEqual(quick.service.snapshot().balance, elapsedMs <= 60000 ? 5 : 4);
+    if (elapsedMs > 60000) {
+      assert.strictEqual(quick.service.quickClearRefundState('0:0').status, 'available');
+      assert.strictEqual(quick.service.refundQuickClear('0:0', 30000).refunded, 1,
+        'a later first fast clear earns the refund even after an earlier slow clear');
+    }
+    assert.strictEqual(quick.service.snapshot().nextRecoveryAt, null, 'refund reaching the cap clears recovery');
+    assert.strictEqual(quick.service.quickClearRefundState('0:0').status, 'claimed');
+    const writes = quick.writes.length;
+    assert.strictEqual(quick.service.refundQuickClear('0:0', 1000).refunded, 0);
+    assert.strictEqual(quick.service.unlockOrdinaryLevel('0:0').spent, 0);
+    assert.strictEqual(quick.service.refundQuickClear('0:0', 1000).refunded, 0, 'free replays never re-arm a refund');
+    const restart = new StaminaService(quick.platform, { clock: quick.clock });
+    assert.strictEqual(restart.refundQuickClear('0:0', 1000).refunded, 0);
+    assert.strictEqual(quick.writes.length, writes, 'duplicate and restarted completions do not write');
+  }
+
+  const invalidRefund = createStaminaFixture(saved(4, NOW + INTERVAL, ['0:0']));
+  for (const elapsedMs of [-1, NaN, Infinity, '1000']) {
+    assert.strictEqual(invalidRefund.service.refundQuickClear('0:0', elapsedMs).ok, false);
+  }
+  assert.strictEqual(invalidRefund.service.refundQuickClear('__proto__', 1000).ok, false);
+  assert.strictEqual(invalidRefund.service.snapshot().balance, 4);
+  invalidRefund.setNow(NOW + 10000);
+  assert.strictEqual(invalidRefund.service.refundQuickClear('0:0', 10000).refunded, 1);
+  const recovering = createStaminaFixture(saved(1, NOW + INTERVAL, ['0:0']));
+  recovering.service.refundQuickClear('0:0', 10000);
+  assert.strictEqual(recovering.service.snapshot().balance, 2);
+  assert.strictEqual(recovering.service.snapshot().nextRecoveryAt, NOW + INTERVAL);
+  for (const balance of [5, 8]) {
+    const overflowRefund = createStaminaFixture(saved(balance, null, ['0:0']));
+    overflowRefund.service.refundQuickClear('0:0', 1000);
+    assert.strictEqual(overflowRefund.service.snapshot().balance, balance + 1);
+    assert.strictEqual(overflowRefund.service.snapshot().nextRecoveryAt, null);
+  }
+
+  const refundDisk = createStaminaFixture(saved(3, NOW + INTERVAL, ['0:0', '0:1']));
+  refundDisk.failStorage(true);
+  assert.strictEqual(refundDisk.service.refundQuickClear('0:0', 1000).reason, 'refund-persist-failed');
+  assert.strictEqual(refundDisk.service.refundQuickClear('0:1', 1000).ok, false);
+  assert.strictEqual(refundDisk.service.snapshot().balance, 3, 'failed refund does not secretly credit memory');
+  assert.deepStrictEqual(refundDisk.raw.storage[STORAGE_KEY].refundedLevels, []);
+  assert.strictEqual(refundDisk.service.quickClearRefundState('0:0').status, 'pending');
+  const pendingWrites = refundDisk.writes.length;
+  for (let i = 0; i < 100; i++) refundDisk.service.snapshot(NOW + i);
+  assert.strictEqual(refundDisk.writes.length, pendingWrites);
+  refundDisk.failStorage(false); assert(refundDisk.service.flush());
+  assert.strictEqual(refundDisk.writes.length, pendingWrites + 1, 'pending refunds flush together');
+  assert.deepStrictEqual(refundDisk.raw.storage[STORAGE_KEY], saved(5, null, ['0:0', '0:1'], ['0:0', '0:1']));
+  const grandfathered = createStaminaFixture(saved(5, null, ['0:0']));
+  assert.strictEqual(grandfathered.service.refundQuickClear('0:0', 1000).refunded, 1, 'legacy unlocked levels also qualify once');
+  const limit = createStaminaFixture(saved(Number.MAX_SAFE_INTEGER, null, ['0:0']));
+  assert.strictEqual(limit.service.refundQuickClear('0:0', 1000).ok, false);
+  assert.strictEqual(limit.service.snapshot().balance, Number.MAX_SAFE_INTEGER);
 }
 
 module.exports = run;

@@ -259,10 +259,17 @@ class ClearedApp {
     // and persistence without leaking daily state into ProgressStore.
     this.dailyClock = typeof opts.clock === 'function' ? opts.clock : () => new Date();
     this.stamina = opts.stamina || new StaminaService(platform, staminaConfig);
+    const lastPlayed = this.progress.state.lastPlayed;
+    this.stamina.restoreUnlockedLevels(catalog.levels.filter(entry =>
+      this.progress.isCompleted(entry.setIndex, entry.levelIndex) ||
+      (lastPlayed && lastPlayed.setIndex === entry.setIndex && lastPlayed.levelIndex === entry.levelIndex)
+    ).map(entry => `${entry.setIndex}:${entry.levelIndex}`), this.clockNow().getTime());
+    this.recoverStaminaRefunds(this.clockNow().getTime());
     this.staminaSnapshot = this.stamina.snapshot(this.clockNow().getTime());
     this.lastStaminaSecond = this.staminaSnapshot.recovering
       ? Math.ceil(this.staminaSnapshot.remainingMs / 1000) : -1;
     this.staminaFeedback = null;
+    this.homeStaminaExpanded = false;
     const usingBuiltInDailyManifest = opts.dailyManifest === undefined;
     this.dailyManifest = usingBuiltInDailyManifest
       ? defaultDailyManifest
@@ -1035,6 +1042,7 @@ class ClearedApp {
       scene: this.scene,
       stamina: Object.assign({}, this.staminaSnapshot),
       staminaFeedback: this.staminaFeedback ? Object.assign({}, this.staminaFeedback) : null,
+      homeStaminaExpanded: this.scene === 'home' && this.homeStaminaExpanded,
       pressedId: this.pressedId,
       accountProfile: (this.scene === 'home' || this.scene === 'account') && this.profile ? this.profile.current() : null,
       shareAvailable: !!(this.share && this.share.isResultEnabled() && this.shareContext().completed),
@@ -1252,6 +1260,7 @@ class ClearedApp {
         clearAnimation: this.clearAnimation,
         hintAvailable: !!boardView && !boardView.terminal && hintEnabled,
         result: this.result,
+        staminaRefund: context ? this.stamina.quickClearRefundState(`${context.setIndex}:${activeLevelIndex}`) : null,
         resultVisibleAt: this.resultVisibleAt,
         hasNext: !!(context && this.progression.nextLevel(context.setIndex, activeLevelIndex)),
         portals: portalStatus ? portalStatus.portals : [],
@@ -1467,6 +1476,16 @@ class ClearedApp {
     this.result = completion;
     this.resultVisibleAt = now + this.skins.current().animation.resultDelayMs;
     this.scene = 'result';
+    if (runner === this.runner && this.runContext.progressionScope === 'ordinary') {
+      const refundAt = this.clockNow().getTime();
+      const refund = this.stamina.refundQuickClear(
+        `${this.runContext.setIndex}:${this.runContext.levelIndex}`, completion.elapsedMs, refundAt
+      );
+      this.result.staminaRefunded = refund.refunded;
+      this.refreshStamina(refundAt);
+      if (refund.refunded > 0) this.showStaminaFeedback('quick-clear-refund', refundAt, refund.refunded);
+      else if (!refund.ok) this.showStaminaFeedback(refund.reason, refundAt);
+    }
     // Optional engagement starts only after the result and local completion.
     if (this.share) this.share.prepareContext(this.shareContext());
     // The legacy local store retains in-memory progress on a write failure.
@@ -1747,6 +1766,13 @@ class ClearedApp {
 
   performAction(action) {
     if (typeof action !== 'string' || !action) return false;
+    if (action === 'home:stamina') {
+      if (this.scene !== 'home') return false;
+      this.homeStaminaExpanded = !this.homeStaminaExpanded;
+      this.refreshStamina(this.clockNow().getTime());
+      this.invalidate();
+      return this.homeStaminaExpanded;
+    }
     if (action === 'daily:revive' || action === 'dailyResult:revive') action = 'daily:extraEntry';
     const previewActive = this.isHintPreviewActive();
     if (previewActive && (action === 'play:reset' || action === 'play:undo' ||
@@ -1980,6 +2006,7 @@ class ClearedApp {
     }
     if (previousScene === 'account' && this.scene !== 'account') this.leaveAccount();
     if (previousScene !== this.scene) {
+      this.homeStaminaExpanded = false;
       this.clearHintRequest();
       if (this.share) this.share.prepareContext(this.shareContext());
     }
@@ -2627,20 +2654,23 @@ class ClearedApp {
     const runner = this.createOrdinaryRunner(context);
     if (!runner) return false;
     const now = this.clockNow().getTime();
-    const consumed = this.stamina.consumeOrdinaryAttempt(now);
+    // Completed progress can also arrive from cloud sync after construction.
+    const unlocked = this.progress.isCompleted(setIndex, levelIndex)
+      ? { ok: true } : this.stamina.unlockOrdinaryLevel(`${setIndex}:${levelIndex}`, now);
     this.refreshStamina(now);
-    if (!consumed.ok) {
-      this.showStaminaFeedback(consumed.reason, now);
+    if (!unlocked.ok) {
+      this.showStaminaFeedback(unlocked.reason, now);
       return false;
     }
     this.clearStaminaFeedback();
+    this.homeStaminaExpanded = false;
     this.clearHintRequest();
     if (this.scene === 'account') this.leaveAccount();
     this.runContext = context;
     this.setIndex = context.setIndex;
     this.levelIndex = context.levelIndex;
     this.levelPageIndex = this.levelPageForTarget(context);
-    // Progress persistence cannot undo an already paid, playable attempt.
+    // Progress persistence cannot undo an already paid, permanent unlock.
     try {
       this.progress.markOpened(context.setIndex, context.levelIndex);
       this.progress.save();
@@ -2682,8 +2712,22 @@ class ClearedApp {
     return changed;
   }
 
-  showStaminaFeedback(reason, now) {
+  recoverStaminaRefunds(now) {
+    // A saved fast completion also proves a refund that was interrupted by a
+    // failed stamina write or process exit. Spent entitlements cannot repeat.
+    catalog.levels.forEach(entry => {
+      if (this.progress.isCompleted(entry.setIndex, entry.levelIndex)) {
+        const elapsedMs = this.progress.bestTime(entry.setIndex, entry.levelIndex);
+        if (Number.isFinite(elapsedMs) && elapsedMs > 0) {
+          this.stamina.refundQuickClear(`${entry.setIndex}:${entry.levelIndex}`, elapsedMs, now);
+        }
+      }
+    });
+  }
+
+  showStaminaFeedback(reason, now, amount) {
     this.staminaFeedback = { reason, until: now + 2200 };
+    if (amount > 0) this.staminaFeedback.amount = amount;
     this.invalidate();
   }
 
@@ -2837,7 +2881,9 @@ class ClearedApp {
 
   onHide() {
     if (this.disposed) return;
-    this.stamina.flush(this.clockNow().getTime());
+    this.homeStaminaExpanded = false;
+    if (this.stamina.flush(this.clockNow().getTime()) && this.staminaFeedback &&
+        this.staminaFeedback.reason === 'refund-persist-failed') this.clearStaminaFeedback();
     this.hidden = true;
     if (this.scene === 'account') this.leaveAccount();
     this.pointer = null;
@@ -2880,6 +2926,10 @@ class ClearedApp {
 
   onShow(options) {
     if (this.disposed) return;
+    const staminaNow = this.clockNow().getTime();
+    this.recoverStaminaRefunds(staminaNow);
+    if (this.stamina.flush(staminaNow) && this.staminaFeedback &&
+        this.staminaFeedback.reason === 'refund-persist-failed') this.clearStaminaFeedback();
     this.refreshStamina(this.clockNow().getTime());
     this.hidden = false;
     if (this.share) this.share.captureEntry(options || (this.platform.getEnterOptions ? this.platform.getEnterOptions() : {}));

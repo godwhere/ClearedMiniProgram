@@ -48,8 +48,8 @@ function run() {
     [Object.assign({}, stamina, { remainingMs: 1 }), '00:01'],
     [Object.assign({}, stamina, { remainingMs: 999 }), '00:01'],
     [Object.assign({}, stamina, { remainingMs: 0 }), '00:00'],
-    [Object.assign({}, stamina, { balance: 5, recovering: false }), '已满'],
-    [Object.assign({}, stamina, { balance: 8, recovering: false, overflow: 3 }), '额外 +3']
+    [Object.assign({}, stamina, { balance: 5, recovering: false }), '体力已满'],
+    [Object.assign({}, stamina, { balance: 8, recovering: false, overflow: 3 }), '体力已满']
   ];
   f.renderer.platform.createImage = () => { throw new Error('stamina must not load images'); };
   for (const [snapshot, label] of cases) {
@@ -57,8 +57,8 @@ function run() {
     const hits = clone(f.renderer.hits);
     f.renderer.drawStaminaStatus(Object.freeze(snapshot), rect, { compact: true });
     assert(f.texts.some(call => call.value === label));
-    assert(f.texts.some(call => call.value === String(snapshot.balance)));
-    assert(!f.texts.some(call => call.value === '8 / 5'));
+    assert(f.texts.some(call => call.value === `${snapshot.balance}/5`));
+    assert(!f.texts.some(call => call.value.startsWith('额外 +')));
     assert.deepStrictEqual(f.renderer.hits, hits);
   }
   let fills = 0; let segments = 0;
@@ -77,15 +77,37 @@ function run() {
         const badge = badges[0];
         assert(badge.x >= 0 && badge.x + badge.w <= width);
         assert(badge.y >= 44 && badge.y + badge.h <= 810);
-        assert(!renderer.hits.some(hit => overlaps(badge, hit.rect)), `${skin.id}/${width}: badge avoids existing buttons`);
+        assert(!renderer.hits.some(hit => hit.id !== 'home:stamina' && overlaps(badge, hit.rect)),
+          `${skin.id}/${width}: badge avoids other buttons`);
         assert(!renderer.hits.some(hit => hit.id.startsWith('stamina:')));
+        assert.strictEqual(renderer.hits.some(hit => hit.id === 'home:stamina'), app.scene === 'home');
       };
       render(app.buildModel()); assertBadge();
+      const homeBadge = renderer.hits.find(hit => hit.id === 'home:stamina');
+      const sound = renderer.hits.find(hit => hit.id === 'home:sound');
+      assert.deepStrictEqual(homeBadge.rect, { x: width - 78, y: sound.rect.y, w: 64, h: 44 });
+      assert.strictEqual(sound.rect.x + sound.rect.w + 8, homeBadge.rect.x);
+      for (const [snapshot, label] of cases) {
+        const home = Object.assign({}, app.buildModel(), { stamina: snapshot });
+        render(home);
+        assert(!texts.some(call => call.value === label), 'home details stay hidden until tapped');
+        render(Object.assign({}, home, { homeStaminaExpanded: true }));
+        const detail = texts.find(call => call.value === label);
+        assert(detail && detail.y > homeBadge.rect.y + homeBadge.rect.h, 'details open below the stamina button');
+        assert.strictEqual(renderer.hitTest(detail.x, detail.y), null, 'expanded text has no extra hit');
+      }
       app.scene = 'levels';
       const levels = app.buildModel();
       levels.stamina = Object.assign({}, stamina, { balance: 0 });
       render(levels); assertBadge();
+      assert(!texts.some(call => call.value === '03:04' || call.value === '体力已满'),
+        'level selection shows only the stamina amount');
       const title = texts.find(call => call.value === '选择关卡');
+      const selectorStamina = texts.find(call => call.value === '0/5');
+      const homeControl = renderer.hits.find(hit => hit.id === 'levels:home');
+      assert.strictEqual(selectorStamina.y, title.y);
+      assert.strictEqual(selectorStamina.y, homeControl.rect.y + homeControl.rect.h / 2,
+        'selector title, home button and stamina share the same center line');
       assert(title.x + title.size * 2 < badges[0].x, 'narrow selector title clears the badge');
       assert(renderer.hits.some(hit => hit.id === 'level:0:0' && hit.enabled !== false), 'zero stamina leaves unlocked cards clickable');
       const levelHits = clone(renderer.hits);
@@ -100,23 +122,36 @@ function run() {
             app.result = outcome ? { outcome, remainingCells: 2, elapsedMs: 1000 } : null;
             app.resultVisibleAt = NOW;
             const model = app.buildModel();
+            model.stamina = Object.assign({}, model.stamina, { balance: 19 });
             render(Object.assign({}, model, { stamina: { enabled: false } }));
             const layout = clone(renderer.getBoardLayout());
             const hits = clone(renderer.hits);
             const promptRects = clone(prompts);
-            render(model); assertBadge();
+            render(model);
+            assert.strictEqual(badges.length, 0, 'ordinary play and result headers do not show stamina');
+            assert(!texts.some(call => call.value === '19/5'));
+            assert(!texts.some(call => call.value === '05:00' || call.value === '体力已满'),
+              'ordinary play and result headers hide stamina details');
+            const refundRule = texts.find(call => call.value === '本关首次在1分钟内通关，返还1点体力');
+            assert.strictEqual(refundRule, undefined, 'result panels do not display the refund explanation');
             assert.deepStrictEqual(renderer.getBoardLayout(), layout, 'stamina cannot resize or move the board');
             assert.deepStrictEqual(renderer.hits, hits, 'existing interactions stay unchanged');
             assert.deepStrictEqual(prompts, promptRects, 'Portal band geometry stays unchanged');
             if (setIndex === 1) assert.strictEqual(prompts.length, 1);
             const title = texts.find(call => call.value === model.ordinaryLevelNumber + ' / ' + model.ordinaryLevelCount);
-            assert(title.x - title.options.maxWidth / 2 > badges[0].x + badges[0].w,
-              'play title stays outside the compact badge');
+            assert.strictEqual(title.x, width / 2, 'the level title stays centered without stamina');
+            if (scene === 'play') {
+              ['play:back', 'play:sound', 'play:reset'].forEach(id => {
+                const control = renderer.hits.find(hit => hit.id === id);
+                assert.strictEqual(control.rect.y + control.rect.h / 2, title.y);
+              });
+            }
           }
         }
       }
       assert(app.enterDaily());
       render(app.buildModel()); assert.strictEqual(badges.length, 0);
+      assert(!texts.some(call => call.value.includes('返还1点体力')), 'daily does not promise ordinary stamina');
       app.scene = 'dailyResult'; app.daily.resultVisibleAt = NOW;
       for (const outcome of ['won', 'failed']) {
         app.daily.result = { outcome, remainingCells: 2, elapsedMs: 1000 };
@@ -135,9 +170,39 @@ function run() {
       assert.deepStrictEqual(renderer.hits, hits, 'feedback never owns a hit');
       render(Object.assign({}, model, { staminaFeedback: { reason: 'persist-failed', until: NOW + INTERVAL } }), NOW);
       assert(texts.some(call => call.value === '体力状态保存失败，请重试'));
+      render(Object.assign({}, model, { staminaFeedback: { reason: 'quick-clear-refund', amount: 1, until: NOW + INTERVAL } }), NOW);
+      assert(texts.some(call => call.value === '1分钟内通关，体力 +1'));
       app.dispose();
     }
   }
+
+  const compactResult = fixture(320, skins[0]);
+  compactResult.app.platform.metrics.height = 568;
+  compactResult.app.platform.metrics.safeBottom = 548;
+  compactResult.app.openLevel(0, 0);
+  compactResult.app.scene = 'result';
+  compactResult.app.resultVisibleAt = NOW;
+  compactResult.app.result = { elapsedMs: 15000, bestMs: 15000, staminaRefunded: 1 };
+  for (const sharing of [false, true]) {
+    for (const [status, label] of [['available', '尚未达成，可重玩挑战'], ['claimed', '已返还1点体力'],
+      ['pending', '返还待保存，将自动重试']]) {
+      const model = Object.assign({}, compactResult.app.buildModel(), { shareAvailable: sharing,
+        staminaRefund: { status, amount: 1 } });
+      compactResult.render(model);
+      const statusText = compactResult.texts.find(call => call.value === label);
+      assert.strictEqual(statusText, undefined, 'refund status is not printed in the result panel');
+      const timeText = compactResult.texts.find(call => call.value.startsWith('本次 '));
+      assert(timeText);
+      const hits = compactResult.renderer.hits.filter(hit => hit.id.startsWith('result:'));
+      assert(hits.every(hit => timeText.y + timeText.size / 2 + 8 <= hit.rect.y));
+      assert(hits.every(hit => hit.rect.y + hit.rect.h <= 548), 'result buttons fit the short safe area');
+      compactResult.app.result.staminaRefunded = 0;
+      compactResult.render(Object.assign({}, model, { staminaRefund: { status: 'claimed', amount: 1 } }));
+      assert(!compactResult.texts.some(call => call.value === '本关体力已返还，不再重复领取'));
+      compactResult.app.result.staminaRefunded = 1;
+    }
+  }
+  compactResult.app.dispose();
 }
 
 module.exports = run;
