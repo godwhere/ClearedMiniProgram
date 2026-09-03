@@ -1,6 +1,8 @@
 const catalog = require('../data/catalog-v2.js');
 const GameRunner = require('../core/game-runner.js');
 const ProgressStore = require('./services/progress-store.js');
+const StaminaService = require('./services/stamina-service.js');
+const staminaConfig = require('./config/stamina.js');
 const SkinService = require('./services/skin-service.js');
 const AdsService = require('./services/ads-service.js');
 const EngagementService = require('./services/engagement-service.js');
@@ -256,6 +258,11 @@ class ClearedApp {
     // injectable so tests and future remote manifests can control the clock
     // and persistence without leaking daily state into ProgressStore.
     this.dailyClock = typeof opts.clock === 'function' ? opts.clock : () => new Date();
+    this.stamina = opts.stamina || new StaminaService(platform, staminaConfig);
+    this.staminaSnapshot = this.stamina.snapshot(this.clockNow().getTime());
+    this.lastStaminaSecond = this.staminaSnapshot.recovering
+      ? Math.ceil(this.staminaSnapshot.remainingMs / 1000) : -1;
+    this.staminaFeedback = null;
     const usingBuiltInDailyManifest = opts.dailyManifest === undefined;
     this.dailyManifest = usingBuiltInDailyManifest
       ? defaultDailyManifest
@@ -822,6 +829,7 @@ class ClearedApp {
 
   tick(now) {
     const timestamp = Number.isFinite(Number(now)) ? Number(now) : Date.now();
+    this.refreshStamina(timestamp);
     if (this.hintPreview && timestamp >= this.hintPreview.until) {
       this.clearHintPreview(false);
       this.dirty = true;
@@ -1025,6 +1033,8 @@ class ClearedApp {
     const hintEnabled = this.isHintPreviewActive() || (!this.hintRequest && !['busy', 'unavailable'].includes(hintState.action));
     const base = {
       scene: this.scene,
+      stamina: Object.assign({}, this.staminaSnapshot),
+      staminaFeedback: this.staminaFeedback ? Object.assign({}, this.staminaFeedback) : null,
       pressedId: this.pressedId,
       accountProfile: (this.scene === 'home' || this.scene === 'account') && this.profile ? this.profile.current() : null,
       shareAvailable: !!(this.share && this.share.isResultEnabled() && this.shareContext().completed),
@@ -2614,22 +2624,31 @@ class ClearedApp {
     const context = createCatalogRunContext(catalog, setIndex, levelIndex);
     if (!context) return false;
     if (!this.progression.isUnlocked(setIndex, levelIndex)) return false;
+    const runner = this.createOrdinaryRunner(context);
+    if (!runner) return false;
+    const now = this.clockNow().getTime();
+    const consumed = this.stamina.consumeOrdinaryAttempt(now);
+    this.refreshStamina(now);
+    if (!consumed.ok) {
+      this.showStaminaFeedback(consumed.reason, now);
+      return false;
+    }
+    this.clearStaminaFeedback();
     this.clearHintRequest();
     if (this.scene === 'account') this.leaveAccount();
     this.runContext = context;
     this.setIndex = context.setIndex;
     this.levelIndex = context.levelIndex;
     this.levelPageIndex = this.levelPageForTarget(context);
-    this.progress.markOpened(context.setIndex, context.levelIndex);
-    this.progress.save();
-    this.runner = new GameRunner(
-      context.level,
-      context.set.Palette || [],
-      () => this.invalidate()
-    );
+    // Progress persistence cannot undo an already paid, playable attempt.
+    try {
+      this.progress.markOpened(context.setIndex, context.levelIndex);
+      this.progress.save();
+    } catch (error) {}
+    this.runner = runner;
     this.boardInput.setRunner(this.runner);
     this.scene = 'play';
-    this.levelEnteredAt = Date.now();
+    this.levelEnteredAt = now;
     this.lastClockSecond = -1;
     this.clearAnimation = null;
     this.hint = null;
@@ -2639,6 +2658,39 @@ class ClearedApp {
     this.resultVisibleAt = 0;
     this.invalidate();
     return true;
+  }
+
+  createOrdinaryRunner(context) {
+    try {
+      return new GameRunner(context.level, context.set.Palette || [], () => this.invalidate());
+    } catch (error) {
+      return null;
+    }
+  }
+
+  refreshStamina(now) {
+    const next = this.stamina.snapshot(now);
+    const second = next.recovering ? Math.ceil(next.remainingMs / 1000) : -1;
+    const previous = this.staminaSnapshot;
+    const changed = !previous || next.balance !== previous.balance ||
+      next.recovering !== previous.recovering || next.persisted !== previous.persisted ||
+      second !== this.lastStaminaSecond;
+    this.staminaSnapshot = next;
+    this.lastStaminaSecond = second;
+    if (changed) this.dirty = true;
+    if (this.staminaFeedback && now >= this.staminaFeedback.until) this.clearStaminaFeedback();
+    return changed;
+  }
+
+  showStaminaFeedback(reason, now) {
+    this.staminaFeedback = { reason, until: now + 2200 };
+    this.invalidate();
+  }
+
+  clearStaminaFeedback() {
+    if (!this.staminaFeedback) return;
+    this.staminaFeedback = null;
+    this.invalidate();
   }
 
   isHintPreviewActive(now) {
@@ -2785,6 +2837,7 @@ class ClearedApp {
 
   onHide() {
     if (this.disposed) return;
+    this.stamina.flush(this.clockNow().getTime());
     this.hidden = true;
     if (this.scene === 'account') this.leaveAccount();
     this.pointer = null;
@@ -2827,6 +2880,7 @@ class ClearedApp {
 
   onShow(options) {
     if (this.disposed) return;
+    this.refreshStamina(this.clockNow().getTime());
     this.hidden = false;
     if (this.share) this.share.captureEntry(options || (this.platform.getEnterOptions ? this.platform.getEnterOptions() : {}));
     const runner = this.activeRunner();
