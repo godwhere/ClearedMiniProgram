@@ -13,6 +13,8 @@ const mechanics = require('./mechanics/index.js');
 const SubpackageService = require('./services/subpackage-service.js');
 const subpackageConfig = require('./config/subpackages.js');
 const ProgressStore = require('./services/progress-store.js');
+const StaminaService = require('./services/stamina-service.js');
+const staminaConfig = require('./config/stamina.js');
 const DailyProgressStore = require('./services/daily-progress-store.js');
 const SessionStore = require('./services/session-store.js');
 const SyncStore = require('./services/sync-store.js');
@@ -33,6 +35,7 @@ function start() {
   const platform = new WechatPlatform();
   const subpackages = new SubpackageService(platform, subpackageConfig);
   const progress = new ProgressStore(platform);
+  const stamina = new StaminaService(platform, staminaConfig);
   const dailyStore = new DailyProgressStore(platform, { debugUnlimited: dailyConfig.debugUnlimitedEntries === true });
   const sessions = new SessionStore(platform);
   const syncStore = new SyncStore(platform);
@@ -61,6 +64,7 @@ function start() {
       platform.isDevTools() === true
   });
   const app = new ClearedApp(platform, {
+    stamina,
     progress, dailyStore, auth, progressSync, behavior, ads, engagement, profile, share, rewards, hintAccess,
     subpackages,
     skins,

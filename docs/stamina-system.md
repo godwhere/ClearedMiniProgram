@@ -1,14 +1,17 @@
 # 体力系统设计与严格实施边界
 
-> 文档状态：设计合同，尚未实施代码  
+> 文档状态：已实施（代码与自动化验证完成；微信开发者工具及真机验收待执行）
 > 目标仓库：`godwhere/ClearedMiniProgram`  
 > 设计基线：`main@fe960ddd36e46f064871302a35a52d660d2d171f`  
 > 编写日期：2026-09-03  
+> 实施基线：`main@f88373c7768bf011724b76c202ca6845db107e4d`；分支 `feat/stamina-system`
 > 当前运行链路：`game.js -> src/bootstrap.js -> src/app.js -> src/ui/canvas-renderer.js`
 
 本文定义 Cleared 微信小游戏普通关卡体力系统的产品规则、状态模型、恢复算法、场景接入、Canvas 展示、测试要求和严格代码修改边界。
 
 本文是后续实现的约束合同，不是概念性建议。实施时不得为了方便改变现有玩法核心、普通进度、每日挑战、Portal、账号、广告或分享边界。
+
+实际实现和验证记录见第 20 节；原产品合同、文件边界与人工验收要求继续有效。
 
 ---
 
@@ -1602,3 +1605,44 @@ docs/stamina-system.md
 [ ] git diff --check 通过
 [ ] 开发者工具和真机验收结果已记录
 ```
+
+## 20. 实施记录（2026-09-03）
+
+代码已按本合同实施；第 16 节的设备验收仍未执行，不能由 Node 结果代替。
+
+| 实现文件 | 实际职责 |
+| --- | --- |
+| `src/config/stamina.js` | 冻结 5 / 5 / 300000ms / 1 四项配置，无生产无限体力开关 |
+| `src/services/stamina-service.js` | 独立键加载与规范化、绝对时间恢复、消费候选状态先落盘后提交、快照副本和待保存状态 flush |
+| `src/bootstrap.js` | 创建并注入体力服务 |
+| `src/app.js` | 仅 `openLevel()` 扣费；先验证并创建局部 Runner，再消费并提交场景；复用既有可注入时钟、tick 与生命周期 |
+| `src/ui/canvas-renderer.js` | Canvas path 闪电、三处普通场景徽标、结果沿用徽标、全局 2200ms 无 hit 反馈 |
+| `tests/stamina-service.test.js` | 恢复／超额余额／异常存档与整数边界／存储失败／低频落盘／重启等价性 |
+| `tests/stamina-app.test.js` | 入口扣费、免费重试／重置、失败原子性、每日两关与重玩隔离、生命周期和反馈清理帧 |
+| `tests/stamina-renderer.test.js` | 11 套主题 × 320px／390px，标题／按钮避让、棋盘与 Portal 布局不变、每日不展示、文案与无 hit |
+| `tests/helpers/stamina-fixture.js` | 注入时钟、存储故障和仅供旧测试使用的固定体力 fixture |
+| `tests/architecture-boundaries.test.js`、`tests/run.js` | 架构边界与三组新测试注册 |
+
+`tests/app-smoke.test.js` 和 `tests/theme-system.test.js` 仅增加 fixture 注入，保留全部原步骤和断言。
+前者的长流程超过 5 次开局；后者重开普通关后仍对全部存储做主题恢复不写入断言，需要隔离无关体力消费。
+没有修改玩法核心、gameplay、关卡数据、普通／每日／云同步协议、平台适配、资源、发布配置或旧页面。
+
+实现细节：服务仅对真实状态变化或修复写入，失败后保持待保存状态，`flush()` 显式重试；高频 snapshot 不重试失败写入。
+消费写入失败不提交候选余额和恢复锚点，普通进度保存失败不会阻止已付费的有效尝试进入。
+App 使用现有 `clock` 注入点和 `clockNow()`；生产默认仍为设备时间，不全局修改 `Date.now()`。
+时间戳限定为非负安全整数且在 JavaScript Date 范围内，异常输入回退；边界处为完整恢复间隔预留加法空间。
+选关页徽标使用右侧 86px 区域，避免 320px 时覆盖中心标题；游玩页保留全部原棋盘与提示带计算。
+
+自动化验证：
+
+- `node tests/run.js`：59 组全部通过（原 56 组 + 3 组体力测试）。
+- `node scripts/check-package-budget.js`：通过；主包 2,694,221 字节（2.569 MiB / 3.2 MiB），最大分包 1.451 MiB / 3.5 MiB，总包 15,985,161 字节（15.245 MiB / 18 MiB）。这是源码字节估算。
+- `git diff --check`：通过；修改范围检查确认无关卡、资源、旧页面或无关格式化变更。
+
+尚未执行的微信开发者工具／Android／iOS 验收：
+
+- 首页安全区，选关页右上徽标，普通游玩／结果顶部和 Portal 布局；
+- 约 320px 窄屏的真实字体与触控，主题切换后的图标颜色；
+- 后台停留 5 分钟以上的恢复，杀进程重启后的离线补算；
+- 各入口体力不足反馈及到期清除；
+- 真实设备时钟调整行为，以及开发者工具最终代码包分析。

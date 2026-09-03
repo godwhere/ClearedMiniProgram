@@ -88,6 +88,7 @@ function run() {
     assert(!/\b(?:localStorage|sessionStorage)\s*(?:\.|\[)/.test(source),
       `core/${relative} must not access browser storage globals`);
     dependencies(source).forEach(dependency => {
+      assert(!/stamina/.test(dependency), `core/${relative} must not depend on stamina`);
       const reason = forbiddenReason(dependency, path.dirname(file));
       assert.strictEqual(reason, null,
         `core/${relative} must not depend on ${reason}: ${dependency}`);
@@ -98,6 +99,29 @@ function run() {
     `\\brunner\\s*\\.\\s*(?:${MUTABLE_RUNNER_FIELDS.join('|')})\\b`
   );
   const appSource = fs.readFileSync(path.join(SRC_DIR, 'app.js'), 'utf8');
+  const staminaSource = fs.readFileSync(path.join(SRC_DIR, 'services', 'stamina-service.js'), 'utf8');
+  assert.deepStrictEqual(dependencies(staminaSource), ['../config/stamina.js'],
+    'stamina may depend only on its stable configuration');
+  assert(!/\b(?:wx|GameRunner|Canvas|setInterval|setTimeout|requestAnimationFrame)\b/.test(staminaSource),
+    'stamina uses platform storage and timestamps without core, UI or timer dependencies');
+  const openLevel = appSource.slice(appSource.indexOf('  openLevel('), appSource.indexOf('  createOrdinaryRunner('));
+  assert.strictEqual((appSource.match(/\.consumeOrdinaryAttempt\s*\(/g) || []).length, 1,
+    'App must have exactly one ordinary debit call');
+  assert(/\.consumeOrdinaryAttempt\s*\(/.test(openLevel), 'only openLevel may debit');
+  ['gameplay', 'mechanics', 'ui'].forEach(dir => javascriptFiles(path.join(SRC_DIR, dir)).forEach(file => {
+    const source = fs.readFileSync(file, 'utf8');
+    assert(!dependencies(source).some(dependency => /stamina/.test(dependency)),
+      `${file} must not depend on stamina service/config`);
+    assert(!/consumeOrdinaryAttempt/.test(source), `${file} cannot debit stamina`);
+  }));
+  ['progress-store.js', 'daily-progress-store.js', 'progress-sync-service.js', 'sync-store.js'].forEach(file => {
+    assert(!/stamina|nextRecoveryAt/.test(fs.readFileSync(path.join(SRC_DIR, 'services', file), 'utf8')),
+      `${file} must not own stamina fields`);
+  });
+  const rendererSource = fs.readFileSync(path.join(SRC_DIR, 'ui', 'canvas-renderer.js'), 'utf8');
+  assert(!/StaminaService|this\.stamina|stamina:|(?:get|set)Storage/.test(rendererSource),
+    'renderer consumes pure stamina ViewModel without a service, storage or stamina actions');
+  assert(!/\bsetInterval\s*\(/.test(appSource));
   assert(!mutableAccess.test(appSource),
     'App must consume Runner commands and read-only queries, not mutable fields');
 

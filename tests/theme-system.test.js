@@ -1,4 +1,5 @@
 const assert = require('assert');
+const { createUnlimitedStaminaFixture } = require('./helpers/stamina-fixture.js');
 const GameRunner = require('../core/game-runner.js');
 const ClearedApp = require('../src/app.js');
 const CanvasRenderer = require('../src/ui/canvas-renderer.js');
@@ -793,7 +794,7 @@ async function flushThemeCallbacks() {
 async function runSubpackageChecks() {
   const platform = Object.assign(createPlatform(), controlledPlatform());
   const subpackages = new SubpackageService(platform);
-  const app = new ClearedApp(platform, { subpackages });
+  const app = new ClearedApp(platform, { subpackages, stamina: createUnlimitedStaminaFixture() });
   app.start();
   app.tick(1000);
   assert.strictEqual(platform.calls.length, 0, 'classic cold start never downloads');
@@ -911,7 +912,7 @@ async function runSubpackageChecks() {
   // Restart with saved theme: fresh service must load again; the first frame
   // and a playable board exist while the package request is unresolved.
   platform.sources.length = 0;
-  const restored = new ClearedApp(platform, { subpackages: new SubpackageService(platform) });
+  const restored = new ClearedApp(platform, { subpackages: new SubpackageService(platform), stamina: createUnlimitedStaminaFixture() });
   const saved = JSON.stringify(platform.storage);
   restored.start();
   restored.tick(2000);
@@ -926,7 +927,7 @@ async function runSubpackageChecks() {
   assert(platform.sources.includes(vehicles.assets.tileSheet));
   assert.strictEqual(JSON.stringify(platform.storage), saved, 'restoration does not rewrite settings');
 
-  const restoreFail = new ClearedApp(platform, { subpackages: new SubpackageService(platform) });
+  const restoreFail = new ClearedApp(platform, { subpackages: new SubpackageService(platform), stamina: createUnlimitedStaminaFixture() });
   restoreFail.start();
   platform.calls[10].fail();
   await flushThemeCallbacks();
@@ -934,7 +935,7 @@ async function runSubpackageChecks() {
   assert.strictEqual(restoreFail.progress.getSetting('skinId'), 'vehicles');
   assert.strictEqual(restoreFail.pendingSkinId, null);
   assert.strictEqual(restoreFail.openLevel(0, 0), true);
-  const restoreRace = new ClearedApp(platform, { subpackages: new SubpackageService(platform) });
+  const restoreRace = new ClearedApp(platform, { subpackages: new SubpackageService(platform), stamina: createUnlimitedStaminaFixture() });
   restoreRace.start();
   restoreRace.setSkin('classic');
   platform.calls[11].success();

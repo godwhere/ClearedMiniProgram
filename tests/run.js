@@ -1,4 +1,7 @@
 const tests = [
+  ['stamina service', require('./stamina-service.test.js')],
+  ['stamina app', require('./stamina-app.test.js')],
+  ['stamina renderer', require('./stamina-renderer.test.js')],
   ['tiered daily hint unlocks', require('./hint-tiered.test.js')],
   ['daily hint access', require('./hint-access-service.test.js')],
   ['hint share unlock flow', require('./hint-share.test.js')],

@@ -13,6 +13,11 @@ function formatTime(milliseconds) {
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
 }
 
+function formatStaminaCountdown(milliseconds) {
+  const seconds = Math.max(0, Math.ceil((Number(milliseconds) || 0) / 1000));
+  return `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
+}
+
 const PORTAL_PROMPT_BAND_HEIGHT = 32;
 const PORTAL_PROMPT_CYCLE_MS = 1800;
 const CANVAS_FONT_FAMILY = '-apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif';
@@ -178,6 +183,7 @@ class CanvasRenderer {
         this.drawHome(model, now);
         break;
     }
+    this.drawStaminaFeedback(model, now);
   }
 
   begin(background) {
@@ -647,6 +653,15 @@ class CanvasRenderer {
       ctx.lineTo(direction * size * 0.12, 0);
       ctx.lineTo(-direction * size * 0.34, size * 0.42);
       ctx.stroke();
+    } else if (type === 'stamina') {
+      ctx.moveTo(size * 0.10, -size * 0.50);
+      ctx.lineTo(-size * 0.30, size * 0.05);
+      ctx.lineTo(-size * 0.02, size * 0.05);
+      ctx.lineTo(-size * 0.16, size * 0.50);
+      ctx.lineTo(size * 0.34, -size * 0.10);
+      ctx.lineTo(size * 0.05, -size * 0.10);
+      ctx.closePath();
+      ctx.fill();
     } else if (type === 'reset') {
       ctx.arc(0, 0, size * 0.34, -Math.PI * 0.5, Math.PI * 1.32);
       ctx.stroke();
@@ -734,6 +749,40 @@ class CanvasRenderer {
     ctx.restore();
   }
 
+  drawStaminaStatus(stamina, rect, options) {
+    if (!stamina || !stamina.enabled) return;
+    const compact = options && options.compact;
+    const center = rect.x + rect.w / 2;
+    this.drawIcon('stamina', center - 13, rect.y + 12, compact ? 15 : 18);
+    this.text(stamina.balance, center + 9, rect.y + 12, compact ? 17 : 20,
+      { weight: 500, maxWidth: Math.max(1, rect.w - 26) });
+    const label = stamina.balance > stamina.naturalCap
+      ? `额外 +${stamina.overflow}`
+      : stamina.recovering ? formatStaminaCountdown(stamina.remainingMs) : '已满';
+    this.text(label, center, rect.y + 33, compact ? 10 : 11,
+      { alpha: 0.78, maxWidth: Math.max(1, rect.w - 4) });
+  }
+
+  drawStaminaFeedback(model, now) {
+    const feedback = model.staminaFeedback;
+    if (!feedback || now >= feedback.until) return;
+    const skin = this.skinService.current();
+    const { width, safeBottom } = this.platform.metrics;
+    const stamina = model.stamina;
+    const label = feedback.reason === 'persist-failed' ? '体力状态保存失败，请重试'
+      : stamina && stamina.recovering && Number.isFinite(stamina.remainingMs)
+        ? `体力不足，${formatStaminaCountdown(stamina.remainingMs)} 后恢复 1 点`
+        : '体力不足，请稍后再试';
+    const boxWidth = Math.min(320, width - 32);
+    const y = safeBottom - 106;
+    this.ctx.save();
+    this.roundedRect((width - boxWidth) / 2, y, boxWidth, 42, 8);
+    this.ctx.fillStyle = skin.colors.strongPanel;
+    this.ctx.fill();
+    this.ctx.restore();
+    this.text(label, width / 2, y + 21, 14, { maxWidth: boxWidth - 20 });
+  }
+
   drawHome(model) {
     const skin = this.skinService.current();
     const { width, height, safeTop, safeBottom } = this.platform.metrics;
@@ -743,6 +792,8 @@ class CanvasRenderer {
       model.soundEnabled ? 'sound' : 'mute', true, model.pressedId);
     this.drawHomeAvatar(model.accountProfile,
       { x: 18, y: safeTop + (skin.layout.homeTopUiOffset || 0) + 8, w: 44, h: 44 }, model.pressedId);
+    this.drawStaminaStatus(model.stamina,
+      { x: (width - 104) / 2, y: safeTop + (skin.layout.homeTopUiOffset || 0) + 8, w: 104, h: 44 });
 
     const buttonHeight = 54;
     const buttonGap = 12;
@@ -1716,6 +1767,8 @@ class CanvasRenderer {
     this.text('选择关卡', width / 2, headerTop + 26, 26, { weight: 300 });
     this.text(items.length ? `${rangeStart}–${rangeEnd} / ${totalLevels}` : `0 / ${totalLevels}`,
       width / 2, headerTop + 53, 12, { alpha: 0.58 });
+    this.drawStaminaStatus(model.stamina,
+      { x: width - 100, y: headerTop + 8, w: 86, h: 44 });
 
     const columns = items.length <= 5 ? Math.max(1, items.length) : 5;
     const rows = Math.ceil(items.length / columns);
@@ -1944,6 +1997,8 @@ class CanvasRenderer {
     ctx.fillStyle = skin.colors.panel;
     ctx.fillRect(0, 0, width, topUi + headerHeight);
     this.iconButton('play:back', { x: 8, y: topUi + 12, w: 44, h: 44 }, 'back', true, model.pressedId);
+    this.drawStaminaStatus(model.stamina,
+      { x: 56, y: topUi + 12, w: 52, h: 44 }, { compact: true });
     this.iconButton('play:sound', { x: soundX, y: topUi + 12, w: controlSize, h: 44 },
       model.soundEnabled ? 'sound' : 'mute', true, model.pressedId);
     const hintPreviewActive = !!(model.hintPreview && now < model.hintPreview.until);

@@ -1,4 +1,5 @@
 const assert = require('assert');
+const { createUnlimitedStaminaFixture } = require('./helpers/stamina-fixture.js');
 const WechatPlatform = require('../src/platform/wechat.js');
 const ClearedApp = require('../src/app.js');
 const GameRunner = require('../core/game-runner.js');
@@ -96,7 +97,7 @@ async function run() {
     ]
   });
   assert.deepStrictEqual(movedIds, [7, 3]);
-  const app = new ClearedApp(platform, { solutionCatalog: solutions });
+  const app = new ClearedApp(platform, { solutionCatalog: solutions, stamina: createUnlimitedStaminaFixture() });
   app.start();
   app.tick(Date.now());
   assert.strictEqual(app.scene, 'home');
