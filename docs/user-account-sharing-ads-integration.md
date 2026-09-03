@@ -2386,3 +2386,134 @@ PR 7  feat: add server-attributed invite rewards
 - Phase 6：邀请意图可声明 `rewardAction: daily_extra_entry`，由服务端选定活动及奖励；query 始终仅有 sv/sid/scene。ShareService 不调用 reward-claims，忽略归因响应中的奖励字段；邀请者通过每日 entitlement 查询恢复 grant。明确 SELF_INVITE、SHARE_INTENT_EXPIRED、SHARE_INTENT_NOT_FOUND、INVITEE_INELIGIBLE、CAMPAIGN_CLOSED 错误终止对应归因，网络错误保持原 attributionId 重试。行为队列恢复和发送前均过滤字段，旧账号事件不随新账号 token 上传；分析事件不参与奖励结算。53 组测试及门禁通过，服务端事务/唯一约束与真实邀请闭环未宣称完成。
 
 - 最终身份复核：修复状态监听器同步重入 ensureSession 时重复登录的问题；先发布 single-flight Promise，再通知观察者。回归用例复现修改前 login=2，修改后 login=1 且 Promise 相同；53 组全量测试及包体门禁通过。
+
+
+## 35. 客户端交付清单与发布边界
+
+本次完成 Phase 0—6 客户端实现，按阶段提交在 `codex/account-engagement-framework`。这里的“客户端完成”不代表第 30 节的后端、开发者工具在线能力及真机发布门禁已经全部完成。代码保持 disabled safe defaults；没有服务器目录、密钥、线上部署或真实发奖。
+
+### 精确文件清单
+
+相对实施前基线 `f62fdbe`，新增 29 个文件：
+
+```text
+src/config/backend.js
+src/config/engagement.js
+src/services/api-client.js
+src/services/auth-service.js
+src/services/behavior-service.js
+src/services/engagement-service.js
+src/services/profile-service.js
+src/services/progress-sync-service.js
+src/services/reward-service.js
+src/services/session-store.js
+src/services/share-service.js
+src/services/sync-store.js
+src/ui/account-layout.js
+tests/account-app.test.js
+tests/account-bootstrap.test.js
+tests/account-layout.test.js
+tests/api-client.test.js
+tests/auth-service.test.js
+tests/behavior-service.test.js
+tests/daily-entry-grant.test.js
+tests/engagement-service.test.js
+tests/profile-service.test.js
+tests/progress-sync-conflict.test.js
+tests/progress-sync-service.test.js
+tests/reward-service.test.js
+tests/session-store.test.js
+tests/share-entry.test.js
+tests/share-service.test.js
+tests/sync-store.test.js
+```
+
+修改 20 个文件：
+
+```text
+README.md
+docs/daily-challenge-mode.md
+docs/user-account-sharing-ads-integration.md
+src/app.js
+src/bootstrap.js
+src/config/ads.js
+src/gameplay/completion-policies.js
+src/platform/wechat.js
+src/services/ads-service.js
+src/services/daily-progress-store.js
+src/services/progress-store.js
+src/ui/canvas-renderer.js
+tests/ads-service.test.js
+tests/app-smoke.test.js
+tests/architecture-boundaries.test.js
+tests/progress-store.test.js
+tests/renderer-button.test.js
+tests/renderer.test.js
+tests/run-context.test.js
+tests/run.js
+```
+
+### 已建立的边界
+
+- `WechatPlatform` 是唯一微信 API 入口；HTTP 路径集中在 ApiClient，业务服务使用命名合同。
+- 普通 completion policy 只结算进度。App 确认落盘、生成结果后通知同步和 Engagement；广告失败不改变通关与解锁。
+- Auth / Profile / ProgressSync / Share / Ads / Reward / Behavior 各自负责身份、可选展示资料、云进度、分享归因、广告生命周期、确认奖励和非权威事件。
+- 额外次数只接受 RewardService 已确认的 entitlement；本地应用 grant 幂等且写入失败回滚。免费失败重试不变。
+- 首帧不等待联网；所有开关关闭、网络超时、缺少广告或隐私拒绝时，原本地玩法仍可用。保护区 `core/**`、`data/**`、机制、主题/特效 manifest、棋盘渲染、素材及旧小程序页面的差异均为空。
+
+### 存储合同
+
+保留 `cleared:minigame:progress:v2` 和 `cleared:minigame:daily:v1`；普通 state 不含账号/奖励/事件字段，只新增 export/merge cloud snapshot 能力。每日记录增加 `_grantIds`，不降低额度、不改变原有消耗。
+
+新增 key：
+
+```text
+cleared:minigame:session:v1
+cleared:minigame:online:v1
+cleared:minigame:events:v1
+cleared:minigame:share-entry:v1
+cleared:minigame:rewards:v1
+```
+
+### 已接入 HTTP 调用
+
+```text
+POST  /v1/auth/wechat
+GET   /v1/me
+PATCH /v1/me/profile
+POST  /v1/progress/bootstrap
+GET   /v1/progress
+POST  /v1/progress/operations:batch
+POST  /v1/share-intents
+POST  /v1/share-attributions
+POST  /v1/reward-claims
+GET   /v1/daily-entitlements/{dateKey}
+POST  /v1/events:batch
+```
+
+业务 session 只保留内部 userId/token/时间；一次性登录 code 不落盘。401 每次业务操作最多重新认证一次，ApiClient 不自动重试 POST。普通云快照只合并 completed 并集与有效正 bestMs 的最小值，不同步偏好、lastPlayed、totalClears 或每日进度。
+
+邀请奖励只请求活动意图；服务端必须把 attribution 与 reward ledger 放在同一事务中。客户端不接受 share_initiated 或事件上报作为奖励证明。GET daily-entitlements 的完整响应和容量合同见第 34 节。
+
+### 自动验证
+
+- `node tests/run.js`：53 组通过，含 16 组新增测试。覆盖身份并发及监听器重入、过期 session/401、离线首帧、迁移及队列恢复、存档并集/最短时间/污染字段、账号变化、原生按钮生命周期、分享监听/冷热参数、完整观看/早关/错误/重试/销毁、迟到提示、奖励和本地 grant 幂等、事件容量/字段过滤/部分 ACK；保留全部普通、Portal、每日、主题及包体测试。
+- `node scripts/check-package-budget.js`：主包源码 2,704,744 bytes（2.579 MiB），总包 15,995,684 bytes（15.255 MiB）；所有主包/分包/总包预算通过。
+- `git diff --check` 与相对基线的差异检查通过，未修改保护区。
+- 分阶段完整日志保存在本机 `/tmp/cleared-phase*-tests.log`、`/tmp/cleared-phase*-budget.log`；最终日志为 `/tmp/cleared-final-tests.log` 和 `/tmp/cleared-final-budget.log`。
+
+### 开发者工具与设备证据
+
+已在 Stable 2.02.2608060 编译最终默认配置，模拟器显示首页和账号页；验证账号页进入、关闭后端时的重试回退与返回。调试器界面显示 Errors: 0，Warnings: 1。当前本地包分析约主包 2.54MB、总包 15.22MB，这是工具本地分析，非实际上传报告。
+
+尚未执行：测试后端登录及合法 request 域名联调、真实原生资料授权和隐私流程、菜单/主动分享真实好友链路、正式激励/插屏广告与库存、真实冷启动归因和跨微信账号同步。Android/iOS 的断网/弱网/恢复、后台广告回调、胶囊及安全区、拒绝隐私/资料授权均需实机验收。
+
+### 仍属于外部后端与发布的工作
+
+独立后端需实现 code2Session、AppSecret 管理、内部用户和 session、进度 revision/迁移/operation 去重、资料校验、分享意图与归因防自邀/活动限制、奖励唯一 ledger 及事务、每日 entitlement 查询、事件 ACK 去重、删除用户/撤销 session、合法 HTTPS 域名、监控和限流。当前仓库未创建这些服务器实现或声称其已验证。
+
+真实广告位、隐私后台声明、分享文案审核、体验/生产环境隔离及上传验收尚未执行。保留原有 `daily.debugUnlimitedEntries=true` 开发设置；发布负责人仍需按既有发布要求关闭它。在线能力需按第 26 节顺序启用，当前全部关闭。
+
+### 有意保留的范围
+
+没有增加自定义分享图（使用游戏截图）、独立后端、手机号/支付/排行/多账号冲突解决器、高价值货币、朋友圈奖励、多广告单元 multiton、远程配置或旧小程序页面功能。`DELETE /v1/me` 保留为后端合同，未增加设计范围外的客户端注销操作。首次功能只提供有上限、不可交易的每日额外进入额度。
