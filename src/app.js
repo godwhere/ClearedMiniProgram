@@ -244,7 +244,10 @@ class ClearedApp {
       this.clearEffects = fallbackClearEffects(this.progress);
     }
     this.ads = opts.ads || new AdsService(platform, opts.adConfig || adConfig);
-    this.engagement = opts.engagement || new EngagementService({ ads: this.ads });
+    this.engagement = opts.engagement || new EngagementService({ ads: this.ads, share: this.share,
+      behavior: this.behavior, config: (opts.adConfig || adConfig).rules });
+    this.hintRequest = null;
+    this.runSequence = 0;
     this.audio = new AudioService(platform, this.progress, opts.audioConfig || audioConfig);
     // Daily mode owns a separate service/store pair.  They are deliberately
     // injectable so tests and future remote manifests can control the clock
@@ -1083,7 +1086,7 @@ class ClearedApp {
         canUndo: !!(boardView && boardView.canUndo),
         levelEnteredAt: activeDaily.enteredAt,
         clearAnimation: activeDaily.clearAnimation,
-        hintAvailable: !!boardView && !boardView.terminal,
+        hintAvailable: !!boardView && !boardView.terminal && !this.hintRequest,
         result: activeDaily.result,
         resultVisibleAt: activeDaily.resultVisibleAt,
         runStartedAt: activeDaily.runStartedAt,
@@ -1218,7 +1221,7 @@ class ClearedApp {
         canUndo: !!(boardView && boardView.canUndo),
         levelEnteredAt: this.levelEnteredAt,
         clearAnimation: this.clearAnimation,
-        hintAvailable: !!boardView && !boardView.terminal,
+        hintAvailable: !!boardView && !boardView.terminal && !this.hintRequest,
         result: this.result,
         resultVisibleAt: this.resultVisibleAt,
         hasNext: !!(context && this.progression.nextLevel(context.setIndex, activeLevelIndex)),
@@ -1445,6 +1448,7 @@ class ClearedApp {
         elapsedMs: completion.elapsedMs, completedAtClient: now,
         firstClear: completion.firstClear, newBest: completion.newBest }); } catch (error) {}
     }
+    if (!completion.persisted) return;
     try {
       const task = this.engagement.onOrdinaryCompleted({
         levelKey: `${this.setIndex}:${this.levelIndex}`,
@@ -1582,6 +1586,7 @@ class ClearedApp {
       const nextLevel = daily.levels[nextIndex];
       const nextRunner = this.createDailyRunner(nextLevel, nextIndex, daily.resolution);
       if (!nextRunner) return false;
+      this.clearHintRequest();
       daily.levelIndex = nextIndex;
       daily.challenge = nextLevel;
       daily.challengeId = this.dailyLevelId(nextLevel, nextIndex, daily.resolution);
@@ -1669,6 +1674,7 @@ class ClearedApp {
 
   resetCurrentLevel() {
     if (!this.runner) return false;
+    this.clearHintRequest();
     this.runner.reset();
     this.boardInput.setRunner(this.runner);
     this.scene = 'play';
@@ -1690,6 +1696,7 @@ class ClearedApp {
   resetCurrentDailyLevel() {
     const daily = this.daily;
     if (!daily || !daily.runner) return false;
+    this.clearHintRequest();
     daily.runner.reset();
     this.boardInput.setRunner(daily.runner);
     daily.enteredAt = Date.now();
@@ -1880,7 +1887,7 @@ class ClearedApp {
         this.hintPreview = null;
       }
     } else if (action === 'daily:hint') {
-      this.showDailyHint();
+      this.requestHint();
     } else if (action === 'daily:revive' || action === 'dailyResult:revive') {
       // Reserved action only.  Ads/share and entry restoration are deliberately
       // outside this release; consumers may observe the request and decide
@@ -1915,7 +1922,7 @@ class ClearedApp {
       this.hintUntil = 0;
       this.hintPreview = null;
     } else if (action === 'play:hint') {
-      this.showHint();
+      this.requestHint();
     } else if (action === 'result:replay') {
       if (this.runContext) {
         this.openLevel(this.runContext.setIndex, this.runContext.levelIndex);
@@ -1945,6 +1952,7 @@ class ClearedApp {
       this.renderer.invalidateEffectPreviews();
     }
     if (previousScene === 'account' && this.scene !== 'account') this.leaveAccount();
+    if (previousScene !== this.scene) this.clearHintRequest();
     if ((ordinaryFailure || dailyFailure) && this.renderer) this.renderer.clearInteractionHits();
     this.invalidate();
   }
@@ -1977,6 +1985,33 @@ class ClearedApp {
         elapsedMs: this.daily.result.elapsedMs, completed: true };
     }
     return { scene: 'home', completed: false };
+  }
+
+  clearHintRequest() {
+    this.runSequence++;
+    this.hintRequest = null;
+  }
+
+  requestHint() {
+    const runner = this.activeRunner();
+    if (!runner || this.runnerTerminal(runner) || !['play', 'daily'].includes(this.scene)) return false;
+    if (this.isHintPreviewActive()) return this.scene === 'daily' ? this.showDailyHint() : this.showHint();
+    if (this.hintRequest) return false;
+    const token = { scene: this.scene, runKey: this.runSequence, runner };
+    this.hintRequest = token;
+    const apply = result => {
+      if (this.hintRequest !== token) return false;
+      this.hintRequest = null;
+      if (this.disposed || this.scene !== token.scene || this.runSequence !== token.runKey || this.activeRunner() !== runner || this.runnerTerminal(runner)) return false;
+      this.invalidate();
+      return result && result.granted === true && (this.scene === 'daily' ? this.showDailyHint() : this.showHint());
+    };
+    let result;
+    try { result = this.engagement.requestHint({ scene: this.scene }); } catch (error) { return apply({ granted: false }); }
+    if (!result || typeof result.then !== 'function') return apply(result);
+    result.then(apply).catch(() => apply({ granted: false }));
+    this.invalidate();
+    return true;
   }
 
   shareResult() {
@@ -2326,6 +2361,7 @@ class ClearedApp {
         Math.max(0, entryState.entryLimit - entryUsed)
       ))
     };
+    this.clearHintRequest();
     this.daily = Object.assign(this.emptyDailyState(), {
       dayId,
       dateKey: resolution.dateKey,
@@ -2403,6 +2439,7 @@ class ClearedApp {
     if (!runner) return false;
     const entry = this.dailyRecordEntry(current, entryState);
     if (!entry || entry.ok === false) return false;
+    this.clearHintRequest();
     daily.levels = freshLevels;
     daily.resolution = current;
     daily.dayId = current.dayId || current.DayId || current.challengeId || daily.dayId;
@@ -2446,6 +2483,7 @@ class ClearedApp {
     const context = createCatalogRunContext(catalog, setIndex, levelIndex);
     if (!context) return false;
     if (!this.progression.isUnlocked(setIndex, levelIndex)) return false;
+    this.clearHintRequest();
     if (this.scene === 'account') this.leaveAccount();
     this.runContext = context;
     this.setIndex = context.setIndex;
@@ -2675,6 +2713,8 @@ class ClearedApp {
 
   dispose() {
     this.disposed = true;
+    this.clearHintRequest();
+    this.ads.dispose();
     this.leaveAccount();
     if (this.profile) this.profile.dispose();
     if (this.share) this.share.uninstall();

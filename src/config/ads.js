@@ -4,13 +4,17 @@
 // should point at the same rewarded ad unit unless multiton support is added.
 module.exports = {
   rewarded: {
-    hint: ''
+    hint: '',
+    dailyExtraEntry: ''
   },
   interstitial: {
     levelComplete: ''
   },
   rules: {
     interstitialEveryClears: 4,
-    interstitialMinIntervalMs: 180000
+    interstitialMinIntervalMs: 180000,
+    hintMode: 'free',
+    dailyExtraEntryEnabled: false,
+    dailyExtraEntryLimit: 1
   }
 };

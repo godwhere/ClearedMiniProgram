@@ -9,11 +9,14 @@ class EngagementService {
   }
   requestHint(context) {
     const mode = this.config.hintMode || 'free';
-    if (mode === 'free') return Promise.resolve({ granted: true, mode: 'free' });
+    if (mode === 'free') return { granted: true, mode: 'free' };
     if (!this.ads) return Promise.resolve({ granted: false, reason: 'not-configured' });
-    return this.ads.showRewarded('hint').then(result => result.rewarded
-      ? { granted: true, mode: 'rewarded', attemptId: result.attemptId }
-      : { granted: false, mode: 'rewarded', reason: result.reason });
+    if (this.behavior) this.behavior.track('ad_requested', { placement: 'hint', scene: context && context.scene });
+    return this.ads.showRewarded('hint').then(result => {
+      if (this.behavior) this.behavior.track(result.rewarded ? 'ad_completed' : result.reason === 'closed' ? 'ad_closed_early' : 'ad_error', { placement: 'hint', reason: result.reason });
+      return result.rewarded ? { granted: true, mode: 'rewarded', attemptId: result.attemptId }
+        : { granted: false, mode: 'rewarded', reason: result.reason };
+    }).catch(() => ({ granted: false, mode: 'rewarded', reason: 'error' }));
   }
   requestDailyExtraEntry() { return Promise.resolve({ ok: false, reason: 'not-configured' }); }
   shareResult(context) {

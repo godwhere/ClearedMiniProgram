@@ -2378,3 +2378,5 @@ PR 7  feat: add server-attributed invite rewards
 - Phase 2：`1ad228a` 及后续注入提交，账号页、纯布局、原生资料按钮生命周期；49 组测试及门禁通过。开发者工具已编译并验证默认配置下账号页进入、离线重试和返回。真实资料与后端联调、原生授权、隐私、Android/iOS 验证尚未执行。
 
 - Phase 3：菜单/成功结果分享、冷/热启动归因、有限持久队列及纯分享 payload 已接入，51 组测试及门禁通过。意图异步预取，点击时不等待网络；使用游戏截图。归因响应约定 `attributed:true` 或 `alreadyAttributed:true`，仅 ACK 删除对应项。分享和归因默认关闭，真实卡片冷启动与后端拒绝自邀/过期验证仍待执行。
+
+- Phase 4：保留广告单例及加载重试，新增 attemptId、标准结果、销毁时结清 pending、广告间 busy 隔离与当前 run 提示 guard；51 组测试、包体与差异检查通过。官方 typings 的 disableFallbackSharePage 最低版本为 3.7.7，旧版保守过滤。正式广告位、完整观看/早关/无库存和后台回调的真机验证未执行。

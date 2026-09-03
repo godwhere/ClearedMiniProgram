@@ -234,7 +234,19 @@ class WechatPlatform {
   }
 
   createRewardedVideoAd(options) {
-    return this.api.createRewardedVideoAd ? this.api.createRewardedVideoAd(options) : null;
+    if (!this.api.createRewardedVideoAd) return null;
+    const safe = { adUnitId: options.adUnitId };
+    try {
+      const info = this.api.getAppBaseInfo ? this.api.getAppBaseInfo() : this.api.getSystemInfoSync();
+      const version = info && info.SDKVersion;
+      if (typeof version === 'string' && /^\d+\.\d+\.\d+$/.test(version)) {
+        const parts = version.split('.').map(Number);
+        if (parts[0] > 3 || (parts[0] === 3 && (parts[1] > 7 || (parts[1] === 7 && parts[2] >= 7)))) {
+          if (options.disableFallbackSharePage === true) safe.disableFallbackSharePage = true;
+        }
+      }
+    } catch (error) {}
+    try { return this.api.createRewardedVideoAd(safe); } catch (error) { return null; }
   }
 
   supportsUserInfoButton() {

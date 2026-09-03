@@ -83,7 +83,7 @@ function runnerGameplayState(runner) {
   return state;
 }
 
-function run() {
+async function run() {
   const api = createWxMock();
   const platform = new WechatPlatform(api);
   assert.strictEqual(platform.metrics.dpr, 2);
@@ -520,6 +520,29 @@ function run() {
   );
   assert.deepStrictEqual(runnerGameplayState(portalPreviewApp.runner), portalPendingBefore,
     'Portal pending, selection and canUndo remain untouched');
+  let finishHint; let requests = 0;
+  const guarded = new ClearedApp(new WechatPlatform(createWxMock()), {
+    solutionCatalog: solutions,
+    engagement: { requestHint() { requests++; return new Promise(resolve => { finishHint = resolve; }); } }
+  });
+  guarded.openLevel(0, 0);
+  assert.strictEqual(guarded.requestHint(), true);
+  assert.strictEqual(guarded.requestHint(), false);
+  assert.strictEqual(requests, 1);
+  assert.strictEqual(guarded.buildModel().hintAvailable, false);
+  guarded.resetCurrentLevel(); finishHint({ granted: true });
+  await Promise.resolve(); await Promise.resolve();
+  assert.strictEqual(guarded.hintPreview, null, 'late ad cannot affect even a reset of the same Runner');
+  guarded.requestHint(); finishHint({ granted: false, reason: 'closed' });
+  await Promise.resolve(); await Promise.resolve();
+  assert.strictEqual(guarded.hintPreview, null);
+  guarded.requestHint(); guarded.openLevel(0, 0); finishHint({ granted: true });
+  await Promise.resolve(); await Promise.resolve();
+  assert.strictEqual(guarded.hintPreview, null, 'late ad cannot affect a different run');
+  const free = new ClearedApp(new WechatPlatform(createWxMock()), { solutionCatalog: solutions });
+  free.openLevel(0, 0); free.performAction('play:hint');
+  assert(free.hintPreview, 'default free hint is still immediate');
+
 }
 
 module.exports = run;
