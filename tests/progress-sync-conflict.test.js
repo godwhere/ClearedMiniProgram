@@ -24,7 +24,64 @@ function fixture() {
     user: value => { userId = value; }, reauth: () => reauth, failStorage: value => { failStorage = value; } };
 }
 
+// Model a process restart from the exact durable bytes at every write boundary.
+async function bindingWriteRecovery() {
+  const clone = value => JSON.parse(JSON.stringify(value));
+  function host(seed) {
+    const disk = clone(seed || {});
+    return { disk, getStorage: key => disk[key], setStorage(key, value) { disk[key] = clone(value); return true; } };
+  }
+  function connect(platform, userId) {
+    const calls = [];
+    const auth = { current: () => ({ userId }), ensureSession: async () => ({ ok: true }) };
+    const api = { isConfigured: () => true, request: async options => {
+      calls.push(clone(options));
+      return { ok: true, data: options.path === ApiClient.PATHS.operations
+        ? { revision: 2, acceptedOperationIds: options.body.operations.map(item => item.operationId) }
+        : { revision: 1, snapshot: { schemaVersion: 1, levels: userId === 'alice'
+          ? { '0:0': { completed: true, bestMs: 100 }, '0:1': { completed: true, bestMs: 200 } } : {} } } };
+    } };
+    const progress = new Progress(platform); const store = new Store(platform);
+    return { progress, store, calls, service: new Sync(api, progress, store, auth, { enabled: true }) };
+  }
+  const initial = host();
+  new Progress(initial).recordCompletion(0, 1, 200);
+  const migrationId = new Store(initial).state.migrationId;
+  const seed = clone(initial.disk);
+  const snapshots = [];
+  const good = host(seed); const connected = connect(good, 'alice');
+  const write = good.setStorage; let writes = 0;
+  good.setStorage = (key, value) => { writes++; const ok = write(key, value); snapshots.push(clone(good.disk)); return ok; };
+  assert((await connected.service.flush()).ok);
+  for (let failure = 1; failure <= writes; failure++) {
+    const platform = host(seed); const client = connect(platform, 'alice');
+    const persist = platform.setStorage; let count = 0;
+    platform.setStorage = (key, value) => ++count === failure ? false : persist(key, value);
+    await client.service.flush();
+    snapshots.push(clone(platform.disk));
+  }
+  // Repeated ownership-write failures must never leave merged cloud data.
+  const denied = host(seed); const a = connect(denied, 'alice'); const persist = denied.setStorage;
+  denied.setStorage = (key, value) => key === Store.STORAGE_KEY && value.boundUserId === 'alice' ? false : persist(key, value);
+  assert.strictEqual((await a.service.flush()).reason, 'persist-failed');
+  snapshots.push(clone(denied.disk));
+  for (const snapshot of snapshots) {
+    const containsAlice = snapshot[Progress.STORAGE_KEY].completed['0:0'] === true;
+    if (containsAlice) assert.strictEqual(snapshot[Store.STORAGE_KEY].boundUserId, 'alice', 'cloud bytes must never be durable without their owner');
+    const bob = connect(host(snapshot), 'bob'); await bob.service.flush();
+    assert(!bob.calls.some(call => call.path === ApiClient.PATHS.bootstrap && call.body.snapshot.levels['0:0']), 'restarting as B cannot bootstrap A progress');
+    if (snapshot[Store.STORAGE_KEY].boundUserId) assert.strictEqual(bob.calls.length, 0);
+    const alice = connect(host(snapshot), 'alice');
+    assert((await alice.service.flush()).ok, 'same-account recovery works from each write boundary');
+    assert.strictEqual(alice.progress.bestTime(0, 0), 100);
+    assert.strictEqual(alice.progress.bestTime(0, 1), 200);
+    assert.strictEqual(alice.store.state.migrationId, migrationId);
+    alice.calls.filter(call => call.path === ApiClient.PATHS.bootstrap).forEach(call => assert.strictEqual(call.body.migrationId, migrationId));
+  }
+}
+
 module.exports = async function run() {
+  await bindingWriteRecovery();
   const f = fixture(); f.progress.recordCompletion(0, 0, 200);
   f.remote.snapshot.levels = { '0:0': { completed: false, bestMs: 100 }, '0:1': { completed: true, bestMs: 300 } };
   const before = JSON.stringify({ settings: f.progress.state.settings, stats: f.progress.state.stats, last: f.progress.state.lastPlayed });

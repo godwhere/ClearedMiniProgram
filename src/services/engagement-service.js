@@ -38,16 +38,16 @@ class EngagementService {
     const userId = current && current.userId;
     if (!userId) return { ok: false, reason: 'unauthorized' };
     const pending = this.rewards.pendingFor(context);
-    if (pending) return this.rewards.claim(pending);
+    if (pending) return this.rewards.claim(pending, userId);
     if (this.rewards.claimedCount(context) >= (this.config.dailyExtraEntryLimit || 1)) return { ok: false, reason: 'DAILY_REWARD_LIMIT_REACHED' };
     if (this.behavior) this.behavior.track('ad_requested', { placement: 'dailyExtraEntry' });
     const result = await this.ads.showRewarded('dailyExtraEntry');
     if (this.behavior) this.behavior.track(result.rewarded ? 'ad_completed' : result.reason === 'closed' ? 'ad_closed_early' : 'ad_error', { placement: 'dailyExtraEntry', reason: result.reason });
     if (!result.rewarded) return { ok: false, reason: result.reason };
-    const after = this.auth.current();
-    if (!after || after.userId !== userId) return { ok: false, reason: 'account-mismatch' };
+    // The session may expire while the video is open. RewardService persists
+    // the completed attempt for its original account before reauthentication.
     return this.rewards.claim({ source: 'rewarded_ad', action: 'daily_extra_entry', placement: 'dailyExtraEntry',
-      idempotencyKey: result.attemptId, context: { dateKey: context.dateKey, dayId: context.dayId } });
+      idempotencyKey: result.attemptId, context: { dateKey: context.dateKey, dayId: context.dayId } }, userId);
   }
   shareResult(context) {
     if (!this.share) return Promise.resolve({ initiated: false, reason: 'not-configured' });

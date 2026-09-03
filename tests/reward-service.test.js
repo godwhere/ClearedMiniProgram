@@ -19,7 +19,74 @@ function fixture() {
   const service = new RewardService(platform, api, auth, store, { enabled: true });
   return { platform, api, auth, store, service, storage, requests, user: id => { userId = id; }, failStorage: value => { fail = value; } };
 }
+async function expiredAdRecovery() {
+  const SessionStore = require('../src/services/session-store.js');
+  const AdsService = require('../src/services/ads-service.js');
+  for (const outcome of ['same', 'auth-failed', 'auth-threw', 'other', 'switched-during-ad', 'network-failed', 'closed']) {
+    const f = fixture(); let now = Date.now(); let reauth = 0; let watched = 0;
+    let sessions = new SessionStore(f.platform, () => now);
+    const login = userId => sessions.set({ schemaVersion: 1, userId, accessToken: 'test-token', issuedAt: now - 1000, expiresAt: now + 600000 });
+    assert(sessions.set({ schemaVersion: 1, userId: 'alice', accessToken: 'test-token', issuedAt: now - 1000, expiresAt: now + 31000 }));
+    let mode = outcome;
+    const auth = { current: () => sessions.current(), ensureSession: async () => {
+      if (sessions.current()) return { ok: true };
+      reauth++;
+      const durable = f.platform.getStorage(RewardService.STORAGE_KEY);
+      if (reauth === 1) assert(durable && durable.pending.some(item => item.userId === 'alice' && item.input.idempotencyKey === 'adatt_expiring'), 'completed viewing must be saved before reauthentication');
+      if (mode === 'auth-failed') return { ok: false, reason: 'network' };
+      if (mode === 'auth-threw') throw new Error('offline');
+      login(mode === 'other' ? 'bob' : 'alice');
+      return { ok: true };
+    } };
+    const calls = [];
+    const api = { isConfigured: () => true, request: async options => {
+      calls.push({ userId: auth.current().userId, options });
+      if (mode === 'network-failed') return { ok: false, error: { code: 'network' } };
+      return { ok: true, data: options.method === 'GET' ? { dayId: context.dayId, grants: [grant()] } : grant() };
+    } };
+    const rewards = new RewardService(f.platform, api, auth, f.store, { enabled: true });
+    const native = { onClose(fn) { this.close = fn; }, onError() {}, offClose() {}, offError() {}, destroy() {},
+      show() { watched++; now += 45000; if (mode === 'switched-during-ad') login('bob');
+        this.close({ isEnded: mode !== 'closed' }); this.close({ isEnded: mode !== 'closed' }); return Promise.resolve(); } };
+    const ads = new AdsService({ createRewardedVideoAd: () => native }, { rewarded: { dailyExtraEntry: 'test-unit' } }, { nextAttemptId: () => 'adatt_expiring' });
+    const e = new Engagement({ auth, rewards, ads, config: { dailyExtraEntryEnabled: true, dailyExtraEntryLimit: 1 } });
+    const result = await e.requestDailyExtraEntry(context);
+    if (outcome === 'closed') {
+      assert.strictEqual(result.ok, false); assert.strictEqual(rewards.pending.length, 0); assert.strictEqual(calls.length, 0); ads.dispose(); continue;
+    }
+    if (outcome === 'same') {
+      assert.strictEqual(result.grantId, 'grt_1', '31s session + 45s viewing must still claim for the same account');
+      assert.strictEqual(reauth, 1);
+    } else {
+      assert.strictEqual(result.ok, false);
+      const durable = f.platform.getStorage(RewardService.STORAGE_KEY);
+      assert.strictEqual(durable.pending.length, 1, `${outcome} retains exactly one completed attempt`);
+      assert.strictEqual(durable.pending[0].userId, 'alice');
+      assert.strictEqual(durable.pending[0].input.idempotencyKey, 'adatt_expiring');
+    }
+    assert(calls.filter(call => call.options.method === 'POST').every(call => call.userId === 'alice'));
+    mode = 'same';
+    sessions = new SessionStore(f.platform, () => now);
+    const restart = new RewardService(f.platform, api, auth, new SyncStore(f.platform), { enabled: true });
+    login('bob'); const beforeBob = calls.filter(call => call.options.method === 'POST').length;
+    await restart.recover(context);
+    assert.strictEqual(calls.filter(call => call.options.method === 'POST').length, beforeBob, 'B cannot replay A pending attempts');
+    assert.strictEqual((await restart.claim(Object.assign({}, input, { idempotencyKey: 'adatt_expiring' }))).reason, 'account-mismatch');
+    sessions.clear(); await auth.ensureSession();
+    assert((await restart.recover(context)).ok);
+    const confirmed = await restart.claim(Object.assign({}, input, { idempotencyKey: 'adatt_expiring' }));
+    assert.strictEqual(confirmed.grantId, 'grt_1'); assert.strictEqual(confirmed.alreadyGranted, true);
+    assert.strictEqual(watched, 1, 'recovery never requires another viewing');
+    assert.strictEqual(restart.pending.length, 0);
+    assert(calls.filter(call => call.options.method === 'POST').every(call => call.options.idempotencyKey === 'adatt_expiring' && call.userId === 'alice'));
+    calls.filter(call => call.options.method === 'POST').forEach(call => assert.deepStrictEqual(Object.keys(call.options.body),
+      ['source', 'action', 'placement', 'idempotencyKey', 'context'], 'origin account stays out of the unchanged HTTP body'));
+    ads.dispose();
+  }
+}
+
 async function run() {
+  await expiredAdRecovery();
   const f = fixture();
   const first = f.service.claim(input); assert.strictEqual(first, f.service.claim(input));
   const result = await first; assert(result.granted); assert.strictEqual(f.requests.length, 1);

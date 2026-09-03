@@ -577,3 +577,12 @@ onDailyCompleted({
 ## 17. 在线额外次数接入（2026-09-03）
 
 本节覆盖前文“尚未接入”的预留描述。`daily:extraEntry` 是当日完整挑战的额外进入额度，默认关闭；旧 `daily:revive` / `dailyResult:revive` 在功能启用时路由到同一语义。`dailyFailure:retry` 继续免费重试当前关，不新增消耗，不接广告。RewardService 返回确认 grant 后，App 才调用 `applyAuthorizedEntryGrant`；该方法保留 entriesUsed，单调合并 entryLimit，并在原每日 key 内使用 `_grantIds` 幂等，失败回滚内存。无货币或 ad revive 玩法。后端、正式广告位、真实隐私与广告行为及 Android/iOS 验证仍待执行。
+
+
+### 17.1 交付复核后的恢复与兼容路由
+
+`daily:revive`、`dailyResult:revive` 在 App 分派前统一成 `daily:extraEntry`，只在功能开启且首页/每日成功结果具有有效日期上下文时运行；关闭、无效场景或已有 pending 时安全返回 false。所有别名共用同一并发保护，不新增按钮或第二套复活语义。`dailyFailure:retry` 在开关开启时也继续免费，只重置当前关，不增加 entriesUsed、不触发广告。
+
+完整观看的 attemptId 与观看开始时 userId 一起由 RewardService 保存到既有待领取队列，再处理会话过期和认证。认证失败、网络失败或切换成其他账号不会丢掉原账号的待领取请求；重启后原账号可用相同键恢复，其他账号不能接收该请求，提前关闭不建立领奖记录。
+
+回归覆盖 31 秒剩余会话/45 秒观看、失败和跨账号/重启恢复、重复关闭回调，以及旧/新 action 的开关、场景、上下文和并发等价性；属于客户端 Node 证明。真实后端、微信开发者工具在线流程、Android/iOS 和发布验收本次未执行，详见集成方案第 36 节。

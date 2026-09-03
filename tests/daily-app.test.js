@@ -180,7 +180,47 @@ function testDailyFailureFlow() {
   assert.strictEqual(storage[storageKey].entries[dateKey].entriesUsed, storedEntriesUsed);
 }
 
-function run() {
+async function extraEntryActionAliases() {
+  const actions = ['daily:extraEntry', 'daily:revive', 'dailyResult:revive'];
+  for (const enabled of [true, false]) for (const scene of ['home', 'dailyResult', 'daily', 'levels', 'account', 'failure']) {
+    for (const action of actions) {
+      const { platform } = createPlatform(); let finish; const calls = [];
+      const app = new ClearedApp(platform, { clock: () => new Date('2026-08-31T00:00:00Z'), rewards: {},
+        engagement: { canRequestDailyExtraEntry: () => enabled,
+          requestDailyExtraEntry(context) { calls.push(context); return new Promise(resolve => { finish = resolve; }); } } });
+      if (scene === 'dailyResult' || scene === 'daily' || scene === 'failure') {
+        app.performAction('home:dailyChallenge');
+        if (scene === 'dailyResult') { solveCurrentLevel(app); solveCurrentLevel(app); }
+        if (scene === 'failure') playCurrentLevelPaths(app, [[0, 1, 2], [3, 6]]);
+      } else if (scene === 'levels') app.performAction('home:levels');
+      else if (scene === 'account') app.performAction('home:account');
+      const allowed = enabled && (scene === 'home' || scene === 'dailyResult');
+      const progress = JSON.stringify(app.dailyProgress.state);
+      assert.strictEqual(app.performAction(action), allowed, `${action} must have canonical routing for ${scene}, enabled=${enabled}`);
+      if (allowed) {
+        assert.deepStrictEqual(calls[0], app.dailyRewardContext());
+        actions.forEach(other => assert.strictEqual(app.performAction(other), false, 'aliases share one pending guard'));
+        assert.strictEqual(calls.length, 1);
+        finish({ ok: false, reason: 'closed' });
+        await new Promise(resolve => setImmediate(resolve));
+      } else {
+        assert.strictEqual(calls.length, 0);
+        assert.strictEqual(app.dailyExtraRequest, null);
+      }
+      assert.strictEqual(JSON.stringify(app.dailyProgress.state), progress);
+      if (scene === 'failure') {
+        const entriesUsed = app.daily.entriesUsed;
+        app.performAction('dailyFailure:retry');
+        assert.strictEqual(app.scene, 'daily'); assert.strictEqual(app.daily.entriesUsed, entriesUsed);
+        assert.strictEqual(calls.length, 0, 'free retry does not request an ad or reward even when enabled');
+      }
+      app.dispose();
+    }
+  }
+}
+
+async function run() {
+  await extraEntryActionAliases();
   testDailyFailureFlow();
 
   const { platform, storage } = createPlatform();

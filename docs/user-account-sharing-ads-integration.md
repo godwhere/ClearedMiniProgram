@@ -1,6 +1,6 @@
 # 微信小游戏用户身份、云存档、分享与广告奖励接入方案
 
-> 文档状态：Phase 0—6 客户端已实施；在线开关默认关闭，后端及设备发布验收待执行
+> 文档状态：Phase 0—6 客户端已实施；6e7e1b0 交付复核的四项修复见第 36 节。在线默认关闭，后端及设备发布验收待执行
 > 目标仓库：`godwhere/ClearedMiniProgram`  
 > 设计基线：`main@cdab6c984f5749b7af47560fddd210f01642fce9`  
 > 微信 API 基线：`wechat-miniprogram/minigame-api-typings@4cae82af7f3c4339d1f11aea8e672fb16051d24a`（3.8.21）  
@@ -542,6 +542,7 @@ cleared:minigame:online:v1
 - `pendingOperations` 上限 200。
 - 超过上限时设置 `snapshotRequired = true`；不得无限增长本地存储。
 - SyncStore 写入失败不能撤销已经落盘的普通关卡完成状态。
+- `boundUserId` 必须在首次云快照落盘前成功保存，作为账号归属保护；后续合并或 revision 写入失败不能把它清回匿名。
 
 ### 9.3 ProgressStore 只增加两个纯存档能力
 
@@ -605,8 +606,9 @@ Auth userId 已建立
   │    ├─ 带 migrationId + 本地 snapshot
   │    ├─ 服务端幂等合并
   │    ├─ 返回 canonical snapshot + revision
-  │    ├─ 客户端 mergeCloudSnapshot
-  │    └─ 写入 boundUserId / revision
+  │    ├─ 先持久化 boundUserId；失败则禁止合并云进度
+  │    ├─ 客户端 mergeCloudSnapshot；失败仍保留已保存的账号归属
+  │    └─ 合并落盘成功后写入 revision
   │
   ├─ boundUserId == userId
   │    └─ 正常增量同步
@@ -619,6 +621,8 @@ Auth userId 已建立
 ```
 
 第一版不实现自动账号切换解决器。发生 mismatch 时只暂停云同步，防止把前一个微信账号的本地进度上传给新账号。
+
+首次绑定中途退出或写入失败后，磁盘上的云数据必须同时具备已保存的 boundUserId。若只有归属已保存而合并尚未成功，同账号重新 GET 云快照继续合并；revision 不提前推进，migrationId 不改变。归属尚未写成时不允许任何远端数据进入本地存档，原匿名/旧版存档仍按既有 bootstrap 合同处理。
 
 ### 9.5 增量操作
 
@@ -756,6 +760,8 @@ Authorization: Bearer <token>
 ```
 
 若创建意图超时，ShareService 仍可用无 `sid` 的普通卡片发起分享，不能阻塞分享面板。
+
+App action 改变场景后，用当前 shareContext 调用 prepareContext；因此普通结果经选关返回首页、每日结果返回首页都会刷新或复用首页意图。服务仍只保留一个有效缓存，按账号、上下文与过期时间校验；切换上下文时先撤销旧请求的提交资格，即使新上下文复用了缓存，也不允许迟到结果覆盖它。分享点击及菜单回调不等待预取。
 
 ### 10.5 冷启动和热启动归因
 
@@ -950,8 +956,10 @@ EngagementService 决定是否调用 `ads.showInterstitial('levelComplete')`。
 这些能力只能通过：
 
 ```js
-rewardService.claim(input)
+rewardService.claim(input, ownerUserId)
 ```
+
+`ownerUserId` 是可选的客户端内部参数。广告完成路径必须传入观看开始时的账号；与原 attemptId 一起写入既有 rewards pending 记录后才发起认证/网络请求。它不进入 HTTP body，后端身份仍由业务 token 决定；不传该参数的原调用继续使用当前账号。已记录的 attemptId 不允许转移到其他账号。
 
 禁止 AdsService、ShareService、BehaviorService、Renderer 或 App 直接修改耐久余额。
 
@@ -1071,7 +1079,7 @@ daily:revive
 daily:extraEntry
 ```
 
-不得创建“复活一次”和“增加进入次数”两套共用同一个 action 的模糊行为。
+不得创建“复活一次”和“增加进入次数”两套共用同一个 action 的模糊行为。App 在 action 分派前把两个旧别名规范化为 daily:extraEntry，统一经过功能开关、有效场景/日期上下文及 pending 校验；关闭时直接返回 false，不进入旧预留回调。有效场景仅为当日题面可用的首页和每日成功结果页；进行中的棋盘及失败结果均不进入增次流程。
 
 ### 13.1 DailyProgressStore 改动
 
@@ -1141,12 +1149,16 @@ EngagementService 不调用 HintService。App 收到 granted 且 run guard 仍�
 
 ```text
 检查功能开关和本地 pending
-  -> 确保 AuthService session
+  -> 确保 AuthService session，固定发起 userId
   -> AdsService.showRewarded('dailyExtraEntry')
   -> 完整观看
-  -> RewardService.claim(daily_extra_entry)
+  -> RewardService.claim(daily_extra_entry, 发起 userId)
+  -> 先持久化原账号 + attemptId 的 pending 请求
+  -> 会话过期时重新认证；仅同账号允许发送原幂等请求
   -> 返回服务端 entitlement
 ```
+
+认证失败、网络失败或重新认证为其他账号时，已完整观看的请求保留在原账号的既有 rewards 队列；重启后由原账号恢复，复用同一幂等键，不再要求观看。提前关闭不创建 pending，也不发奖。
 
 任一步失败只返回结构化 reason，不直接改 App 或 DailyProgressStore。
 
@@ -2390,7 +2402,7 @@ PR 7  feat: add server-attributed invite rewards
 
 ## 35. 客户端交付清单与发布边界
 
-本次完成 Phase 0—6 客户端实现，按阶段提交在 `codex/account-engagement-framework`。这里的“客户端完成”不代表第 30 节的后端、开发者工具在线能力及真机发布门禁已经全部完成。代码保持 disabled safe defaults；没有服务器目录、密钥、线上部署或真实发奖。
+以下为 `6e7e1b0` 的初次客户端交付记录，按阶段提交在 `codex/account-engagement-framework`。初次测试未覆盖第 36 节的四个故障场景，不能据此认定这些边界正确；修复后的当前证据以第 36 节为准。“客户端完成”仍不代表第 30 节后端、开发者工具在线能力及真机发布门禁全部完成。代码保持 disabled safe defaults；没有服务器目录、密钥、线上部署或真实发奖。
 
 ### 精确文件清单
 
@@ -2517,3 +2529,25 @@ POST  /v1/events:batch
 ### 有意保留的范围
 
 没有增加自定义分享图（使用游戏截图）、独立后端、手机号/支付/排行/多账号冲突解决器、高价值货币、朋友圈奖励、多广告单元 multiton、远程配置或旧小程序页面功能。`DELETE /v1/me` 保留为后端合同，未增加设计范围外的客户端注销操作。首次功能只提供有上限、不可交易的每日额外进入额度。
+
+
+## 36. 交付复核修复（基于 6e7e1b0）
+
+修复工作位于独立 worktree `/Users/ethan/Projects/ClearedMiniProgram-account-review-fixes`，分支 `codex/account-engagement-review-fixes`，基于交付分支的 `6e7e1b0`。主工作区 main、交付分支和 `/tmp` 中旧审查副本均未修改；不推送、合并或部署。
+
+| 问题 | 最小修复 | 回归证据 |
+| --- | --- | --- |
+| 首次绑定失败串档 | 先保存 boundUserId，再落盘云快照，最后推进 revision；失败保留归属 | 每个成功写入边界模拟重启、逐次写入失败及持续归属写入失败；B 不收到 A 云进度，A 可恢复；migrationId 和旧本地进度保留 |
+| 广告期间会话过期丢请求 | RewardService 接收发起账号，先存既有 pending，再按需认证；原键不能转账号 | 使用真实 SessionStore 与 AdsService：剩 31 秒会话、45 秒观看；认证失败/异常、网络失败、认证为 B、观看中切 B、重复 close、重启回到 A 恢复；提前关闭无 pending/奖励 |
+| 返回首页分享缺 sid | App 场景 action 触发预取/缓存复用；过期请求失去覆盖缓存的资格 | 真实首页→通关→选关→首页，及每日成功结果两条返回 action；覆盖账号/过期校验、未完成预取不阻塞分享与迟到结果 |
+| 旧增次 action 路由 | 两个 revive 别名在分派前归一化到 extraEntry，共用开关、场景/上下文与 pending 检查 | 开关开/关 × 首页、每日成功结果、每日进行中、选关、账号、失败结果；跨别名并发只请求一次；免费失败重试不扣额外次数、不请求广告 |
+
+四项回归分别扩展在 `tests/progress-sync-conflict.test.js`、`tests/reward-service.test.js`、`tests/share-entry.test.js`、`tests/daily-app.test.js`，均由既有 `tests/run.js` 注册执行；未新增平行复现入口，也未执行固定引用旧副本的脚本来代替验证。
+
+在只加入回归、尚未改实现的实际修复 worktree 中，全量运行恰有上述四组失败，其余 49 组通过（`/tmp/cleared-review-before-tests.log`）。修复后四组通过，最终全量 53 组通过；复跑过程中既有普通/Portal hint 用例分别出现过两次 getViewState 的 elapsedMs 相差 1ms 而失败，代码检查确认该比较包含实时计时字段，未修改这些测试或玩法。失败日志保留在 `/tmp/cleared-review-after-tests.log` 与 `/tmp/cleared-review-portal-clock-failure.log`，最终全量复跑通过。
+
+最终验证：`node tests/run.js` 53 组通过；`node scripts/check-package-budget.js` 全部预算通过，当前 worktree 主包源码 2,666,655 bytes（2.543 MiB）、总包 15,957,595 bytes（15.218 MiB）；`git diff --check` 通过。日志为 `/tmp/cleared-review-final-tests.log` 和 `/tmp/cleared-review-final-budget.log`。此源码统计对应当前 worktree，不把旧工作区统计差异解释为压缩收益。
+
+此次修改不增加存储 key 或字段，不改变 HTTP 请求/响应合同、在线默认关闭配置、核心玩法、关卡、主题、素材或 UI。新增的 claim 第二参数仅存在于客户端服务之间，持久 pending 沿用原 `{userId,input}` 结构。
+
+本次只完成本地客户端修复和 Node 验证。没有对修复版执行后端联调、微信开发者工具在线登录/分享/广告验证、Android/iOS 真机、真实账号切换、流量主库存与发布上传验收。第 35 节开发者工具截图和读数是原交付证据，不是本次修复版的设备证据。

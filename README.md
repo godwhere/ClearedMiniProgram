@@ -213,3 +213,6 @@ BGM、短音效、Logo、Portal 图标以及轻量主题/特效预览仍在主�
 每日额外进入次数：`daily:extraEntry` 经完整视频与后端幂等 ledger 确认后，缓存服务端 entryLimit；客户端不提交数量。`cleared:minigame:rewards:v1` 最多保留 20 条待结算请求、64 条已确认 grant 缓存，缓存淘汰不删除服务端账本。写入失败、后台退出和同 grant 重放有恢复保护；普通/每日原存储 key 保持不变，新增每日 `_grantIds` 防重复。`dailyFailure:retry` 不扣额外次数且不要求广告。
 
 邀请奖励客户端已接入，默认 `share.rewardsEnabled=false`。启用后只向 share-intents 提交 `rewardAction: daily_extra_entry` 作为活动意图，由服务端校验归因并在事务中发奖；邀请者通过 daily-entitlements 恢复确认 grant，不能从分享回调申领奖励。客户端处理自邀、过期和活动关闭的明确拒绝，网络失败保留归因 ID。服务端唯一约束、防刷、真实邀请闭环仍需在独立后端实现并验收。全部实施记录、精确文件清单、HTTP 合同及未完成发布检查见接入方案第 34—35 节。
+
+
+交付复核的四项客户端修复记录见接入方案第 36 节：云快照落盘前先固定账号归属；完整广告结果先按发起账号与 attemptId 保存，再重新认证领取；返回首页通过 App action 刷新分享意图；旧 revive action 统一走 extraEntry。现有存档 key、HTTP 合同及在线默认关闭配置不变。修复版只完成本地 Node/包体/差异验证，后端、微信在线能力、真机及发布验收仍未完成。

@@ -73,18 +73,23 @@ class RewardService {
     return current ? this.grants.filter(item => item.userId === current.userId && item.input && item.context.dateKey === context.dateKey && item.context.dayId === context.dayId).length : 0;
   }
 
-  claim(input) {
+  claim(input, ownerUserId) {
     const normalized = claimInput(input);
     if (!this.enabled()) return Promise.resolve({ ok: false, reason: 'not-configured' });
     if (!normalized) return Promise.resolve({ ok: false, reason: 'invalid-claim' });
     const current = this.auth.current();
-    if (!current || !this.matches(current.userId)) return Promise.resolve({ ok: false, reason: 'account-mismatch' });
-    const userId = current.userId;
+    const userId = ownerUserId === undefined ? current && current.userId : ownerUserId;
+    if (!idValid(userId)) return Promise.resolve({ ok: false, reason: 'account-mismatch' });
+    const owner = this.pending.find(item => item.input.idempotencyKey === normalized.idempotencyKey) ||
+      this.grants.find(item => item.input && item.input.idempotencyKey === normalized.idempotencyKey);
+    if (owner && owner.userId !== userId) return Promise.resolve({ ok: false, reason: 'account-mismatch' });
     const key = `${userId}|${normalized.idempotencyKey}`;
     const previous = this.grants.find(item => item.userId === userId && item.input && item.input.idempotencyKey === normalized.idempotencyKey);
     const pending = this.pending.find(item => item.userId === userId && item.input.idempotencyKey === normalized.idempotencyKey);
     if ((previous || pending) && JSON.stringify((previous || pending).input) !== JSON.stringify(normalized)) return Promise.resolve({ ok: false, reason: 'idempotency-conflict' });
-    if (previous) return Promise.resolve(Object.assign(copy(previous.grant), { alreadyGranted: true, userId, context: copy(previous.context) }));
+    if (previous) return Promise.resolve(this.matches(userId)
+      ? Object.assign(copy(previous.grant), { alreadyGranted: true, userId, context: copy(previous.context) })
+      : { ok: false, reason: 'account-mismatch' });
     if (this.inFlight.has(key)) return this.inFlight.get(key);
     if (!pending) {
       if (this.pending.length >= 20) return Promise.resolve({ ok: false, reason: 'pending-limit' });
@@ -112,6 +117,12 @@ class RewardService {
   }
 
   async send(userId, options) {
+    // claim() has already saved the owner and original idempotency key.
+    // Failed authentication leaves that pending record available on restart.
+    if (!this.auth.current()) {
+      const authenticated = await this.auth.ensureSession();
+      if (!authenticated.ok) return ApiClient.failure(authenticated.reason || 'unauthorized');
+    }
     if (!this.matches(userId)) return ApiClient.failure('account-mismatch');
     let result = await this.api.request(options);
     if (!result.ok && result.error.code === 'unauthorized') {
@@ -150,7 +161,7 @@ class RewardService {
 
   async restore(userId, context) {
     for (const item of this.pending.slice()) {
-      if (item.userId === userId && item.input.context.dateKey === context.dateKey && item.input.context.dayId === context.dayId) await this.claim(item.input);
+      if (item.userId === userId && item.input.context.dateKey === context.dateKey && item.input.context.dayId === context.dayId) await this.claim(item.input, userId);
     }
     const response = await this.send(userId, { method: 'GET', path: ApiClient.PATHS.entitlements + context.dateKey, auth: true });
     if (!response.ok) return { ok: false, reason: response.error.code, grants: this.matches(userId) ? this.cached(context, userId) : [] };

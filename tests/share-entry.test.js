@@ -7,7 +7,78 @@ const ClearedApp = require('../src/app.js');
 const Engagement = require('../src/services/engagement-service.js');
 const { fakeApi } = require('./account-bootstrap.test.js');
 
+function solveForShare(app, paths) {
+  app.tick(Date.now() + 1000);
+  const board = app.renderer.getBoardLayout();
+  const width = app.activeRunner().level.Width;
+  for (const path of paths) {
+    const point = index => ({ x: board.x + (index % width + 0.5) * board.cell,
+      y: board.y + (Math.floor(index / width) + 0.5) * board.cell, id: 1 });
+    app.onPointerStart(point(path[0]));
+    path.slice(1).forEach(index => app.onPointerMove(point(index)));
+    app.onPointerEnd(point(path[path.length - 1]));
+  }
+}
+
+async function menuAfterNavigation() {
+  for (const exit of ['result:levels', 'dailyResult:home', 'dailyResult:back']) {
+    const f = fixture();
+    const app = new ClearedApp(new WechatPlatform(fakeApi()), { share: f.service, auth: f.auth,
+      clock: () => new Date('2026-08-31T00:00:00Z'), engagement: new Engagement({ share: f.service }) });
+    f.service.install(() => app.shareContext());
+    await app.resumeOnline();
+    assert(f.menu().query.includes('sid='));
+    if (exit === 'result:levels') {
+      app.performAction('home:start'); solveForShare(app, [[0, 1, 2, 3, 4]]);
+      assert.strictEqual(app.scene, 'result');
+    } else {
+      const solutions = require('../data/daily-solutions.js').ByChallengeId;
+      app.performAction('home:dailyChallenge');
+      solveForShare(app, solutions[app.daily.challengeId]);
+      solveForShare(app, solutions[app.daily.challengeId]);
+      assert.strictEqual(app.scene, 'dailyResult');
+    }
+    await f.service.intentRequest.promise;
+    assert(f.menu().query.includes('sid='));
+    app.performAction(exit);
+    if (exit === 'result:levels') app.performAction('levels:home');
+    if (f.service.intentRequest) await f.service.intentRequest.promise;
+    assert.strictEqual(app.scene, 'home');
+    assert(f.menu().query.includes('sid='), `${exit} must refresh the home intent through App actions`);
+    assert(f.menu().query.includes('scene=home'));
+    assert.strictEqual(f.installs(), 1);
+    // Expiry and account checks still govern navigation-triggered prefetch.
+    f.service.intent.expiresAt = Date.now() - 1;
+    assert(!f.menu().query.includes('sid='));
+    app.performAction('home:levels'); app.performAction('levels:home');
+    if (f.service.intentRequest) await f.service.intentRequest.promise;
+    assert(f.menu().query.includes('sid='));
+    f.user('another'); assert(!f.menu().query.includes('sid='));
+    app.performAction('home:levels'); app.performAction('levels:home');
+    if (f.service.intentRequest) await f.service.intentRequest.promise;
+    assert(f.menu().query.includes('sid='));
+    f.user(null); assert(!f.menu().query.includes('sid='));
+    app.dispose();
+  }
+
+  const f = fixture();
+  const app = new ClearedApp(new WechatPlatform(fakeApi()), { share: f.service, auth: f.auth,
+    engagement: new Engagement({ share: f.service }) });
+  f.service.install(() => app.shareContext()); await app.resumeOnline();
+  let finish;
+  f.api.request = () => new Promise(resolve => { finish = resolve; });
+  app.performAction('home:start'); solveForShare(app, [[0, 1, 2, 3, 4]]);
+  const obsolete = f.service.intentRequest.promise;
+  assert.strictEqual((await f.service.share(app.shareContext())).initiated, true, 'a pending intent cannot delay the share panel');
+  assert(!f.shares[0].query.includes('sid='), 'a home sid is never reused for a result');
+  app.performAction('result:levels'); app.performAction('levels:home');
+  finish({ ok: true, data: { shareId: 'shr_late_result', expiresAt: Date.now() + 60000 } }); await obsolete;
+  assert(f.menu().query.includes('sid=') && !f.menu().query.includes('shr_late_result'), 'a late result intent cannot evict the reused home intent');
+  app.dispose();
+}
+
 module.exports = async function run() {
+  await menuAfterNavigation();
   const config = require('../src/config/engagement.js').share;
   const originalConfig = Object.assign({}, config); const previousWx = global.wx;
   try {

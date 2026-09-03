@@ -1727,6 +1727,7 @@ class ClearedApp {
 
   performAction(action) {
     if (typeof action !== 'string' || !action) return false;
+    if (action === 'daily:revive' || action === 'dailyResult:revive') action = 'daily:extraEntry';
     const previewActive = this.isHintPreviewActive();
     if (previewActive && (action === 'play:reset' || action === 'play:undo' ||
         action === 'daily:reset' || action === 'daily:undo')) return false;
@@ -1900,12 +1901,6 @@ class ClearedApp {
       this.requestHint();
     } else if (action === 'daily:extraEntry') {
       return this.requestDailyExtraEntry();
-    } else if (action === 'daily:revive' || action === 'dailyResult:revive') {
-      // Reserved action only.  Ads/share and entry restoration are deliberately
-      // outside this release; consumers may observe the request and decide
-      // whether a future entitlement flow should handle it.
-      this.requestDailyRevive();
-      return false;
     } else if (action === 'dailyResult:home' || action === 'dailyResult:back') {
       this.scene = 'home';
       this.boardInput.setRunner(null);
@@ -1964,7 +1959,10 @@ class ClearedApp {
       this.renderer.invalidateEffectPreviews();
     }
     if (previousScene === 'account' && this.scene !== 'account') this.leaveAccount();
-    if (previousScene !== this.scene) this.clearHintRequest();
+    if (previousScene !== this.scene) {
+      this.clearHintRequest();
+      if (this.share) this.share.prepareContext(this.shareContext());
+    }
     if ((ordinaryFailure || dailyFailure) && this.renderer) this.renderer.clearInteractionHits();
     this.invalidate();
   }
@@ -2029,6 +2027,7 @@ class ClearedApp {
   }
 
   requestDailyExtraEntry() {
+    if (!this.engagement.canRequestDailyExtraEntry || !this.engagement.canRequestDailyExtraEntry()) return false;
     const context = this.dailyRewardContext();
     if (!context || this.dailyExtraRequest || !this.rewards) return false;
     const token = { scene: this.scene, runKey: this.runSequence, context };

@@ -91,6 +91,10 @@ class ProgressSyncService {
     if (!Number.isSafeInteger(remote.revision) || remote.revision < state.serverRevision ||
         !remote.snapshot || remote.snapshot.schemaVersion !== 1 || !remote.snapshot.levels ||
         typeof remote.snapshot.levels !== 'object' || Array.isArray(remote.snapshot.levels)) return this.failed('invalid-response');
+    // Establish ownership before any remote bytes can reach the local save.
+    // Keep this guard after later failures; the same account can pull again
+    // with the old revision, while another account must never bootstrap it.
+    if (firstBinding && !this.updateMetadata({ boundUserId: userId })) return this.failed('persist-failed');
     const merged = this.progress.mergeCloudSnapshot(remote.snapshot);
     if (!merged.ok) return this.failed(merged.reason);
     if (!this.updateMetadata({ boundUserId: userId, serverRevision: remote.revision })) return this.failed('persist-failed');

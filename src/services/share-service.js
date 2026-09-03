@@ -82,6 +82,9 @@ class ShareService {
     if (!session) return Promise.resolve({ ok: false, reason: 'unauthorized' });
     const body = this.intentContext(context);
     const key = JSON.stringify(body);
+    // Invalidate an obsolete request even when the new context can reuse a
+    // cached intent; its late response must not evict that valid cache.
+    if (this.intentRequest && (this.intentRequest.key !== key || this.intentRequest.userId !== session.userId)) this.intentRequest = null;
     if (this.intent && this.intent.key === key && this.intent.userId === session.userId && this.intent.expiresAt > Date.now() + 30000) return Promise.resolve({ ok: true });
     if (this.intentRequest && this.intentRequest.key === key && this.intentRequest.userId === session.userId) return this.intentRequest.promise;
     const token = { key, userId: session.userId };
