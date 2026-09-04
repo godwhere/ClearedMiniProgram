@@ -20,4 +20,22 @@ module.exports = async function run() {
   auth.clear(); platform.login = async () => { throw { reason: 'timeout' }; };
   assert.strictEqual((await auth.ensureSession()).reason, 'timeout');
   assert.strictEqual(auth.state(), 'offline');
+
+  platform.login = async () => { logins++; return { code: 'one-time' }; };
+  platform.setStorage = () => false;
+  assert.strictEqual((await auth.ensureSession()).reason, 'persist-failed');
+  assert.strictEqual(auth.current(), null); assert.strictEqual(auth.state(), 'error');
+  platform.setStorage = (key, value) => { storage[key] = value; return true; };
+  assert((await auth.ensureSession()).ok);
+  const before = logins;
+  const cloud = new AuthService(platform, api, sessions, new SyncStore(platform), { enabled: true, mode: 'cloud' });
+  assert.strictEqual(cloud.current(), null, 'cloud mode cannot reuse an HTTP identity');
+  assert.strictEqual((await cloud.ensureSession()).reason, 'cloud-identity-not-ready');
+  assert.strictEqual(logins, before); assert.strictEqual(sessions.current().userId, 'usr_1');
+  cloud.config.enabled = false;
+  assert.strictEqual((await cloud.ensureSession()).reason, 'not-configured');
+  assert.strictEqual(logins, before);
+  const derived = new AuthService(platform, { transport: {}, isConfigured: () => true }, sessions,
+    new SyncStore(platform), { enabled: true });
+  assert.strictEqual((await derived.ensureSession()).reason, 'cloud-identity-not-ready');
 };

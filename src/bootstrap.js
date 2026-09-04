@@ -25,6 +25,8 @@ const BehaviorService = require('./services/behavior-service.js');
 const EngagementService = require('./services/engagement-service.js');
 const AdsService = require('./services/ads-service.js');
 const backendConfig = require('./config/backend.js');
+const cloudbaseConfig = require('./config/cloudbase.js');
+const CloudFunctionTransport = require('./services/cloud-function-transport.js');
 const engagementConfig = require('./config/engagement.js');
 const ProfileService = require('./services/profile-service.js');
 const ShareService = require('./services/share-service.js');
@@ -42,8 +44,10 @@ function start() {
   const rewardUnlocks = new RewardUnlockService(platform, rewardConfig);
   const sessions = new SessionStore(platform);
   const syncStore = new SyncStore(platform);
-  const api = new ApiClient(platform, sessions, backendConfig);
-  const auth = new AuthService(platform, api, sessions, syncStore, engagementConfig.auth);
+  const transport = cloudbaseConfig.enabled === true ? new CloudFunctionTransport(platform, cloudbaseConfig) : null;
+  const api = new ApiClient(platform, sessions, backendConfig, { transport });
+  const auth = new AuthService(platform, api, sessions, syncStore,
+    Object.assign({}, engagementConfig.auth, { mode: transport ? 'cloud' : 'legacy-http' }));
   const behavior = new BehaviorService(platform, api, syncStore, engagementConfig.behavior);
   const profile = new ProfileService(platform, api, auth, engagementConfig.profile, behavior);
   const progressSync = new ProgressSyncService(api, progress, syncStore, auth, engagementConfig.progressSync, behavior);

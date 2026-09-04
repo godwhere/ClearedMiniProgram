@@ -61,16 +61,34 @@ function javascriptFiles(directory) {
 
 function run() {
   const files = javascriptFiles(CORE_DIR).sort();
-  const runtime = files.concat(javascriptFiles(SRC_DIR), path.join(SRC_DIR, '..', 'game.js'));
+  const runtime = files.concat(javascriptFiles(SRC_DIR),
+    javascriptFiles(path.join(SRC_DIR, '..', 'data')),
+    javascriptFiles(path.join(SRC_DIR, '..', 'assets')), path.join(SRC_DIR, '..', 'game.js'));
+  assert(!fs.existsSync(path.join(SRC_DIR, '..', 'cloudfunctions')), 'client repository must not contain cloud functions');
+  assert(!fs.existsSync(path.join(SRC_DIR, '..', 'node_modules')), 'native client must not gain npm runtime dependencies');
   runtime.forEach(file => {
     if (file === path.join(SRC_DIR, 'platform', 'wechat.js')) return;
     const source = fs.readFileSync(file, 'utf8');
+    assert(!/\b(?:wx|api)\s*(?:\.\s*cloud\b|\[\s*['"]cloud['"]\s*\])/.test(source),
+      `${file} must not access native cloud APIs, including through an injected api alias`);
     assert(!/\bwx\s*(?:\.|\[)|\b(?:globalThis|GameGlobal)\s*(?:\.\s*wx|\[\s*['"]wx['"]\s*\])/.test(source),
       `${file} must use WechatPlatform`);
     if (file !== path.join(SRC_DIR, 'services', 'api-client.js')) {
       assert(!/['"]\/v1\/|\bAuthorization\b/.test(source), `${file} must consume named API contracts`);
     }
   });
+  const cloudTransport = path.join(SRC_DIR, 'services', 'cloud-function-transport.js');
+  runtime.filter(file => file !== cloudTransport && file !== path.join(SRC_DIR, 'platform', 'wechat.js')).forEach(file => {
+    const source = fs.readFileSync(file, 'utf8');
+    assert(!/\.(?:initCloud|callCloudFunction)\s*\(/.test(source), `${file} must use the cloud transport seam`);
+  });
+  ['gameplay', 'mechanics', 'ui'].forEach(dir => javascriptFiles(path.join(SRC_DIR, dir)).forEach(file => {
+    assert(!dependencies(fs.readFileSync(file, 'utf8')).some(dep => /cloud|api-client|auth-service|session-store|sync-store/.test(dep)),
+      `${file} cannot depend on cloud/identity services`);
+  }));
+  const transportSource = fs.readFileSync(cloudTransport, 'utf8');
+  assert(!/SessionStore|SyncStore|RewardUnlockService|StaminaService|mergeCloudSnapshot|setStorage/.test(transportSource),
+    'cloud transport cannot bind identity, save storage or apply business state');
   ['gameplay', 'mechanics', 'ui/board'].forEach(dir => javascriptFiles(path.join(SRC_DIR, dir)).forEach(file => {
     const source = fs.readFileSync(file, 'utf8');
     assert(!/(?:auth|api-client|ads|engagement|behavior|reward|share|progress-sync)-service|\bdeps\.ads\b/.test(source),

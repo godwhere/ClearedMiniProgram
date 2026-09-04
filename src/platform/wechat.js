@@ -121,6 +121,51 @@ class WechatPlatform {
     });
   }
 
+  supportsCloud() {
+    return !!(this.api && this.api.cloud && typeof this.api.cloud.init === 'function' &&
+      typeof this.api.cloud.callFunction === 'function');
+  }
+
+  async initCloud(options) {
+    if (!this.supportsCloud()) return { ok: false, reason: 'not-supported' };
+    const opts = options || {};
+    if (typeof opts.env !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(opts.env)) {
+      return { ok: false, reason: 'invalid-request' };
+    }
+    try {
+      await this.api.cloud.init({ env: opts.env, traceUser: opts.traceUser === true });
+      return { ok: true };
+    } catch (error) { return { ok: false, reason: 'cloud-init-failed' }; }
+  }
+
+  callCloudFunction(options) {
+    if (!this.supportsCloud()) return Promise.resolve({ ok: false, reason: 'not-supported' });
+    const opts = options || {};
+    const timeout = opts.timeout === undefined ? 8000 : opts.timeout;
+    if (typeof opts.name !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(opts.name) ||
+        !opts.data || typeof opts.data !== 'object' || Array.isArray(opts.data) ||
+        !Number.isSafeInteger(timeout) || timeout <= 0 || timeout > 60000 ||
+        (opts.env !== undefined && (typeof opts.env !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(opts.env)))) {
+      return Promise.resolve({ ok: false, reason: 'invalid-request' });
+    }
+    return new Promise(resolve => {
+      let finished = false;
+      const done = result => { if (finished) return; finished = true; clearTimeout(timer); resolve(result); };
+      // Native ordinary callFunction has no HTTP timeout option. This local
+      // watchdog ignores late callbacks; it cannot cancel server execution.
+      const timer = setTimeout(() => done({ ok: false, reason: 'timeout' }), timeout);
+      const success = result => done({ ok: true, result: result && result.result });
+      const fail = error => done({ ok: false, reason: error && typeof error.errMsg === 'string' &&
+        /timeout|timed out/i.test(error.errMsg) ? 'timeout' : 'network' });
+      try {
+        const nativeOptions = { name: opts.name, data: opts.data, success, fail };
+        if (opts.env !== undefined) nativeOptions.config = { env: opts.env };
+        const task = this.api.cloud.callFunction(nativeOptions);
+        if (task && typeof task.then === 'function') task.then(success, fail);
+      } catch (error) { fail(error); }
+    });
+  }
+
   bindPointer(handlers) {
     const points = (event, ended) => {
       const list = ended ? event.changedTouches : event.touches;

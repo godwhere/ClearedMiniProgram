@@ -9,13 +9,14 @@ class AuthService {
     this.sessions = sessions;
     this.syncStore = syncStore;
     this.config = config || {};
-    this.status = sessions.current() ? 'authenticated' : 'anonymous';
+    this.mode = this.config.mode || (api.transport ? 'cloud' : 'legacy-http');
+    this.status = this.current() ? 'authenticated' : 'anonymous';
     this.inFlight = null;
     this.listeners = [];
     this.generation = 0;
   }
 
-  current() { return this.sessions.current(); }
+  current() { return this.mode === 'legacy-http' ? this.sessions.current() : null; }
   state() { return this.status === 'authenticated' && !this.current() ? 'anonymous' : this.status; }
   onSessionChanged(listener) {
     if (typeof listener !== 'function') return function () {};
@@ -32,6 +33,10 @@ class AuthService {
     if (this.config.enabled !== true || !this.api.isConfigured()) {
       return Promise.resolve({ ok: false, status: 'offline', reason: 'not-configured' });
     }
+    // Cloud identity must not activate the legacy single-scope sync path.
+    // Phase 2 adds owner scopes; phase 3 supplies the real identity provider.
+    if (this.mode !== 'legacy-http') return Promise.resolve({ ok: false, status: 'offline',
+      reason: this.mode === 'cloud' ? 'cloud-identity-not-ready' : 'invalid-identity-mode' });
     const generation = this.generation;
     // Publish the flight before notifying observers: a listener may itself
     // ask for a session while rendering the new authenticating state.
@@ -61,7 +66,9 @@ class AuthService {
     const session = data.session && { schemaVersion: 1, userId: user && user.id,
       accessToken: data.session.accessToken, issuedAt: data.session.issuedAt,
       expiresAt: data.session.expiresAt };
-    if (!user || typeof user.id !== 'string' || !this.sessions.set(session)) return this.fail('invalid-response');
+    if (!user || typeof user.id !== 'string' || !this.sessions.set(session)) {
+      return this.fail(this.sessions.lastError === 'persist-failed' ? 'persist-failed' : 'invalid-response');
+    }
     this.status = 'authenticated'; this.notify();
     return { ok: true, status: this.status,
       user: { id: user.id, profileCompleted: user.profileCompleted === true },

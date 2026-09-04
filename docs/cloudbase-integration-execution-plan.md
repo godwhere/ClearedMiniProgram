@@ -1,6 +1,6 @@
 # Cleared 微信云开发接入分阶段执行方案与严格代码实施边界
 
-> 文档状态：审查与实施合同，当前仅规划，尚未修改运行时代码、部署函数、创建数据库或开通云资源。  
+> 文档状态：阶段 0 证据审查与阶段 1 默认关闭的客户端接缝已实施；Node 验证记录见第 21 节。未进入阶段 2，未部署函数、创建数据库或开通云资源。
 > 客户端仓库：`godwhere/ClearedMiniProgram`  
 > 审查基线：`main@69bcd6e4a0996149ef4b521d0d1764407bfc69cb`  
 > 编写日期：2026-09-04  
@@ -15,7 +15,7 @@
 
 ### 0.1 本轮已核对的仓库事实
 
-当前 `main` 的最新提交为 `69bcd6e4a0996149ef4b521d0d1764407bfc69cb`。该提交只更新了 README；本方案所审查的运行时代码与其父提交保持一致。
+规划审查时 `main` 的最新提交为 `69bcd6e4a0996149ef4b521d0d1764407bfc69cb`。该提交只更新了 README；本方案所审查的运行时代码与其父提交保持一致。阶段 0/1 实施锁定的 HEAD 是 `f5d61d194a41a38846b3470e7546946a34ac104f`，差异与实际调用点见 [`cloudbase-phase-0-evidence.md`](cloudbase-phase-0-evidence.md)。
 
 已经核对的关键路径和职责如下：
 
@@ -2400,9 +2400,63 @@ SessionStore：
 
 ## 20. 本文档提交后的下一步
 
-本文提交本身不代表 CloudBase 已接入。下一步应先执行阶段 0：
+本文初次提交本身不代表 CloudBase 已接入。初次提交后的执行顺序为：
 
 1. 对照本机两份材料与当前 main。
 2. 冻结 5 项产品决策。
 3. 运行当前 Node 和包体基线。
 4. 再把第 19 节提示词交给 Codex 实施阶段 1。
+
+2026-09-04 已按本轮用户范围完成证据审查和默认关闭的阶段 1，记录如下；本轮到此停止。第 18 节五项后续业务／部署决策仍是建议，不把本轮接缝实施等同于用户已经批准资产迁移或云资源创建。
+
+## 21. Implementation Notes：阶段 0 + 阶段 1
+
+### 实际边界与适配
+
+- 阶段 0 先建立 [`cloudbase-phase-0-evidence.md`](cloudbase-phase-0-evidence.md)，记录干净工作区、SHA、七条真实流程、全部恢复入口、存储 key、已有测试与风险。相对规划基线没有运行时代码变化；两份本机材料中 34 个源码／测试哈希均相同。
+- `src/config/cloudbase.js` 采用本轮用户指定的最小 `enabled:false / env:'' / functions / timeoutMs:8000`，没有预先增加后续阶段的分域写开关。backend/engagement/ads/daily 配置均未修改。
+- bootstrap 仅当 enabled 严格为 true 才注入 CloudFunctionTransport，构造不初始化云；默认仍为原 HTTP ApiClient + legacy-http AuthService。本地 App 构造、start、首帧与在线微任务顺序不变。
+- Transport 仅校验协议和映射服务/动作/name/data；调用时延迟初始化，初始化 flight 共享，失败允许后续请求重试。它不保存 session、不生成业务 ID、不合并进度、不处理余额/归属，不自动重试业务请求。installId 继续只由 SyncStore 生成和持久化。
+- requestId 由调用者提供；protocolVersion 固定支持 1；operationId/idempotencyKey 非空时才转发。动作有声明式 allowlist，函数名来自配置。平台返回的 result 必须为合法 ok/code/requestId envelope；requestId 错位或非法返回拒绝。成功保留整个 envelope，错误仅输出稳定 code/retryable（及合法 retryAfterMs），不透传原生错误或私密 message。
+- WechatPlatform 是唯一原生云 API 边界；缺 API 返回 not-supported，失败／异常归一化，有限本地 watchdog 返回 timeout 并忽略迟到回调。`timeout` 是**平台适配器参数**，不是原生普通 callFunction 的 HTTP 参数；只向原生传 name/data/config.env/success/fail，兼容 Promise 返回。官方普通云函数说明指出返回值位于 result、支持回调或 Promise，并需自行设置客户端超时：[CloudBase 官方调用说明](https://docs.cloudbase.net/recipes/add-cloud-function-wechat-miniprogram)（2026-09-04 核对）。本地超时不能取消服务端执行；将来重试必须复用业务幂等 ID。
+- 适配器暂限制单次等待 1–60000ms，默认 8000ms；如确需超过 60 秒的业务，应先评审异步查询/幂等合同，不直接延长前台等待。
+
+### HTTP 与身份接缝
+
+HTTP request 主体保留：PATHS、相对路径验证、Bearer、Idempotency-Key、状态码、JSON 解析、网络/超时、401 清理和迟到 401 不清除替换 session；ApiClient 不自动重试 POST。
+
+Cloud 分支不会读取 HTTP session 或生成 URL/header。保留内部 compatibility map：auth → identity.init、progress → state.read、operations → sync.push；旧 bootstrap 和 rewards 标记未就绪，**不**将旧单快照迁移或每日增次误当成完整 migration/经济协议。第 12.4 节的这些业务转换须在后续域实现完成后开放。
+
+本轮仅允许对 ApiClient 显式发起 auth:false 的 identity 协议探测；payload 投影为 installId/clientVersion，code、legacySession、token 不上传。没有任何自动调用该探测的生产调用者，Node 用假平台验证。
+
+AuthService 默认 legacy-http，原 flight/观察者重入语义不变。cloud 模式**仅是关闭的身份接缝**，返回 `cloud-identity-not-ready`，不执行 login、云初始化或实际绑定；ApiClient 的 cloud auth:true 返回 `cloud-auth-not-ready`，其他旧业务调用返回 not-ready/not-supported。即使误把开关改为 true，也不能激活旧单 scope 资产上传。阶段 2 先处理隔离，阶段 3 再接真实 identity provider；本轮没有实现假 playerId 或自定义云 token。
+
+### SessionStore 的实际 v2
+
+保留原 `cleared:minigame:session:v1` key。读取合法 v1 不重写、不自动迁移；`current()` 在 v2 legacy-http 时仍返回旧 HTTP session 的副本和原 30 秒到期口径。显式 `set(v2)` 才写元数据，已有（包括过期的）v1 token 保留为 legacySession，不能因升级自动删除；HTTP 401 后仍可在 v2 wrapper 内重新认证。
+
+v2 字段为 schemaVersion、mode、ownerId、bindingEpoch、environmentId、migrationState、migrationImportId、migrationReceiptId、legacySession。**不复制 installId**；guest/legacy-http 的 ownerId/environmentId 为 null、epoch 为 0；cloud 要求合法 player_ ID、正 epoch、非空环境。迁移 none 时两个 ID 为空，pending/prepared/uploading/blocked 要求 importId，complete 必须同时具备 importId 和 receiptId。pending 保留本轮用户示例的兼容值，其余沿正式方案；这里只有数据校验，没有迁移状态机。
+
+非法 owner/迁移 ID/状态组合/未知 v2 字段 fail closed，不清掉已有绑定字节；cloud 元数据不作为 legacy 认证身份，旧 HTTP clear 不删除 cloud 归属。openid/session_key/AppSecret 等不保存。
+
+实施前 SessionStore.set 忽略写盘失败是本轮发现的真实差异。现已改为**明确写成功后才替换内存**，失败保留旧 session，AuthService 返回 persist-failed，不报告绑定成功。这是故障路径修正：默认在线关闭及正常 HTTP 路径不变；不能称“旧版启用 HTTP 时写盘失败仍假装成功”的行为也被保留。
+
+### 文件与不改范围
+
+运行时仅修改 bootstrap、WechatPlatform、ApiClient、AuthService、SessionStore，新增 cloudbase 配置和 CloudFunctionTransport。没有新增平行 SyncService/钱包/归属 store 或 npm 运行依赖，没有 cloudfunctions 目录；没有白名单外运行时修改。
+
+RewardUnlockService、RewardService、StaminaService、ProgressSyncService、SyncStore、App、Renderer、gameplay、core、关卡/解答、主题/特效、素材、game.json 完全不改。云 completed 导致本地再次 +100/快通返还的风险留在阶段 0 记录，不能靠本轮传输接缝宣称已解决。
+
+README 未修改：本轮没有新增可用产品入口、上线能力或用户命令，按本轮白名单只更新 CloudBase 专题文档；真实身份/同步上线后再同步 README 与各产品文档。
+
+### 验证记录
+
+- 修改前：64 组 Node 回归通过。
+- 修改后：66 组 Node 回归通过，旧 64 组均保留；新增 cloud-function-transport、cloudbase-disabled，扩展 API/auth/session/account-bootstrap/architecture。
+- 默认关闭测试使用真实 bootstrap + App + Store/服务 + 假原生平台，覆盖有/无云 API、首帧无网、普通首通/重玩、+100、永久体力解锁/快通返还、两小关和跨上海午夜 +500、前后台不重发、购买/重复购买/拥有与选择分离。补测已有 boundUserId 下 B 无法发送 A 的待处理队列；不宣称已有完整多账号 scope。
+- Transport 覆盖 name/data/timeout、三个函数名、成功/业务错误/非法返回、原生失败/抛错/Promise reject、watchdog 和迟到回调、初始化共享和失败重试、能力缺失、配置关闭（含有效 env 仍关闭）。
+- 反例验证在独立 Node 进程内临时替换模块源码，不改仓库文件：忽略 session 写盘失败、删除 Bearer、错误函数映射、忽略 enabled 开关均被回归拒绝。初次反例检查暴露“有效 env + disabled”缺少独立覆盖，已补齐后四项通过。
+- 包体源码预算：主包 **2,800,109 → 2,814,625 bytes（+14,516）**；总包 **16,091,049 → 16,105,565 bytes（+14,516）**。十个分包字节数不变，主包 3.2 MiB／单分包 3.5 MiB／总包 18 MiB 门禁均通过。这不是上传包体。
+- 最终命令：`node tests/run.js`、`node scripts/check-package-budget.js`、`git diff --check`，并复核 status/stat/src/tests/docs 差异。完整日志：`/tmp/cleared-cloudbase-final-tests.log`、`/tmp/cleared-cloudbase-final-budget.log`、`/tmp/cleared-cloudbase-mutation-final.log`。
+
+**未执行：阶段 1 不创建云资源。** 微信开发者工具 CloudBase 联调、真实 callFunction/云函数/数据库、真机不同账号、Android/iOS、生产发布均未执行。没有提交、推送或部署。本轮未进入阶段 2。

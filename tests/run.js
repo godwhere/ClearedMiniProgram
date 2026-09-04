@@ -1,4 +1,6 @@
 const tests = [
+  ['cloud function transport', require('./cloud-function-transport.test.js')],
+  ['cloudbase disabled local behavior', require('./cloudbase-disabled.test.js')],
   ['level records, gallery navigation and beginner instructions', require('./level-ui.test.js')],
   ['stamina service', require('./stamina-service.test.js')],
   ['stamina app', require('./stamina-app.test.js')],

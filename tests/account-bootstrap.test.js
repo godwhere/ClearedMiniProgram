@@ -3,6 +3,7 @@ const assert = require('assert');
 const bootstrap = require('../src/bootstrap.js');
 const backend = require('../src/config/backend.js');
 const engagement = require('../src/config/engagement.js');
+const cloudbase = require('../src/config/cloudbase.js');
 const WechatPlatform = require('../src/platform/wechat.js');
 
 function fakeApi() {
@@ -21,6 +22,8 @@ async function run() {
   try {
     Object.assign(backend, { enabled: true, baseUrl: 'https://example.test' }); engagement.auth.enabled = true;
     const api = fakeApi(); global.wx = api;
+    api.cloud = { init() { throw Error('cloud disabled during HTTP auth'); },
+      callFunction() { throw Error('cloud disabled during HTTP auth'); } };
     const app = bootstrap.start();
     assert.strictEqual(app.scene, 'home'); assert.deepStrictEqual(api.events, ['frame']);
     assert.strictEqual(app.rewardUnlocks.view().balance, 0);
@@ -52,6 +55,24 @@ async function run() {
   const parent = auth.ensureSession();
   assert.strictEqual(parent, nested, 'session observers share the already-published authentication flight');
   await parent; assert.strictEqual(loginCount, 1);
+
+  // Even an accidental Cloud opt-in cannot bind an account or send the old
+  // migration outbox before the later owner-scope implementation exists.
+  const savedCloud = Object.assign({}, cloudbase); const savedAuth = engagement.auth.enabled;
+  let cloudApp;
+  try {
+    Object.assign(cloudbase, { enabled: true, env: 'test-fixture' }); engagement.auth.enabled = true;
+    const native = fakeApi(); let calls = 0;
+    native.cloud = { init() { calls++; }, callFunction() { calls++; } };
+    global.wx = native; cloudApp = bootstrap.start();
+    assert.strictEqual(cloudApp.scene, 'home'); assert.deepStrictEqual(native.events, ['frame']);
+    assert.strictEqual((await cloudApp.resumeOnline()).reason, 'cloud-identity-not-ready');
+    assert.strictEqual(calls, 0); assert.strictEqual(cloudApp.auth.current(), null);
+    assert(cloudApp.openLevel(0, 0));
+  } finally {
+    if (cloudApp) cloudApp.dispose();
+    Object.assign(cloudbase, savedCloud); engagement.auth.enabled = savedAuth; global.wx = oldWx;
+  }
 }
 run.fakeApi = fakeApi;
 module.exports = run;
