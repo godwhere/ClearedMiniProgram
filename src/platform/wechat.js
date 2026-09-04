@@ -126,6 +126,14 @@ class WechatPlatform {
       typeof this.api.cloud.callFunction === 'function');
   }
 
+  getMiniProgramEnvironmentVersion() {
+    try {
+      const info = this.api.getAccountInfoSync && this.api.getAccountInfoSync();
+      const version = info && info.miniProgram && info.miniProgram.envVersion;
+      return ['develop', 'trial', 'release'].includes(version) ? version : 'unknown';
+    } catch (error) { return 'unknown'; }
+  }
+
   async initCloud(options) {
     if (!this.supportsCloud()) return { ok: false, reason: 'not-supported' };
     const opts = options || {};

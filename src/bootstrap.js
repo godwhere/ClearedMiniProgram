@@ -37,6 +37,14 @@ const rewardConfig = require('./config/rewards.js');
 
 function start() {
   const platform = new WechatPlatform();
+  let cloudConfig = cloudbaseConfig;
+  if (['develop', 'trial'].includes(platform.getMiniProgramEnvironmentVersion())) {
+    try {
+      // Keep a literal path so DevTools' unused-file filter includes it.
+      // Missing/invalid local overrides are caught and keep safe defaults.
+      cloudConfig = Object.assign({}, cloudbaseConfig, require('./config/cloudbase.local.js'));
+    } catch (error) {}
+  }
   const subpackages = new SubpackageService(platform, subpackageConfig);
   const progress = new ProgressStore(platform);
   const stamina = new StaminaService(platform, staminaConfig);
@@ -44,10 +52,11 @@ function start() {
   const rewardUnlocks = new RewardUnlockService(platform, rewardConfig);
   const sessions = new SessionStore(platform);
   const syncStore = new SyncStore(platform);
-  const transport = cloudbaseConfig.enabled === true ? new CloudFunctionTransport(platform, cloudbaseConfig) : null;
+  const transport = cloudConfig.enabled === true ? new CloudFunctionTransport(platform, cloudConfig) : null;
   const api = new ApiClient(platform, sessions, backendConfig, { transport });
   const auth = new AuthService(platform, api, sessions, syncStore,
-    Object.assign({}, engagementConfig.auth, { mode: transport ? 'cloud' : 'legacy-http' }));
+    transport ? { mode: 'cloud', enabled: cloudConfig.identityEnabled === true, clientVersion: backendConfig.clientVersion }
+      : Object.assign({}, engagementConfig.auth, { mode: 'legacy-http' }));
   const behavior = new BehaviorService(platform, api, syncStore, engagementConfig.behavior);
   const profile = new ProfileService(platform, api, auth, engagementConfig.profile, behavior);
   const progressSync = new ProgressSyncService(api, progress, syncStore, auth, engagementConfig.progressSync, behavior);
@@ -59,6 +68,7 @@ function start() {
   const engagement = new EngagementService({ ads, share, rewards, rewardUnlocks, auth, behavior, hintAccess, config: Object.assign({}, adConfig.rules,
     { dailyExtraEntryEnabled: adConfig.rules.dailyExtraEntryEnabled === true && engagementConfig.rewards.dailyExtraEntryEnabled === true }) });
   auth.onSessionChanged((session, state) => {
+    if (auth.mode === 'cloud') return; // No HTTP behavior/profile/share rollout in phase 3.
     if (session) behavior.identify(session.userId);
     else behavior.clearUser();
     const event = { authenticating: 'auth_started', authenticated: 'auth_succeeded', offline: 'auth_failed', error: 'auth_failed' }[state];

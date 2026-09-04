@@ -27,12 +27,15 @@ function run() {
   assert(second);
   assert.strictEqual(second.lineIndex, 1);
 
+  // Freeze the public timer: wall-clock progress is not a hint mutation.
+  runner.pause();
   const stateBeforeCompleteHint = runner.getViewState();
   const complete = hints.findComplete(runner, 0, 1);
   assert(complete, 'complete hint remains available after a line is completed');
   assert.deepStrictEqual(complete.paths.map(item => item.path), solutions.sets[0][1]);
   assert.deepStrictEqual(runner.getViewState(), stateBeforeCompleteHint,
     'complete hint lookup cannot mutate the live Runner');
+  runner.resume();
 
   const mixedGame = catalog.sets[4].Games[35];
   assert.strictEqual(mixedGame.Id, 'portal-8x8-06');

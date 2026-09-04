@@ -56,8 +56,7 @@ async function run() {
   assert.strictEqual(parent, nested, 'session observers share the already-published authentication flight');
   await parent; assert.strictEqual(loginCount, 1);
 
-  // Even an accidental Cloud opt-in cannot bind an account or send the old
-  // migration outbox before the later owner-scope implementation exists.
+  // Cloud opt-in alone cannot bypass the separate identity/read rollout.
   const savedCloud = Object.assign({}, cloudbase); const savedAuth = engagement.auth.enabled;
   let cloudApp;
   try {
@@ -66,7 +65,7 @@ async function run() {
     native.cloud = { init() { calls++; }, callFunction() { calls++; } };
     global.wx = native; cloudApp = bootstrap.start();
     assert.strictEqual(cloudApp.scene, 'home'); assert.deepStrictEqual(native.events, ['frame']);
-    assert.strictEqual((await cloudApp.resumeOnline()).reason, 'cloud-identity-not-ready');
+    assert.strictEqual((await cloudApp.resumeOnline()).reason, 'not-configured');
     assert.strictEqual(calls, 0); assert.strictEqual(cloudApp.auth.current(), null);
     assert(cloudApp.openLevel(0, 0));
   } finally {

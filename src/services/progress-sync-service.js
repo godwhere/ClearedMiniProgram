@@ -23,13 +23,14 @@ class ProgressSyncService {
   enqueueCompletion(input) {
     if (!input || !Number.isInteger(input.setIndex) || !Number.isInteger(input.levelIndex) ||
         !Number.isFinite(input.elapsedMs) || input.elapsedMs <= 0) return false;
-    if (!this.store.ownsLocalState()) return false;
+    if (!this.store.allowsLocalGameplay()) return false;
     const session = this.auth.current();
     if (this.store.state.activeOwnerId === null && this.store.state.boundUserId &&
         session && session.userId === this.store.state.boundUserId && !this.store.bindLegacyUser(session.userId)) return false;
     const levelKey = `${input.setIndex}:${input.levelIndex}`;
-    const queued = this.store.enqueue({ levelKey, elapsedMs: Math.max(1, Math.round(input.elapsedMs)),
-      completedAtClient: Math.max(0, Math.round(Number(input.completedAtClient) || Date.now())) });
+    const payload = { levelKey, elapsedMs: Math.max(1, Math.round(input.elapsedMs)),
+      completedAtClient: Math.max(0, Math.round(Number(input.completedAtClient) || Date.now())) };
+    const queued = this.store.isReadOnlyIdentityScope() ? this.store.enqueueLocal(payload) : this.store.enqueue(payload);
     if (this.config.enabled === true) this.flush().catch(function () {});
     return queued;
   }
@@ -37,6 +38,7 @@ class ProgressSyncService {
   bootstrap(session) { return this.flush(session); }
 
   flush(session) {
+    if (this.auth.mode === 'cloud') return this.bootstrapReadOnly(session);
     if (this.config.enabled !== true || !this.api.isConfigured()) return Promise.resolve({ ok: false, reason: 'not-configured' });
     if (this.store.blocked) return Promise.resolve({ ok: false, reason: 'storage-blocked' });
     if (this.store.state.authorityMode !== 'legacy-local') return Promise.resolve({ ok: false, reason: this.store.state.authorityMode });
@@ -46,6 +48,45 @@ class ProgressSyncService {
     this.status = 'syncing';
     const scope = this.store.context();
     this.inFlight = this.run(current.userId).catch(() => this.failed('network', { scope }))
+      .finally(() => { this.inFlight = null; });
+    return this.inFlight;
+  }
+
+  bootstrapReadOnly(session) {
+    const transport = this.api.transport;
+    if (!this.auth.readOnlyPhase || !transport || transport.config.readEnabled !== true || !this.api.isConfigured()) return Promise.resolve({ ok: false, reason: 'not-configured' });
+    const current = session || this.auth.current();
+    if (!current || current.mode !== 'cloud' || current.readPaused) return Promise.resolve({ ok: false, reason: 'account-mismatch' });
+    if (this.inFlight) return this.inFlight;
+    const scope = this.store.context(); const account = this.accountGuard && this.accountGuard.capture();
+    const matches = () => {
+      const active = this.auth.current();
+      return active && active.ownerId === current.ownerId && active.bindingEpoch === current.bindingEpoch &&
+        active.environmentId === current.environmentId && active.generation === current.generation && this.store.matches(scope) &&
+        (!account || this.accountGuard.matches(account));
+    };
+    if (!matches()) return Promise.resolve({ ok: false, reason: 'account-mismatch' });
+    this.status = 'cloud-reading';
+    this.inFlight = Promise.resolve().then(async () => {
+      const response = await this.api.request(Object.assign({}, ApiClient.OPERATIONS.readOnlyState, {
+        requestId: SyncStore.opaqueId('req'), auth: true, payload: {
+          claimedPlayerId: current.ownerId, bindingEpoch: current.bindingEpoch, environmentId: current.environmentId,
+          knownRevisions: this.store.currentScope().revisions
+        }
+      }));
+      if (!matches()) return { ok: false, reason: 'account-mismatch' };
+      if (!response.ok) { this.status = 'error'; return { ok: false, reason: response.error.code }; }
+      const data = response.data;
+      if (!ApiClient.validateReadOnlyEnvelope(data, current.environmentId) || data.player.playerId !== current.ownerId ||
+          data.player.bindingEpoch !== current.bindingEpoch) { this.status = 'error'; return { ok: false, reason: 'invalid-response' }; }
+      // Native SDK results may belong to another JS realm. Persist a local,
+      // allowlisted summary, not the foreign envelope or any business fields.
+      const summary = { serverTimeMs: data.serverTimeMs, serverDateKey: data.serverDateKey,
+        revisions: Object.assign({}, data.revisions) };
+      if (!this.store.recordReadOnlySummary(summary, scope)) { this.status = 'error'; return { ok: false, reason: 'persist-failed' }; }
+      this.status = 'cloud-readonly';
+      return { ok: true, status: this.status, readOnlyPhase: true };
+    }).catch(() => { if (matches()) this.status = 'error'; return { ok: false, reason: 'network' }; })
       .finally(() => { this.inFlight = null; });
     return this.inFlight;
   }

@@ -390,12 +390,13 @@ class ClearedApp {
     this.rewardRequestGeneration = 0;
     this.dismissedRewardNotices = new Set();
     this.accountGuard = { capture: () => this.captureAccountContext(), matches: token => this.isCurrentAccount(token) &&
-      (!this.syncStore || (this.syncStore.ownsLocalState() && (!this.syncStore.state.boundUserId ||
+      (!this.syncStore || (this.syncStore.allowsLocalGameplay() && (this.syncStore.isReadOnlyIdentityScope() || !this.syncStore.state.boundUserId ||
         !token.identityAtStart || this.syncStore.state.boundUserId === token.identityAtStart))) };
     this.captureAccountContext();
     this.engagement.accountGuard = this.accountGuard;
     if (this.progressSync) this.progressSync.accountGuard = this.accountGuard;
     if (this.auth && this.auth.api) this.auth.api.accountGuard = this.accountGuard;
+    if (this.auth) this.auth.accountGuard = { capture: () => this.captureAccountContext(), matches: token => this.isCurrentAccount(token) };
     if (this.auth && this.auth.onSessionChanged) this.unbindAccount = this.auth.onSessionChanged(() => this.captureAccountContext());
     if (this.syncStore && this.syncStore.onScopeChanged) this.unbindScope = this.syncStore.onScopeChanged(() => this.captureAccountContext());
   }
@@ -410,10 +411,11 @@ class ClearedApp {
     // Clearing an expired HTTP credential during a 401 retry does not move
     // the local cache to guest. A different identified user or scope does.
     const identity = metadata && metadata.mode === 'cloud'
-      ? `cloud:${metadata.ownerId}:${metadata.bindingEpoch}`
+      ? `cloud:${metadata.environmentId}:${metadata.ownerId}:${metadata.bindingEpoch}`
       : (legacy && legacy.userId) || (session && session.userId) || this.accountIdentity || null;
     this.accountIdentity = identity;
-    const signature = JSON.stringify([scope.ownerId, scope.bindingEpoch, scope.activationSequence, identity]);
+    const signature = JSON.stringify([scope.ownerId, scope.bindingEpoch, scope.activationSequence, scope.environmentId || null, identity,
+      this.auth && this.auth.mode === 'cloud' ? this.auth.generation : null]);
     if (this.accountSignature !== undefined && signature !== this.accountSignature) {
       this.accountGeneration++;
       if (this.engagement && this.engagement.cancelRewardUnlocks) this.engagement.cancelRewardUnlocks();
@@ -424,6 +426,7 @@ class ClearedApp {
     }
     this.accountSignature = signature;
     return { ownerIdAtStart: scope.ownerId, bindingEpochAtStart: scope.bindingEpoch,
+      environmentIdAtStart: scope.environmentId || null,
       activationSequenceAtStart: scope.activationSequence, accountGenerationAtStart: this.accountGeneration,
       identityAtStart: identity };
   }
@@ -1183,7 +1186,9 @@ class ClearedApp {
         : this.accountSyncPending || auth === 'authenticating' || sync.status === 'syncing' ? 'syncing'
           : sync.status === 'synced' ? 'synced' : sync.status === 'error' ? 'error' : 'local';
       return Object.assign(base, {
-        accountStatus: status, accountMessage: this.accountMessage,
+        accountStatus: this.auth && this.auth.readOnlyPhase ? 'local' : status,
+        accountMessage: this.accountMessage || (this.auth && this.auth.readOnlyPhase
+          ? sync.status === 'cloud-readonly' ? '云身份／只读测试，本地存档未上传' : '云身份测试未连接，仍使用本地存档' : ''),
         profileSupported: !!(this.profile && this.profile.isSupported()),
         profilePending: this.accountProfilePending,
         syncPending: !!this.accountSyncPending
@@ -2415,7 +2420,7 @@ class ClearedApp {
     this.resumeOnline().then(result => {
       if (!this.isCurrentAccount(token.account) || this.accountSyncPending !== token || this.scene !== 'account' || this.hidden) return;
       this.accountSyncPending = null;
-      this.accountMessage = result.ok ? '同步完成' : result.reason === 'account-mismatch'
+      this.accountMessage = result.ok ? (result.readOnlyPhase ? '云身份／只读测试，本地存档未上传' : '同步完成') : result.reason === 'account-mismatch'
         ? '当前账号与本地存档绑定的账号不同' : '当前使用本地存档，可稍后重试';
       this.invalidate();
     });
@@ -3336,6 +3341,23 @@ class ClearedApp {
 
   resumeOnline() {
     if (!this.auth) return Promise.resolve({ ok: false, reason: 'not-configured' });
+    if (this.auth.mode === 'cloud') {
+      // Identity/read-only diagnostics never enter legacy HTTP synchronization,
+      // attribution, profile refresh, reward recovery or authoritative apply.
+      let account = this.captureAccountContext();
+      return this.auth.ensureSession({ force: true }).then(result => {
+        if (this.disposed || !result.ok) return result;
+        account = this.captureAccountContext();
+        if (!this.isCurrentAccount(account)) return { ok: false, reason: 'account-mismatch' };
+        if (!this.progressSync) return result;
+        return this.progressSync.bootstrapReadOnly(this.auth.current());
+      }).then(result => {
+        if (result.reason !== 'account-mismatch' && this.isCurrentAccount(account)) {
+          this.accountMessage = result.ok ? '云身份／只读测试，本地存档未上传' : '云连接未完成，仍使用本地存档'; this.invalidate();
+        }
+        return result;
+      }).catch(() => ({ ok: false, reason: 'network' }));
+    }
     let account = this.captureAccountContext();
     const stale = () => ({ ok: false, reason: 'account-mismatch' });
     return this.auth.ensureSession().then(result => {

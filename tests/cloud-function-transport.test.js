@@ -8,12 +8,14 @@ const config = require('../src/config/cloudbase.js');
 const { fakeApi } = require('./account-bootstrap.test.js');
 
 const input = { service: 'identity', action: 'identity.init', requestId: 'req_test',
-  protocolVersion: 1, payload: { installId: 'ins_test', clientVersion: '1.0.0' } };
-const configured = () => Object.assign({}, config, { enabled: true, env: 'test-fixture', timeoutMs: 20 });
+  protocolVersion: 1, payload: { installId: 'ins_test', clientVersion: '1.0.0',
+    localBinding: { claimedPlayerId: null, bindingEpoch: 0, environmentId: 'test-fixture' } } };
+const configured = () => Object.assign({}, config, { enabled: true, env: 'test-fixture', identityEnabled: true, readEnabled: true, timeoutMs: 20 });
 const envelope = extra => Object.assign({ ok: true, code: 'OK', requestId: input.requestId, data: {} }, extra);
 
 module.exports = async function run() {
   const native = fakeApi(); let calls = []; let inits = []; let reply = envelope();
+  native.getAccountInfoSync = () => ({ miniProgram: { envVersion: 'develop' } });
   native.cloud = { init: options => { inits.push(options); },
     callFunction: options => { calls.push(options); options.success({ result: reply }); } };
   const platform = new WechatPlatform(native);
@@ -37,23 +39,24 @@ module.exports = async function run() {
   assert.deepStrictEqual(calls[0].config, { env: 'test-fixture' });
   ['url', 'method', 'header', 'timeout'].forEach(key => assert.strictEqual(calls[0][key], undefined));
   const api = new ApiClient(platform, { current() { throw Error('cloud must not read HTTP credentials'); } }, {}, { transport });
-  assert((await api.request({ method: 'POST', path: ApiClient.PATHS.auth,
-    requestId: input.requestId, body: Object.assign({ code: 'secret-code' }, input.payload) })).ok);
+  assert((await api.request({ service: 'identity', action: 'identity.init',
+    requestId: input.requestId, payload: Object.assign({ code: 'secret-code' }, input.payload) })).ok);
   assert.deepStrictEqual(calls[2].data.payload, input.payload);
 
   let adapted;
   const spyPlatform = { supportsCloud: () => true, initCloud: async () => ({ ok: true }),
+    getMiniProgramEnvironmentVersion: () => 'develop',
     callCloudFunction: async options => { adapted = options; return { ok: true, result: envelope() }; } };
   const thin = new Transport(spyPlatform, configured());
-  await thin.request(Object.assign({}, input, { service: 'economy', action: 'economy.purchase',
-    operationId: 'op_1', idempotencyKey: 'purchase:op_1', timeoutMs: 7 }));
-  assert.strictEqual(adapted.name, 'economy-api'); assert.strictEqual(adapted.timeout, 7);
-  assert.deepStrictEqual(adapted.data, { action: 'economy.purchase', requestId: 'req_test', protocolVersion: 1,
-    operationId: 'op_1', idempotencyKey: 'purchase:op_1', payload: input.payload });
+  for (const [service, action] of [['economy', 'economy.purchase'], ['playerState', 'sync.push'],
+    ['playerState', 'migration.prepare'], ['identity', 'identity.status']]) {
+    assert.strictEqual((await thin.request(Object.assign({}, input, { service, action }))).error.code, 'not-configured');
+    assert.strictEqual(adapted, undefined);
+  }
   await thin.request(Object.assign({}, input, { service: 'playerState', action: 'state.read' }));
   assert.strictEqual(adapted.name, 'player-state-api'); assert.strictEqual(adapted.timeout, 20);
 
-  for (const change of [{ service: '__proto__' }, { service: 'other' }, { action: 'economy.purchase' },
+  for (const change of [{ service: '__proto__' }, { service: 'other' },
     { requestId: 'bad id' }, { protocolVersion: 2 }, { payload: [] }, { operationId: '../bad' },
     { idempotencyKey: 'constructor' }, { timeoutMs: 0 }, { timeoutMs: 60001 }]) {
     const count = calls.length;

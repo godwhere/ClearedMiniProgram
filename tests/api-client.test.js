@@ -64,23 +64,24 @@ module.exports = async function run() {
   assert.strictEqual(sessions.current().accessToken, 'replacement');
 
   // Cloud transport consumes only a named protocol message, never HTTP
-  // credentials. Phase 1 explicitly blocks authenticated/asset operations.
+  // credentials. Phase 3 rejects every old HTTP route in Cloud mode.
   let cloudRequest; let cloudCalls = 0;
   const cloud = new ApiClient(platform, sessions, {}, { transport: {
     isConfigured: () => true, request: async opts => { cloudRequest = opts; cloudCalls++; return { ok: true, data: { player: {} } }; }
   } });
-  assert((await cloud.request({ method: 'POST', path: ApiClient.PATHS.auth, requestId: 'req_identity',
-    body: { installId: 'ins_test', clientVersion: '1.0.0', code: 'must-not-send', legacySession: v1('private') } })).ok);
+  assert((await cloud.request({ service: 'identity', action: 'identity.init', requestId: 'req_identity',
+    payload: { installId: 'ins_test', clientVersion: '1.0.0', code: 'must-not-send', legacySession: v1('private') } })).ok);
   assert.deepStrictEqual(cloudRequest, { service: 'identity', action: 'identity.init', requestId: 'req_identity',
-    protocolVersion: 1, operationId: undefined, idempotencyKey: undefined, timeoutMs: undefined,
-    payload: { installId: 'ins_test', clientVersion: '1.0.0' } });
-  assert.strictEqual((await cloud.request({ path: ApiClient.PATHS.progress, auth: true })).error.code, 'cloud-auth-not-ready');
+    protocolVersion: 1, timeoutMs: undefined,
+    payload: { installId: 'ins_test', clientVersion: '1.0.0', localBinding: undefined } });
+  assert.strictEqual((await cloud.request({ path: ApiClient.PATHS.progress, auth: true })).error.code, 'not-configured');
   for (const [method, path] of [['GET', ApiClient.PATHS.progress], ['POST', ApiClient.PATHS.bootstrap],
     ['POST', ApiClient.PATHS.operations], ['POST', ApiClient.PATHS.rewards]]) {
-    assert.strictEqual((await cloud.request({ method, path })).error.code, 'cloud-operation-not-ready');
+    assert.strictEqual((await cloud.request({ method, path })).error.code, 'not-configured');
   }
-  assert.strictEqual((await cloud.request({ path: ApiClient.PATHS.me })).error.code, 'cloud-operation-not-supported');
-  assert.strictEqual((await cloud.request({ method: 'POST', path: ApiClient.PATHS.auth, body: {} })).error.code, 'invalid-request');
+  assert.strictEqual((await cloud.request({ path: ApiClient.PATHS.me })).error.code, 'not-configured');
+  assert.strictEqual((await cloud.request({ method: 'POST', path: ApiClient.PATHS.auth, body: {} })).error.code, 'not-configured');
+  assert.strictEqual((await cloud.request({ service: 'identity', action: 'identity.init' })).error.code, 'invalid-request');
   assert.strictEqual(cloudCalls, 1);
   assert.strictEqual(sessions.current().accessToken, 'replacement', 'cloud failures do not clear legacy tokens');
 };

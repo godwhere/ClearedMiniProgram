@@ -7,7 +7,9 @@ const opaqueId = prefix => `${prefix}_${Date.now().toString(36)}_${Math.random()
 const DOMAINS = ['progress', 'daily', 'economy', 'entitlements', 'stamina', 'preferences'];
 const MODES = ['legacy-local', 'migration-freeze', 'cloud-authoritative'];
 const integer = value => Number.isSafeInteger(value) && value >= 0;
-const scopeKey = ownerId => ownerId === null ? 'guest' : ownerId;
+const environment = value => value === undefined ? null : value;
+const validEnvironment = value => value === null || (typeof value === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(value));
+const scopeKey = (ownerId, env) => env ? `cloud:${env}|${ownerId}` : ownerId === null ? 'guest' : ownerId;
 const legacyOwnerId = userId => validId(userId) ? `legacy-http:${userId}` : null;
 const validOwner = ownerId => ownerId === null || (typeof ownerId === 'string' &&
   (/^player_[A-Za-z0-9_-]{1,120}$/.test(ownerId) ||
@@ -25,18 +27,20 @@ function validProgress(payload) {
     integer(payload.completedAtClient) && (payload.elapsedMs === undefined || (Number.isFinite(payload.elapsedMs) && payload.elapsedMs > 0));
 }
 
-function operation(input, ownerId, bindingEpoch) {
+function operation(input, ownerId, bindingEpoch, env = null) {
   if (!record(input) || !validId(input.operationId) || !DOMAINS.includes(input.domain) ||
       typeof input.type !== 'string' || !/^[A-Za-z0-9_:-]{1,80}$/.test(input.type) ||
       !record(input.payload) || !integer(input.occurredAtClient) ||
-      input.ownerIdAtCreation !== ownerId || !validEpoch(ownerId, input.bindingEpochAtCreation) ||
+      input.ownerIdAtCreation !== ownerId || environment(input.environmentIdAtCreation) !== env || !validEpoch(ownerId, input.bindingEpochAtCreation) ||
       input.bindingEpochAtCreation > bindingEpoch ||
       (input.domain === 'progress' && (input.type !== 'level_completed' || !validProgress(input.payload)))) return null;
   const payload = clone(input.payload);
   if (input.payloadHash !== fingerprint(payload)) return null;
-  return { operationId: input.operationId, domain: input.domain, type: input.type,
+  const result = { operationId: input.operationId, domain: input.domain, type: input.type,
     ownerIdAtCreation: ownerId, bindingEpochAtCreation: input.bindingEpochAtCreation,
     payloadHash: input.payloadHash, payload, occurredAtClient: input.occurredAtClient };
+  if (env !== null) result.environmentIdAtCreation = env;
+  return result;
 }
 
 function upgrade(saved) {
@@ -68,17 +72,28 @@ function normalize(saved) {
   if (!record(saved) || saved.schemaVersion !== 2 || !validId(saved.installId) || !validId(saved.migrationId) ||
       !validOwner(saved.activeOwnerId) || !validOwner(saved.localOwnerId) || !integer(saved.activationSequence) ||
       !MODES.includes(saved.authorityMode) || !record(saved.scopes) ||
-      (saved.boundUserId !== null && !validId(saved.boundUserId))) return null;
+      (saved.boundUserId !== null && !validId(saved.boundUserId)) ||
+      !validEnvironment(environment(saved.activeEnvironmentId)) || !validEnvironment(environment(saved.localEnvironmentId))) return null;
   const scopes = {}; const ids = new Set();
   for (const key of Object.keys(saved.scopes)) {
-    const scope = saved.scopes[key];
-    if (!record(scope) || !validOwner(scope.ownerId) || key !== scopeKey(scope.ownerId) ||
+    let scope = saved.scopes[key];
+    // An earlier local-only v2 writer predates the two application-recovery
+    // slots. Only that exact additive shape is safe to upgrade; never infer
+    // a missing recovery receipt during migration/authoritative application.
+    if (record(scope) && saved.authorityMode === 'legacy-local' && scope.migration === null &&
+        !Object.prototype.hasOwnProperty.call(scope, 'pendingApplication') &&
+        !Object.prototype.hasOwnProperty.call(scope, 'lastApplication')) {
+      scope = Object.assign({}, scope, { pendingApplication: null, lastApplication: null });
+    }
+    const env = scope && environment(scope.environmentId);
+    if (!record(scope) || !validOwner(scope.ownerId) || !validEnvironment(env) ||
+        (env !== null && !String(scope.ownerId).startsWith('player_')) || key !== scopeKey(scope.ownerId, env) ||
         !validEpoch(scope.ownerId, scope.bindingEpoch) || !validRevisions(scope.revisions) ||
         !Array.isArray(scope.pendingOperations) || !integer(scope.lastSyncAt) ||
         typeof scope.snapshotRequired !== 'boolean' || (scope.lastError !== null && !validId(scope.lastError))) return null;
     const pending = [];
     for (const input of scope.pendingOperations) {
-      const item = operation(input, scope.ownerId, scope.bindingEpoch);
+      const item = operation(input, scope.ownerId, scope.bindingEpoch, env);
       if (!item || ids.has(item.operationId)) return null;
       ids.add(item.operationId); pending.push(item);
     }
@@ -91,11 +106,16 @@ function normalize(saved) {
           !validId(receipt.receiptId) || typeof receipt.fingerprint !== 'string' ||
           !/^local-fnv1a32:[a-f0-9]{8}:\d+$/.test(receipt.fingerprint))) return null;
     }
+    if (scope.readOnlyPhase !== undefined && (scope.readOnlyPhase !== true || env === null)) return null;
+    if (scope.readOnlySummary !== undefined && (!record(scope.readOnlySummary) || !integer(scope.readOnlySummary.lastReadAt) ||
+        !integer(scope.readOnlySummary.serverTimeMs) || !validRevisions(scope.readOnlySummary.revisions) ||
+        DOMAINS.some(key => scope.readOnlySummary.revisions[key] !== 0))) return null;
     scopes[key] = Object.assign({}, scope, { pendingOperations: pending });
   }
-  if (!Object.prototype.hasOwnProperty.call(scopes, scopeKey(saved.activeOwnerId)) ||
-      !Object.prototype.hasOwnProperty.call(scopes, scopeKey(saved.localOwnerId))) return null;
-  return Object.assign({}, clone(saved), { scopes });
+  if (!Object.prototype.hasOwnProperty.call(scopes, scopeKey(saved.activeOwnerId, saved.activeEnvironmentId)) ||
+      !Object.prototype.hasOwnProperty.call(scopes, scopeKey(saved.localOwnerId, saved.localEnvironmentId))) return null;
+  return Object.assign({}, clone(saved), { scopes, activeEnvironmentId: environment(saved.activeEnvironmentId),
+    localEnvironmentId: environment(saved.localEnvironmentId) });
 }
 
 class SyncStore {
@@ -113,13 +133,15 @@ class SyncStore {
       if (saved == null) {
         state = { schemaVersion: 2, installId: opaqueId('ins'), migrationId: opaqueId('mig'),
           boundUserId: null, nextOperationSequence: 1, activeOwnerId: null, localOwnerId: null,
-          activationSequence: 0, authorityMode: 'legacy-local', scopes: { guest: emptyScope(null, 0) }, legacyBackup: null };
+          activationSequence: 0, activeEnvironmentId: null, localEnvironmentId: null,
+          authorityMode: 'legacy-local', scopes: { guest: emptyScope(null, 0) }, legacyBackup: null };
       } else state = normalize(saved.schemaVersion === 1 ? upgrade(saved) : saved);
     } catch (error) {}
     this.blocked = !state;
     this.state = state || { schemaVersion: 2, installId: saved && saved.installId || null,
       migrationId: saved && saved.migrationId || null, boundUserId: saved && saved.boundUserId || '__invalid_binding__',
       nextOperationSequence: null, activeOwnerId: null, localOwnerId: null, activationSequence: 0,
+      activeEnvironmentId: null, localEnvironmentId: null,
       authorityMode: saved && saved.schemaVersion === 1 ? 'legacy-local' : 'migration-freeze',
       scopes: { guest: emptyScope(null, 0) } };
     this.installAliases();
@@ -138,22 +160,35 @@ class SyncStore {
     });
   }
 
-  currentScope() { return this.scopeFor(this.state.activeOwnerId); }
-  scopeFor(ownerId) {
-    if (!validOwner(ownerId)) return null;
-    const scope = this.state.scopes[scopeKey(ownerId)];
+  currentScope() { return this.scopeFor(this.state.activeOwnerId, this.state.activeEnvironmentId); }
+  scopeFor(ownerId, env) {
+    if (!validOwner(ownerId) || !validEnvironment(environment(env))) return null;
+    const scope = this.state.scopes[scopeKey(ownerId, env)];
     return scope ? clone(scope) : null;
   }
   context() {
     const scope = this.currentScope();
-    return { ownerId: scope.ownerId, bindingEpoch: scope.bindingEpoch, activationSequence: this.state.activationSequence };
+    return { ownerId: scope.ownerId, bindingEpoch: scope.bindingEpoch, activationSequence: this.state.activationSequence,
+      environmentId: environment(this.state.activeEnvironmentId) };
   }
   matches(token) {
     const current = this.context();
     return !this.blocked && !!token && token.ownerId === current.ownerId && token.bindingEpoch === current.bindingEpoch &&
-      token.activationSequence === current.activationSequence;
+      token.activationSequence === current.activationSequence && environment(token.environmentId) === current.environmentId;
   }
-  ownsLocalState() { return !this.blocked && this.state.localOwnerId === this.state.activeOwnerId; }
+  ownsLocalState() { return !this.blocked && this.state.localOwnerId === this.state.activeOwnerId &&
+    environment(this.state.localEnvironmentId) === environment(this.state.activeEnvironmentId); }
+  isReadOnlyIdentityScope() { return !this.blocked && this.currentScope().readOnlyPhase === true; }
+  allowsLocalGameplay() { return this.ownsLocalState() || (this.isReadOnlyIdentityScope() && this.state.authorityMode === 'legacy-local'); }
+  localContext() {
+    const scope = this.scopeFor(this.state.localOwnerId, this.state.localEnvironmentId);
+    return { ownerId: scope.ownerId, bindingEpoch: scope.bindingEpoch, environmentId: environment(this.state.localEnvironmentId),
+      activationSequence: this.state.activationSequence };
+  }
+  matchesLocal(token) {
+    const local = this.localContext();
+    return this.allowsLocalGameplay() && token && Object.keys(local).every(key => environment(local[key]) === environment(token[key]));
+  }
   onScopeChanged(listener) {
     if (typeof listener !== 'function') return function () {};
     this.scopeListeners.push(listener);
@@ -172,22 +207,31 @@ class SyncStore {
     if (!this.matches(previous)) this.scopeListeners.slice().forEach(listener => { try { listener(this.context()); } catch (error) {} });
     return true;
   }
-  activateScope(ownerId, bindingEpoch) {
+  activateScope(ownerId, bindingEpoch, environmentId, readOnlyPhase) {
+    const env = environment(environmentId);
     if (!validOwner(ownerId) || !validEpoch(ownerId, bindingEpoch)) return { ok: false, reason: 'invalid-owner' };
+    if (!validEnvironment(env) || (env !== null && !String(ownerId).startsWith('player_')) ||
+        (readOnlyPhase && env === null)) return { ok: false, reason: 'invalid-environment' };
     if (this.blocked) return { ok: false, reason: 'storage-blocked' };
-    const prior = this.scopeFor(ownerId);
+    const prior = this.scopeFor(ownerId, env);
     if (prior && bindingEpoch < prior.bindingEpoch) return { ok: false, reason: 'account-mismatch' };
-    if (ownerId === this.state.activeOwnerId && prior.bindingEpoch === bindingEpoch) return { ok: true };
+    if (ownerId === this.state.activeOwnerId && env === environment(this.state.activeEnvironmentId) && prior.bindingEpoch === bindingEpoch &&
+        (!readOnlyPhase || prior.readOnlyPhase === true)) return { ok: true };
     if (!integer(this.state.activationSequence + 1)) return { ok: false, reason: 'sequence-exhausted' };
     const candidate = clone(this.state);
-    candidate.scopes[scopeKey(ownerId)] = Object.assign(prior || emptyScope(ownerId, bindingEpoch), { bindingEpoch });
+    const scope = Object.assign(prior || emptyScope(ownerId, bindingEpoch), { bindingEpoch });
+    if (env !== null) scope.environmentId = env;
+    if (readOnlyPhase === true) scope.readOnlyPhase = true;
+    candidate.scopes[scopeKey(ownerId, env)] = scope;
+    candidate.activeEnvironmentId = env;
     candidate.activeOwnerId = ownerId; candidate.activationSequence++;
     return this.commit(candidate) ? { ok: true } : { ok: false, reason: 'persist-failed' };
   }
 
   bindLegacyUser(userId) {
     const ownerId = legacyOwnerId(userId);
-    if (!ownerId || this.blocked || this.state.authorityMode !== 'legacy-local' || (this.state.boundUserId && this.state.boundUserId !== userId) ||
+    if (!ownerId || this.blocked || this.state.activeEnvironmentId || this.state.localEnvironmentId ||
+        this.state.authorityMode !== 'legacy-local' || (this.state.boundUserId && this.state.boundUserId !== userId) ||
         (this.state.localOwnerId !== null && this.state.localOwnerId !== ownerId) ||
         (this.state.activeOwnerId !== null && this.state.activeOwnerId !== ownerId)) return false;
     if (this.state.boundUserId === userId && this.state.activeOwnerId === ownerId) return true;
@@ -217,12 +261,18 @@ class SyncStore {
     return this.enqueueOperation({ domain: 'progress', type: 'level_completed', payload,
       occurredAtClient: payload && payload.completedAtClient }).ok;
   }
-  enqueueOperation(input) {
+  enqueueLocal(payload) {
+    return this.enqueueOperation({ domain: 'progress', type: 'level_completed', payload,
+      occurredAtClient: payload && payload.completedAtClient }, true).ok;
+  }
+  enqueueOperation(input, local) {
     if (this.blocked) return { ok: false, reason: 'storage-blocked' };
-    const token = this.context(); let payload; let hash;
+    if (local && !this.allowsLocalGameplay()) return { ok: false, reason: 'account-mismatch' };
+    const token = local ? this.localContext() : this.context(); let payload; let hash;
     if (!record(input)) return { ok: false, reason: 'invalid-operation' };
     if ((Object.prototype.hasOwnProperty.call(input, 'ownerIdAtCreation') && input.ownerIdAtCreation !== token.ownerId) ||
-        (input.bindingEpochAtCreation !== undefined && input.bindingEpochAtCreation !== token.bindingEpoch)) return { ok: false, reason: 'account-mismatch' };
+        (input.bindingEpochAtCreation !== undefined && input.bindingEpochAtCreation !== token.bindingEpoch) ||
+        (input.environmentIdAtCreation !== undefined && input.environmentIdAtCreation !== token.environmentId)) return { ok: false, reason: 'account-mismatch' };
     try { payload = clone(input.payload); hash = fingerprint(payload); } catch (error) { return { ok: false, reason: 'invalid-operation' }; }
     if (input.operationId !== undefined) {
       let existing;
@@ -231,30 +281,32 @@ class SyncStore {
         return !!existing;
       });
       if (!existing) return { ok: false, reason: 'unknown-operation' };
-      if (existing.ownerIdAtCreation !== token.ownerId || existing.bindingEpochAtCreation !== token.bindingEpoch) return { ok: false, reason: 'account-mismatch' };
+      if (existing.ownerIdAtCreation !== token.ownerId || existing.bindingEpochAtCreation !== token.bindingEpoch ||
+          environment(existing.environmentIdAtCreation) !== token.environmentId) return { ok: false, reason: 'account-mismatch' };
       const same = existing.domain === input.domain && existing.type === input.type && existing.occurredAtClient === input.occurredAtClient &&
         existing.payloadHash === hash && canonical(existing.payload) === canonical(payload);
       return same ? { ok: true, operationId: existing.operationId, alreadyQueued: true } : { ok: false, reason: 'idempotency-conflict' };
     }
     const candidateOperation = { operationId: 'validation', domain: input.domain, type: input.type, payload, payloadHash: hash,
       occurredAtClient: input.occurredAtClient, ownerIdAtCreation: token.ownerId, bindingEpochAtCreation: token.bindingEpoch };
-    if (!operation(candidateOperation, token.ownerId, token.bindingEpoch)) return { ok: false, reason: 'invalid-operation' };
-    if (this.currentScope().pendingOperations.length >= MAX_OPERATIONS) {
-      this.updateScope({ snapshotRequired: true }, token);
+    if (token.environmentId !== null) candidateOperation.environmentIdAtCreation = token.environmentId;
+    if (!operation(candidateOperation, token.ownerId, token.bindingEpoch, token.environmentId)) return { ok: false, reason: 'invalid-operation' };
+    if (this.scopeFor(token.ownerId, token.environmentId).pendingOperations.length >= MAX_OPERATIONS) {
+      this.updateScope({ snapshotRequired: true }, token, undefined, local);
       return { ok: false, reason: 'pending-limit' };
     }
     const id = this.nextId('');
     if (!id) return { ok: false, reason: 'persist-failed' };
     candidateOperation.operationId = id;
     const candidate = clone(this.state);
-    candidate.scopes[scopeKey(token.ownerId)].pendingOperations.push(candidateOperation);
-    if (!this.commit(candidate)) { this.updateScope({ snapshotRequired: true }, token); return { ok: false, reason: 'persist-failed' }; }
+    candidate.scopes[scopeKey(token.ownerId, token.environmentId)].pendingOperations.push(candidateOperation);
+    if (!this.commit(candidate)) { this.updateScope({ snapshotRequired: true }, token, undefined, local); return { ok: false, reason: 'persist-failed' }; }
     return { ok: true, operationId: id };
   }
 
-  updateScope(update, token, ids) {
-    if (!this.matches(token)) return false;
-    const scope = this.currentScope();
+  updateScope(update, token, ids, local) {
+    if (local ? !this.matchesLocal(token) || ids !== undefined : !this.matches(token)) return false;
+    const scope = this.scopeFor(token.ownerId, token.environmentId);
     if (!record(update)) return false;
     const has = key => Object.prototype.hasOwnProperty.call(update, key);
     if ((has('snapshotRequired') && typeof update.snapshotRequired !== 'boolean') ||
@@ -266,7 +318,7 @@ class SyncStore {
     if (scope.pendingOperations.some(item => accepted.has(item.operationId) &&
         (item.ownerIdAtCreation !== token.ownerId || item.bindingEpochAtCreation !== token.bindingEpoch))) return false;
     const candidate = clone(this.state);
-    candidate.scopes[scopeKey(token.ownerId)] = Object.assign(scope, update, {
+    candidate.scopes[scopeKey(token.ownerId, token.environmentId)] = Object.assign(scope, update, {
       pendingOperations: scope.pendingOperations.filter(item => !accepted.has(item.operationId)) });
     return this.commit(candidate);
   }
@@ -290,7 +342,7 @@ class SyncStore {
     if (!importId) return { ok: false, reason: 'persist-failed' };
     const candidate = clone(this.state);
     const migration = { state: 'prepared', importId, snapshotHash: input.snapshotHash, policyVersion: input.policyVersion };
-    candidate.scopes[scopeKey(token.ownerId)].migration = migration;
+    candidate.scopes[scopeKey(token.ownerId, token.environmentId)].migration = migration;
     candidate.authorityMode = 'migration-freeze';
     return this.commit(candidate) ? { ok: true, migration: clone(migration) } : { ok: false, reason: 'persist-failed' };
   }
@@ -306,7 +358,7 @@ class SyncStore {
     if (scope.pendingApplication) return { ok: false, reason: 'application-pending' };
     if (!validId(receipt.receiptId) || typeof receipt.fingerprint !== 'string') return { ok: false, reason: 'invalid-receipt' };
     const candidate = clone(this.state);
-    candidate.scopes[scopeKey(token.ownerId)].pendingApplication = clone(receipt);
+    candidate.scopes[scopeKey(token.ownerId, token.environmentId)].pendingApplication = clone(receipt);
     // Persist the recovery gate BEFORE any domain write. A crash cannot
     // restart in legacy-local and award money from partially applied progress.
     candidate.authorityMode = 'cloud-authoritative';
@@ -322,9 +374,20 @@ class SyncStore {
     const accepted = new Set(ids);
     if (scope.pendingOperations.some(item => accepted.has(item.operationId) && item.bindingEpochAtCreation !== token.bindingEpoch)) return false;
     const candidate = clone(this.state);
-    candidate.scopes[scopeKey(token.ownerId)] = Object.assign(scope, { revisions: clone(nextRevisions),
+    candidate.scopes[scopeKey(token.ownerId, token.environmentId)] = Object.assign(scope, { revisions: clone(nextRevisions),
       pendingOperations: scope.pendingOperations.filter(item => !accepted.has(item.operationId)),
       pendingApplication: null, lastApplication: clone(receipt) });
+    return this.commit(candidate);
+  }
+
+  recordReadOnlySummary(input, token) {
+    if (!this.matches(token) || !this.isReadOnlyIdentityScope() || !record(input) || !integer(input.serverTimeMs) ||
+        typeof input.serverDateKey !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(input.serverDateKey) ||
+        !validRevisions(input.revisions) || DOMAINS.some(key => input.revisions[key] !== 0)) return false;
+    const candidate = clone(this.state);
+    candidate.scopes[scopeKey(token.ownerId, token.environmentId)].readOnlySummary = {
+      lastReadAt: Date.now(), serverTimeMs: input.serverTimeMs, serverDateKey: input.serverDateKey, revisions: clone(input.revisions)
+    };
     return this.commit(candidate);
   }
 }

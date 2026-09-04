@@ -64,9 +64,13 @@ function run() {
   const runtime = files.concat(javascriptFiles(SRC_DIR),
     javascriptFiles(path.join(SRC_DIR, '..', 'data')),
     javascriptFiles(path.join(SRC_DIR, '..', 'assets')), path.join(SRC_DIR, '..', 'game.js'));
-  assert(!fs.existsSync(path.join(SRC_DIR, '..', 'cloudfunctions')), 'client repository must not contain cloud functions');
+  for (const name of ['cloudfunctions', 'functions', 'server']) {
+    assert(!fs.existsSync(path.join(SRC_DIR, '..', name)), 'client repository must not contain server implementations');
+  }
   assert(!fs.existsSync(path.join(SRC_DIR, '..', 'node_modules')), 'native client must not gain npm runtime dependencies');
   runtime.forEach(file => {
+    assert(!/wx-server-sdk|@cloudbase\/node-sdk|OPENID|session_key|IDENTITY_HASH_KEY/.test(fs.readFileSync(file, 'utf8')),
+      `${file} cannot contain server identity details or dependencies`);
     if (file === path.join(SRC_DIR, 'platform', 'wechat.js')) return;
     const source = fs.readFileSync(file, 'utf8');
     assert(!/\b(?:wx|api)\s*(?:\.\s*cloud\b|\[\s*['"]cloud['"]\s*\])/.test(source),

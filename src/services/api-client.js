@@ -8,17 +8,41 @@ const PATHS = Object.freeze({
   attributions: '/v1/share-attributions', rewards: '/v1/reward-claims',
   entitlements: '/v1/daily-entitlements/', events: '/v1/events:batch'
 });
-// This map describes transport names, not migration/economy equivalence.
-// Only unauthenticated identity protocol probes are available in phase 1.
-const CLOUD_ROUTES = Object.freeze({
-  [`POST ${PATHS.auth}`]: { service: 'identity', action: 'identity.init' },
-  [`GET ${PATHS.progress}`]: { service: 'playerState', action: 'state.read' },
-  [`POST ${PATHS.operations}`]: { service: 'playerState', action: 'sync.push' },
-  [`POST ${PATHS.bootstrap}`]: { service: 'playerState', action: null },
-  [`POST ${PATHS.rewards}`]: { service: 'economy', action: null }
+const OPERATIONS = Object.freeze({
+  identity: Object.freeze({ service: 'identity', action: 'identity.init' }),
+  readOnlyState: Object.freeze({ service: 'playerState', action: 'state.read' })
 });
 const failure = (code, statusCode, retryable) => ({ ok: false, statusCode: statusCode || 0,
   error: { code, retryable: retryable === true } });
+const record = value => !!value && typeof value === 'object' && !Array.isArray(value);
+const FIELDS = ['progress', 'daily', 'economy', 'entitlements', 'stamina', 'preferences'];
+const validPlayerId = value => typeof value === 'string' && /^player_[A-Za-z0-9_-]{1,120}$/.test(value);
+const validEnvironmentId = value => typeof value === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(value);
+const zeroRevisions = value => record(value) && Object.keys(value).length === FIELDS.length && FIELDS.every(key => value[key] === 0);
+
+function cloudEnvelope(data, env) {
+  if (!record(data) || data.ok !== true || data.code !== 'OK' || data.protocolVersion !== 1 || data.retryable !== false ||
+      data.environmentId !== env || !validEnvironmentId(env) || !zeroRevisions(data.revisions) ||
+      Object.keys(data).some(key => !['ok', 'code', 'requestId', 'protocolVersion', 'retryable', 'environmentId',
+        'serverTimeMs', 'serverDateKey', 'player', 'revisions', 'data', 'bindingStatus'].includes(key)) ||
+      !Number.isSafeInteger(data.serverTimeMs) || data.serverTimeMs < 0 || data.serverTimeMs > 8640000000000000 - 28800000 ||
+      new Date(data.serverTimeMs + 28800000).toISOString().slice(0, 10) !== data.serverDateKey) return false;
+  const player = data.player;
+  return record(player) && Object.keys(player).every(key => ['playerId', 'bindingEpoch', 'migrationState', 'hasCloudState'].includes(key)) &&
+    validPlayerId(player.playerId) && Number.isSafeInteger(player.bindingEpoch) && player.bindingEpoch > 0 &&
+    player.migrationState === 'none';
+}
+
+function validateCloudIdentity(data, env) {
+  return cloudEnvelope(data, env) && data.player.hasCloudState === false &&
+    ['UNBOUND', 'MATCHED', 'CLIENT_STALE'].includes(data.bindingStatus) && data.data === undefined;
+}
+
+function validateReadOnlyEnvelope(data, env) {
+  return cloudEnvelope(data, env) && record(data.data) && Object.keys(data.data).length === 3 &&
+    data.data.readOnlyPhase === true && data.data.hasCloudState === false &&
+    record(data.data.changedDomains) && Object.keys(data.data.changedDomains).length === 0;
+}
 
 class ApiClient {
   constructor(platform, sessions, config, options) {
@@ -37,9 +61,9 @@ class ApiClient {
   async request(input) {
     const opts = input || {};
     if (!this.isConfigured()) return failure('not-configured');
+    if (this.transport) return this.requestCloud(opts);
     if (typeof opts.path !== 'string' || !/^\/v1\/[A-Za-z0-9/:-]+$/.test(opts.path) ||
         !['GET', 'POST', 'PATCH', 'DELETE'].includes(opts.method || 'GET')) return failure('invalid-request');
-    if (this.transport) return this.requestCloud(opts);
     const session = this.sessions.current();
     if (opts.auth && !session) return failure('unauthorized', 401);
     const account = opts.auth && this.accountGuard ? this.accountGuard.capture() : null;
@@ -80,23 +104,37 @@ class ApiClient {
   }
 
   async requestCloud(opts) {
-    const route = CLOUD_ROUTES[`${opts.method || 'GET'} ${opts.path}`];
-    if (!route) return failure('cloud-operation-not-supported');
-    if (opts.auth) return failure('cloud-auth-not-ready');
-    if (route.action !== 'identity.init') return failure('cloud-operation-not-ready');
-    const body = opts.body || {};
-    // Never forward the old login code, token or legacySession to identity.
-    if (typeof body.installId !== 'string' || !/^[A-Za-z0-9_:-]{1,180}$/.test(body.installId) ||
-        typeof body.clientVersion !== 'string' || !/^[A-Za-z0-9_.-]{1,40}$/.test(body.clientVersion)) return failure('invalid-request');
+    // No implicit HTTP-path conversion: old profile/reward/sync services are
+    // not Cloud services. Phase 3 exposes only these two named operations.
+    const identity = opts.service === 'identity' && opts.action === 'identity.init';
+    const read = opts.service === 'playerState' && opts.action === 'state.read';
+    if ((!identity && !read) || opts.path || opts.method || opts.operationId || opts.idempotencyKey) return failure('not-configured');
+    if (!record(opts.payload)) return failure('invalid-request');
+    const session = read && this.cloudSession ? this.cloudSession() : null;
+    if (read && (!session || session.environmentId !== this.transport.config.env ||
+        session.ownerId !== opts.payload.claimedPlayerId || session.bindingEpoch !== opts.payload.bindingEpoch)) return failure('account-mismatch');
+    const source = opts.payload;
+    const payload = identity ? { installId: source.installId, clientVersion: source.clientVersion,
+      localBinding: source.localBinding && { claimedPlayerId: source.localBinding.claimedPlayerId,
+        bindingEpoch: source.localBinding.bindingEpoch, environmentId: source.localBinding.environmentId } }
+      : { claimedPlayerId: source.claimedPlayerId, bindingEpoch: source.bindingEpoch,
+        environmentId: source.environmentId, knownRevisions: source.knownRevisions };
     try {
-      return await this.transport.request({ service: route.service, action: route.action,
-        requestId: opts.requestId, operationId: opts.operationId, idempotencyKey: opts.idempotencyKey,
-        protocolVersion: 1, timeoutMs: opts.timeoutMs,
-        payload: { installId: body.installId, clientVersion: body.clientVersion } });
+      const result = await this.transport.request({ service: opts.service, action: opts.action,
+        requestId: opts.requestId, protocolVersion: 1, timeoutMs: opts.timeoutMs, payload });
+      if (read) {
+        const current = this.cloudSession && this.cloudSession();
+        if (!current || current.ownerId !== session.ownerId || current.bindingEpoch !== session.bindingEpoch ||
+            current.environmentId !== session.environmentId || current.generation !== session.generation) return failure('account-mismatch');
+      }
+      return result;
     } catch (error) { return failure('network', 0, true); }
   }
 }
 
 ApiClient.PATHS = PATHS;
 ApiClient.failure = failure;
+ApiClient.OPERATIONS = OPERATIONS;
+ApiClient.validateCloudIdentity = validateCloudIdentity;
+ApiClient.validateReadOnlyEnvelope = validateReadOnlyEnvelope;
 module.exports = ApiClient;

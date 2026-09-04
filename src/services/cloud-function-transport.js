@@ -19,12 +19,14 @@ class CloudFunctionTransport {
 
   isConfigured() {
     return this.config.enabled === true && typeof this.config.env === 'string' &&
-      /^[A-Za-z0-9_-]{1,128}$/.test(this.config.env);
+      /^[A-Za-z0-9_-]{1,128}$/.test(this.config.env) && this.config.testOnly === true &&
+      ['writeEnabled', 'migrationEnabled', 'economyEnabled', 'staminaEnabled', 'preferencesEnabled'].every(key => this.config[key] === false);
   }
 
   async request(input) {
     if (!this.isConfigured()) return failure('not-configured');
     const opts = input || {};
+    if ((opts.action === 'identity.init' ? this.config.identityEnabled : opts.action === 'state.read' ? this.config.readEnabled : false) !== true) return failure('not-configured');
     const actions = Object.prototype.hasOwnProperty.call(ACTIONS, opts.service) && ACTIONS[opts.service];
     const name = this.config.functions[opts.service];
     const timeout = opts.timeoutMs === undefined ? this.config.timeoutMs : opts.timeoutMs;
@@ -41,6 +43,8 @@ class CloudFunctionTransport {
     try {
       if (!this.platform || typeof this.platform.supportsCloud !== 'function' ||
           !this.platform.supportsCloud()) return failure('not-supported');
+      if (typeof this.platform.getMiniProgramEnvironmentVersion !== 'function' ||
+          !['develop', 'trial'].includes(this.platform.getMiniProgramEnvironmentVersion())) return failure('not-configured');
       // Lazy initialization cannot block local bootstrap. Concurrent requests
       // share initialization; a failed initialization may be retried later.
       if (!this.initialization) {

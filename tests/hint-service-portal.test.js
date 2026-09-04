@@ -94,6 +94,8 @@ function run() {
   runner1.touchEnd(-1);
   assert.strictEqual(runner1.portalPhase, 'PORTAL_WAIT');
 
+  // Snapshot equality must not race the elapsed-time clock.
+  runner1.pause();
   const waitStateBeforeComplete = runner1.getViewState();
   const waitComplete = hints.findComplete(runner1);
   assert.deepStrictEqual(waitComplete.paths[0].segments, completeHint1.paths[0].segments,

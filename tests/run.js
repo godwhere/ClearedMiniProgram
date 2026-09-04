@@ -1,4 +1,7 @@
 const tests = [
+  ['cloud identity client persistence and races', require('./cloud-identity-client.test.js')],
+  ['cloud environment scopes', require('./cloud-environment-scope.test.js')],
+  ['cloud read-only state isolation', require('./cloud-readonly-state.test.js')],
   ['cloud account scopes', require('./cloud-account-scope.test.js')],
   ['cloud local migration and authoritative safety', require('./cloud-session-migration.test.js')],
   ['cloud stale callbacks', require('./cloud-stale-callback.test.js')],

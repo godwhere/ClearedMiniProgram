@@ -1,6 +1,7 @@
 'use strict';
 
 const ApiClient = require('./api-client.js');
+const SyncStore = require('./sync-store.js');
 
 class AuthService {
   constructor(platform, api, sessions, syncStore, config) {
@@ -10,13 +11,26 @@ class AuthService {
     this.syncStore = syncStore;
     this.config = config || {};
     this.mode = this.config.mode || (api.transport ? 'cloud' : 'legacy-http');
+    this.readOnlyPhase = this.mode === 'cloud';
+    this.cloudReady = null;
+    if (this.readOnlyPhase) this.api.cloudSession = () => this.current();
     this.status = this.current() ? 'authenticated' : 'anonymous';
     this.inFlight = null;
     this.listeners = [];
     this.generation = 0;
   }
 
-  current() { return this.mode === 'legacy-http' ? this.sessions.current() : null; }
+  current() {
+    if (this.mode === 'legacy-http') return this.sessions.current();
+    if (!this.cloudReady || this.config.enabled !== true || !this.api.isConfigured()) return null;
+    const metadata = this.sessions.metadata(); const scope = this.syncStore.context();
+    if (!metadata || metadata.mode !== 'cloud' || metadata.ownerId !== this.cloudReady.ownerId ||
+        metadata.environmentId !== this.api.transport.config.env ||
+        metadata.environmentId !== this.cloudReady.environmentId || metadata.bindingEpoch !== this.cloudReady.bindingEpoch ||
+        scope.ownerId !== metadata.ownerId || scope.bindingEpoch !== metadata.bindingEpoch ||
+        scope.environmentId !== metadata.environmentId) return null;
+    return Object.assign({}, this.cloudReady, { generation: this.generation });
+  }
   state() { return this.status === 'authenticated' && !this.current() ? 'anonymous' : this.status; }
   onSessionChanged(listener) {
     if (typeof listener !== 'function') return function () {};
@@ -24,7 +38,11 @@ class AuthService {
     return () => { this.listeners = this.listeners.filter(item => item !== listener); };
   }
   notify() { this.listeners.slice().forEach(fn => { try { fn(this.current(), this.status); } catch (error) {} }); }
-  clear(reason) { this.generation++; this.sessions.clear(); this.status = reason === 'offline' ? 'offline' : 'anonymous'; this.notify(); }
+  clear(reason) {
+    this.generation++; this.cloudReady = null;
+    if (this.mode === 'legacy-http') this.sessions.clear();
+    this.status = reason === 'offline' ? 'offline' : 'anonymous'; this.notify();
+  }
 
   ensureSession(options) {
     if (this.inFlight) return this.inFlight;
@@ -33,17 +51,56 @@ class AuthService {
     if (this.config.enabled !== true || !this.api.isConfigured()) {
       return Promise.resolve({ ok: false, status: 'offline', reason: 'not-configured' });
     }
-    // Cloud identity must not activate the legacy single-scope sync path.
-    // Phase 2 adds owner scopes; phase 3 supplies the real identity provider.
-    if (this.mode !== 'legacy-http') return Promise.resolve({ ok: false, status: 'offline',
-      reason: this.mode === 'cloud' ? 'cloud-identity-not-ready' : 'invalid-identity-mode' });
+    if (!['legacy-http', 'cloud'].includes(this.mode)) return Promise.resolve({ ok: false, status: 'offline', reason: 'invalid-identity-mode' });
     const generation = this.generation;
+    if (this.readOnlyPhase) this.cloudReady = null;
     // Publish the flight before notifying observers: a listener may itself
     // ask for a session while rendering the new authenticating state.
-    this.inFlight = Promise.resolve().then(() => this.authenticate(generation))
-      .catch(() => this.fail('network')).finally(() => { this.inFlight = null; });
+    this.inFlight = Promise.resolve().then(() => this.mode === 'cloud' ? this.authenticateCloud(generation) : this.authenticate(generation))
+      .catch(() => generation === this.generation ? this.fail('network') : { ok: false, reason: 'account-mismatch' })
+      .finally(() => { this.inFlight = null; });
     this.status = 'authenticating'; this.notify();
     return this.inFlight;
+  }
+
+  async authenticateCloud(generation) {
+    const transport = this.api.transport;
+    if (!transport || !transport.config || transport.config.identityEnabled !== true) return this.fail('not-configured');
+    const env = transport.config.env; const previous = this.sessions.metadata();
+    if (this.syncStore.blocked || this.syncStore.state.authorityMode !== 'legacy-local' ||
+        (previous && previous.mode === 'cloud' && previous.migrationState !== 'none')) return this.fail('local-state-not-ready');
+    const scope = this.syncStore.context();
+    const account = this.accountGuard && this.accountGuard.capture();
+    const matches = () => generation === this.generation && transport.config.env === env && this.syncStore.matches(scope) &&
+      (!account || this.accountGuard.matches(account));
+    const local = previous && previous.mode === 'cloud' && previous.environmentId === env ? previous : null;
+    const response = await this.api.request(Object.assign({}, ApiClient.OPERATIONS.identity, {
+      requestId: SyncStore.opaqueId('req'), auth: false, payload: {
+        installId: this.syncStore.state.installId, clientVersion: this.config.clientVersion || '1.0.0',
+        localBinding: { claimedPlayerId: local ? local.ownerId : null, bindingEpoch: local ? local.bindingEpoch : 0, environmentId: env }
+      }
+    }));
+    if (!matches()) return { ok: false, reason: 'account-mismatch' };
+    if (!response.ok) return this.fail(response.error.code);
+    const data = response.data;
+    if (!ApiClient.validateCloudIdentity(data, env)) return this.fail('invalid-response');
+    if (local && local.ownerId !== data.player.playerId) {
+      // Stage 3 has one local gameplay cache. Detect B, retain A, stop reads;
+      // never turn this identity response into a gameplay/account migration.
+      this.generation++; this.cloudReady = null; return this.fail('account-mismatch');
+    }
+    const metadata = { schemaVersion: 2, mode: 'cloud', ownerId: data.player.playerId,
+      bindingEpoch: data.player.bindingEpoch, environmentId: env, migrationState: 'none',
+      migrationImportId: null, migrationReceiptId: null };
+    // Two durable keys are not atomic. If activation fails the saved identity
+    // remains unready; a restart revalidates it before publishing any session.
+    if (!this.sessions.set(metadata)) return this.fail(this.sessions.lastError === 'persist-failed' ? 'persist-failed' : 'invalid-response');
+    const activated = this.syncStore.activateScope(metadata.ownerId, metadata.bindingEpoch, env, true);
+    if (!activated.ok) { this.cloudReady = null; return this.fail(activated.reason); }
+    this.cloudReady = { mode: 'cloud', ownerId: metadata.ownerId, bindingEpoch: metadata.bindingEpoch, environmentId: env,
+      readOnlyPhase: true, readPaused: this.syncStore.state.localOwnerId !== null && !this.syncStore.ownsLocalState() };
+    this.status = 'authenticated'; this.notify();
+    return this.success(this.current());
   }
 
   async authenticate(generation) {
@@ -75,7 +132,11 @@ class AuthService {
       session: { expiresAt: session.expiresAt } };
   }
 
-  success(session) { return { ok: true, status: 'authenticated', user: { id: session.userId }, session: { expiresAt: session.expiresAt } }; }
+  success(session) {
+    if (session && session.mode === 'cloud') return { ok: true, status: 'authenticated', user: { id: session.ownerId },
+      session: Object.assign({}, session), readOnlyPhase: true, readPaused: session.readPaused };
+    return { ok: true, status: 'authenticated', user: { id: session.userId }, session: { expiresAt: session.expiresAt } };
+  }
   fail(reason) { this.status = reason === 'network' || reason === 'timeout' || reason === 'not-configured' ? 'offline' : 'error'; this.notify(); return { ok: false, status: this.status, reason }; }
 }
 
