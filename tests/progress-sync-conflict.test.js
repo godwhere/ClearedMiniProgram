@@ -129,6 +129,7 @@ module.exports = async function run() {
   assert.strictEqual(legacyOperation.payload.elapsedMs, undefined, 'completion-only legacy saves never fabricate a best time');
 
   const overflow = fixture(); overflow.service.config.enabled = false;
+  assert(overflow.store.bindLegacyUser('u1'), 'the overflow test exercises one bound owner; guest operations cannot be relabelled at login');
   for (let i = 0; i < 201; i++) overflow.service.enqueueCompletion({ setIndex: 0, levelIndex: 0, elapsedMs: 100 + i });
   overflow.progress.recordCompletion(0, 1, 80); overflow.service.config.enabled = true;
   assert((await overflow.service.flush()).ok); assert.strictEqual(overflow.store.state.snapshotRequired, true);

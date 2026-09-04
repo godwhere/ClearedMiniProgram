@@ -42,6 +42,8 @@ class ApiClient {
     if (this.transport) return this.requestCloud(opts);
     const session = this.sessions.current();
     if (opts.auth && !session) return failure('unauthorized', 401);
+    const account = opts.auth && this.accountGuard ? this.accountGuard.capture() : null;
+    if (account && !this.accountGuard.matches(account)) return failure('account-mismatch');
     const header = { 'content-type': 'application/json' };
     if (opts.auth) header.Authorization = `Bearer ${session.accessToken}`;
     if (opts.idempotencyKey) {
@@ -55,7 +57,8 @@ class ApiClient {
         method: opts.method || 'GET', data: opts.body, header,
         timeout: opts.timeoutMs || this.config.timeoutMs || 8000
       });
-    } catch (error) { return failure('network', 0, true); }
+    } catch (error) { return account && !this.accountGuard.matches(account) ? failure('account-mismatch') : failure('network', 0, true); }
+    if (account && !this.accountGuard.matches(account)) return failure('account-mismatch');
     if (!response || response.ok === false) return failure(response && response.reason === 'timeout' ? 'timeout' : 'network', 0, true);
     const status = response.statusCode;
     if (status === 401) {

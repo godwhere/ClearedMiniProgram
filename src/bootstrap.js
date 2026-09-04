@@ -71,7 +71,7 @@ function start() {
       platform.isDevTools() === true
   });
   const app = new ClearedApp(platform, {
-    stamina, rewardUnlocks,
+    stamina, rewardUnlocks, syncStore,
     progress, dailyStore, auth, progressSync, behavior, ads, engagement, profile, share, rewards, hintAccess,
     subpackages,
     skins,

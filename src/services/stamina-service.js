@@ -41,6 +41,49 @@ class StaminaService {
     this._state = null;
     this._pending = false;
     this._pendingRefunds = new Set();
+    this._authorityMode = 'legacy-local';
+  }
+
+  authorityMode() { return this._authorityMode; }
+  setAuthorityMode(mode) {
+    if (!['legacy-local', 'migration-freeze', 'cloud-authoritative'].includes(mode) ||
+        (this._authorityMode !== 'legacy-local' && mode === 'legacy-local')) return false;
+    this._authorityMode = mode;
+    return true;
+  }
+
+  validateAuthoritativeSnapshot(value) {
+    if (!record(value) || value.schemaVersion !== 1 ||
+        Object.keys(value).some(key => !['schemaVersion', 'balance', 'nextRecoveryAt', 'unlockedLevels', 'refundedLevels'].includes(key)) ||
+        !nonnegativeInteger(value.balance) ||
+        (value.balance >= this.config.naturalCap ? value.nextRecoveryAt !== null : !validTimestamp(value.nextRecoveryAt)) ||
+        !Array.isArray(value.unlockedLevels) || !value.unlockedLevels.every(validLevelKey) ||
+        new Set(value.unlockedLevels).size !== value.unlockedLevels.length ||
+        !Array.isArray(value.refundedLevels) || !value.refundedLevels.every(key => validLevelKey(key) && value.unlockedLevels.includes(key)) ||
+        new Set(value.refundedLevels).size !== value.refundedLevels.length) return null;
+    return { schemaVersion: 1, balance: value.balance, nextRecoveryAt: value.nextRecoveryAt,
+      unlockedLevels: value.unlockedLevels.slice().sort(), refundedLevels: value.refundedLevels.slice().sort() };
+  }
+
+  exportAuthoritativeSnapshot() {
+    // Do not settle time or write while building a deterministic migration.
+    let value = this._state;
+    if (!value) {
+      try { value = this.platform.getStorage(STORAGE_KEY); } catch (error) { return { ok: false, reason: 'storage-read-failed' }; }
+      if (value == null) value = { schemaVersion: 1, balance: this.config.initialBalance,
+        nextRecoveryAt: null, unlockedLevels: [], refundedLevels: [] };
+    }
+    const snapshot = this.validateAuthoritativeSnapshot(value);
+    return snapshot ? { ok: true, snapshot } : { ok: false, reason: 'invalid-snapshot' };
+  }
+
+  applyAuthoritativeSnapshot(value) {
+    if (this._authorityMode !== 'cloud-authoritative') return { ok: false, reason: 'authority-mismatch' };
+    const candidate = this.validateAuthoritativeSnapshot(value);
+    if (!candidate) return { ok: false, reason: 'invalid-snapshot' };
+    if (!this.persist(candidate)) return { ok: false, reason: 'persist-failed' };
+    this._state = candidate; this._pending = false; this._pendingRefunds.clear();
+    return { ok: true };
   }
 
   time(now) {
@@ -54,6 +97,14 @@ class StaminaService {
   }
 
   settle(now) {
+    if (this._authorityMode !== 'legacy-local') {
+      if (!this._state) {
+        const exported = this.exportAuthoritativeSnapshot();
+        if (exported.ok) this._state = exported.snapshot;
+        else this._state = { schemaVersion: 1, balance: 0, nextRecoveryAt: null, unlockedLevels: [], refundedLevels: [] };
+      }
+      return false;
+    }
     let previous = this._state;
     if (!previous) {
       try { previous = this.platform.getStorage(STORAGE_KEY); } catch (error) {}
@@ -125,6 +176,7 @@ class StaminaService {
   }
 
   restoreUnlockedLevels(levelKeys, now) {
+    if (this._authorityMode !== 'legacy-local') return false;
     const changed = this.settle(this.time(now));
     const unlockedLevels = normalizeUnlocks(this._state.unlockedLevels.concat(normalizeUnlocks(levelKeys)));
     const added = unlockedLevels.length !== this._state.unlockedLevels.length;
@@ -146,6 +198,7 @@ class StaminaService {
       if (changed) this._pending = !this.persist(this._state);
       return { ok: true, spent: 0, before, after: before, snapshot: this.view(timestamp) };
     }
+    if (this._authorityMode !== 'legacy-local') return { ok: false, reason: this._authorityMode, snapshot: this.view(timestamp) };
     const { ordinaryUnlockCost, naturalCap, recoveryIntervalMs } = this.config;
     if (before < ordinaryUnlockCost) {
       if (changed) this._pending = !this.persist(this._state);
@@ -167,6 +220,7 @@ class StaminaService {
   }
 
   flush(now) {
+    if (this._authorityMode !== 'legacy-local') return true;
     this.settle(this.time(now));
     const refundKeys = this._state.unlockedLevels.filter(key =>
       this._pendingRefunds.has(key) && !this._state.refundedLevels.includes(key));
@@ -188,6 +242,7 @@ class StaminaService {
   refundQuickClear(levelKey, elapsedMs, now) {
     const timestamp = this.time(now);
     const snapshot = this.snapshot(timestamp);
+    if (this._authorityMode !== 'legacy-local') return { ok: true, reason: this._authorityMode, refunded: 0, snapshot };
     if (!validLevelKey(levelKey) || !Number.isFinite(elapsedMs) || elapsedMs < 0) {
       return { ok: false, reason: 'invalid-completion', refunded: 0, snapshot };
     }

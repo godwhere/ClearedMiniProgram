@@ -92,3 +92,17 @@ RewardUnlockService 同一候选副本／同一次写盘保存 balance、claimed
 方案第 18 节的五项未来决策保留为**建议而非已获用户确认**：单主旧存档、在线购买、离线体力冲突保留进度并收敛为 0、独立私有后端仓库、旧客户端禁止重复导入经济基线。本轮不执行这些业务决策，因此不阻塞默认关闭的接缝；进入相关迁移／部署阶段前必须另行确认。
 
 未执行：微信开发者工具 CloudBase 联调、真实云函数/数据库、真机账号切换、Android/iOS、生产发布；阶段 1 不创建云资源。Node 假平台不能证明这些验收。既有 daily 无限调试与仅普通进度云合并都不能作为正式 R1 上线依据。
+
+## 阶段 2 开始前复验（2026-09-04）
+
+本轮开始 SHA：`859bbc84f30c8175c0e53a7c25ff5bbe820d2e96`，提交名“云开发阶段0-1”，main 工作区干净，本地领先 origin/main 一个提交，未执行推送。阶段 1 的 17 个文件已完整提交；66 组回归、包体和 diff 检查重新通过。主包 2,814,625 bytes、总包 16,105,565 bytes。日志为 `/tmp/cleared-cloudbase-phase2-baseline-tests.log` 和 `/tmp/cleared-cloudbase-phase2-baseline-budget.log`。
+
+本轮额外边界的必要性：
+
+- EngagementService 在 Promise 内直接提交广告／提示许可／永久拥有权，晚于 App 调用、早于 App 收到结果。只改 App 的回调无法拦截写入，故在既有提交前增加注入式账号 guard；不改广告与分享口径。
+- ApiClient 的认证响应出口是现有 profile/share/reward 网络消费者的共同入口，增加可选账号 guard 拒绝迟到响应；HTTP path/header/body/status 合同不变，不加入身份绑定或领域逻辑。
+- `tests/progress-sync-conflict.test.js` 的队列溢出场景改为先明确绑定旧 HTTP 账号再产生队列，保持原有 201 次入队、容量与两轮补漏断言；游客队列不得为维持旧 fixture 被改属账号。
+- 架构测试允许 SyncStore **声明** stamina 域 revision，但继续禁止体力实例、余额和恢复锚点；这不是允许它持有体力状态。
+- `tests/devtools-runtime.test.js` 的 bootstrap 假平台补齐现有结构化读取所需的 `getStorageInfoSync`，保留所有开发工具门禁断言。不能为缺失这个真实平台接口的旧测试替身而放宽同步元数据读取失败时的保护。
+
+以上是阶段 2 原始白名单外的局部修改，均针对真实共同调用点，不涉及云部署或阶段 3/4 的业务实现。其他保护区保持不变。

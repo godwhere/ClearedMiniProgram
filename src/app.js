@@ -215,6 +215,7 @@ class ClearedApp {
     this.progress = opts.progress || new ProgressStore(platform);
     this.auth = opts.auth || null;
     this.progressSync = opts.progressSync || null;
+    this.syncStore = opts.syncStore || (this.progressSync && this.progressSync.store) || null;
     this.behavior = opts.behavior || null;
     this.profile = opts.profile || null;
     this.share = opts.share || null;
@@ -223,6 +224,7 @@ class ClearedApp {
     this.dailyRewardMessage = null;
     this.pendingShare = null;
     this.accountGeneration = 0;
+    this.accountSceneGeneration = 0;
     this.accountMessage = '';
     this.accountProfilePending = false;
     this.accountSyncPending = null;
@@ -243,6 +245,7 @@ class ClearedApp {
     // and persistence without leaking daily state into ProgressStore.
     this.dailyClock = typeof opts.clock === 'function' ? opts.clock : () => new Date();
     this.stamina = opts.stamina || new StaminaService(platform, staminaConfig);
+    if (this.syncStore && this.stamina.setAuthorityMode) this.stamina.setAuthorityMode(this.syncStore.state.authorityMode);
     const lastPlayed = this.progress.state.lastPlayed;
     this.stamina.restoreUnlockedLevels(catalog.levels.filter(entry =>
       this.progress.isCompleted(entry.setIndex, entry.levelIndex) ||
@@ -302,6 +305,7 @@ class ClearedApp {
     this.dailyChallengeService = this.dailyService;
     this.dailyProgressStore = this.dailyProgress;
     this.rewardUnlocks = opts.rewardUnlocks || new RewardUnlockService(platform, rewardConfig);
+    if (this.syncStore && this.rewardUnlocks.setAuthorityMode) this.rewardUnlocks.setAuthorityMode(this.syncStore.state.authorityMode);
     // Reconcile saved facts before restoring a selected appearance. No UI is
     // accessed until the renderer, pointer and scene state have been created.
     this.recoverRewardUnlocks();
@@ -385,6 +389,93 @@ class ClearedApp {
     this.rewardDialogSequence = 0;
     this.rewardRequestGeneration = 0;
     this.dismissedRewardNotices = new Set();
+    this.accountGuard = { capture: () => this.captureAccountContext(), matches: token => this.isCurrentAccount(token) &&
+      (!this.syncStore || (this.syncStore.ownsLocalState() && (!this.syncStore.state.boundUserId ||
+        !token.identityAtStart || this.syncStore.state.boundUserId === token.identityAtStart))) };
+    this.captureAccountContext();
+    this.engagement.accountGuard = this.accountGuard;
+    if (this.progressSync) this.progressSync.accountGuard = this.accountGuard;
+    if (this.auth && this.auth.api) this.auth.api.accountGuard = this.accountGuard;
+    if (this.auth && this.auth.onSessionChanged) this.unbindAccount = this.auth.onSessionChanged(() => this.captureAccountContext());
+    if (this.syncStore && this.syncStore.onScopeChanged) this.unbindScope = this.syncStore.onScopeChanged(() => this.captureAccountContext());
+  }
+
+  captureAccountContext() {
+    const scope = this.syncStore && this.syncStore.context ? this.syncStore.context()
+      : { ownerId: null, bindingEpoch: 0, activationSequence: 0 };
+    const metadata = this.auth && this.auth.sessions && this.auth.sessions.metadata ? this.auth.sessions.metadata() : null;
+    const legacy = metadata && (metadata.schemaVersion === 1 ? metadata : metadata.legacySession);
+    const session = this.auth && typeof this.auth.current === 'function' ? this.auth.current() : null;
+    // Token expiry/refresh for the same HTTP user is not an account switch.
+    // Clearing an expired HTTP credential during a 401 retry does not move
+    // the local cache to guest. A different identified user or scope does.
+    const identity = metadata && metadata.mode === 'cloud'
+      ? `cloud:${metadata.ownerId}:${metadata.bindingEpoch}`
+      : (legacy && legacy.userId) || (session && session.userId) || this.accountIdentity || null;
+    this.accountIdentity = identity;
+    const signature = JSON.stringify([scope.ownerId, scope.bindingEpoch, scope.activationSequence, identity]);
+    if (this.accountSignature !== undefined && signature !== this.accountSignature) {
+      this.accountGeneration++;
+      if (this.engagement && this.engagement.cancelRewardUnlocks) this.engagement.cancelRewardUnlocks();
+      if (this.profile && this.profile.unmount) this.profile.unmount();
+      this.hintRequest = null; this.dailyExtraRequest = null; this.accountSyncPending = null;
+      this.pendingShare = null; this.pendingSkinId = null;
+      ++this.skinLoadRequestId; ++this.rewardRequestGeneration;
+    }
+    this.accountSignature = signature;
+    return { ownerIdAtStart: scope.ownerId, bindingEpochAtStart: scope.bindingEpoch,
+      activationSequenceAtStart: scope.activationSequence, accountGenerationAtStart: this.accountGeneration,
+      identityAtStart: identity };
+  }
+
+  isCurrentAccount(token) {
+    if (!token || this.disposed) return false;
+    const current = this.captureAccountContext();
+    return Object.keys(current).every(key => current[key] === token[key]);
+  }
+
+  acceptsLegacyTransition(token, userId, binding) {
+    const current = this.captureAccountContext();
+    return !this.disposed && !!userId && current.identityAtStart === userId &&
+      current.accountGenerationAtStart === token.accountGenerationAtStart + 1 &&
+      current.bindingEpochAtStart === token.bindingEpochAtStart &&
+      current.activationSequenceAtStart === token.activationSequenceAtStart + (binding ? 1 : 0) &&
+      (binding ? token.ownerIdAtStart === null && token.identityAtStart === userId &&
+        current.ownerIdAtStart === `legacy-http:${userId}` : token.identityAtStart === null && current.ownerIdAtStart === token.ownerIdAtStart);
+  }
+
+  authorityMode(service) {
+    if (this.syncStore && this.syncStore.state.authorityMode !== 'legacy-local') return this.syncStore.state.authorityMode;
+    return service && service.authorityMode ? service.authorityMode() : 'legacy-local';
+  }
+
+  prepareLegacyMigration() {
+    if (!this.syncStore || !this.syncStore.ownsLocalState()) return { ok: false, reason: 'account-mismatch' };
+    const token = this.syncStore.context();
+    if (!this.syncStore.currentScope().migration) {
+      if (this.authorityMode(this.rewardUnlocks) !== 'legacy-local' || this.rewardUnlocks.hasPendingExternal()) return { ok: false, reason: 'migration-not-ready' };
+      try {
+        if (this.progress.save() !== true || this.dailyProgress.save() !== true || !this.stamina.flush(this.clockNow().getTime())) return { ok: false, reason: 'persist-failed' };
+      } catch (error) { return { ok: false, reason: 'persist-failed' }; }
+      const recovered = this.recoverRewardUnlocks();
+      if (!recovered.ok) return recovered;
+    }
+    const LegacyMigrationBuilder = require('./services/legacy-migration-builder.js');
+    const built = new LegacyMigrationBuilder({ progress: this.progress, daily: this.dailyProgress,
+      rewards: this.rewardUnlocks, stamina: this.stamina, syncStore: this.syncStore }).buildSnapshot();
+    if (!built.ok) return built;
+    const prepared = this.syncStore.prepareMigration({ policyVersion: built.snapshot.policyVersion, snapshotHash: built.snapshotHash }, token);
+    if (prepared.ok) {
+      this.rewardUnlocks.setAuthorityMode('migration-freeze'); this.stamina.setAuthorityMode('migration-freeze');
+    }
+    return prepared.ok ? Object.assign({}, built, prepared) : prepared;
+  }
+
+  applyAuthoritativeState(response, token) {
+    if (!this.syncStore) return Promise.resolve({ ok: false, reason: 'not-configured' });
+    const AuthoritativeStateApplier = require('./services/authoritative-state-applier.js');
+    return new AuthoritativeStateApplier({ progress: this.progress, daily: this.dailyProgress,
+      rewards: this.rewardUnlocks, stamina: this.stamina, syncStore: this.syncStore }, this.accountGuard).apply(response, token);
   }
 
   start() {
@@ -1889,10 +1980,11 @@ class ClearedApp {
     } else if (action === 'account:retrySync' && this.scene === 'account') {
       this.retryAccountSync();
     } else if (action === 'account:privacy' && this.scene === 'account') {
-      const generation = this.accountGeneration;
+      const generation = this.accountSceneGeneration;
+      const account = this.captureAccountContext();
       const task = this.platform.openPrivacyContract ? this.platform.openPrivacyContract() : Promise.resolve({ ok: false });
       Promise.resolve(task).then(result => {
-        if (this.scene !== 'account' || generation !== this.accountGeneration) return;
+        if (!this.isCurrentAccount(account) || this.scene !== 'account' || generation !== this.accountSceneGeneration) return;
         if (!result.ok) this.accountMessage = '暂时无法打开隐私协议';
         this.invalidate();
       }).catch(function () {});
@@ -2104,16 +2196,17 @@ class ClearedApp {
   openAccount() {
     this.clearHintPreview(false);
     this.scene = 'account';
-    this.accountGeneration++;
+    this.accountSceneGeneration++;
     this.accountMessage = '';
     this.pointer = null;
     this.pressedId = null;
     this.boardInput.setRunner(null);
     this.mountAccountProfile();
     if (this.profile) {
-      const generation = this.accountGeneration;
+      const generation = this.accountSceneGeneration;
+      const account = this.captureAccountContext();
       this.profile.refresh().then(() => {
-        if (this.scene === 'account' && generation === this.accountGeneration) this.invalidate();
+        if (this.isCurrentAccount(account) && this.scene === 'account' && generation === this.accountSceneGeneration) this.invalidate();
       });
     }
     this.invalidate();
@@ -2192,10 +2285,11 @@ class ClearedApp {
     if (!this.engagement.canRequestDailyExtraEntry || !this.engagement.canRequestDailyExtraEntry()) return false;
     const context = this.dailyRewardContext();
     if (!context || this.dailyExtraRequest || !this.rewards) return false;
-    const token = { scene: this.scene, runKey: this.runSequence, context };
+    const token = { scene: this.scene, runKey: this.runSequence, context, account: this.captureAccountContext() };
     this.dailyExtraRequest = token;
     this.invalidate();
     this.engagement.requestDailyExtraEntry(context).then(grant => {
+      if (!this.isCurrentAccount(token.account)) return;
       const applied = grant.ok ? this.applyDailyGrant(grant) : grant;
       if (this.dailyExtraRequest !== token || this.scene !== token.scene || this.runSequence !== token.runKey) return;
       this.dailyRewardMessage = { dateKey: context.dateKey, text: applied.ok ? '已获得一次额外进入机会'
@@ -2213,8 +2307,9 @@ class ClearedApp {
     if (!this.rewards) return Promise.resolve();
     const resolved = this.resolveDaily();
     if (!resolved || resolved.status !== 'available') return Promise.resolve();
+    const account = this.captureAccountContext();
     return this.rewards.recover({ dateKey: resolved.dateKey, dayId: resolved.dayId }).then(result => {
-      if (this.disposed) return;
+      if (!this.isCurrentAccount(account)) return;
       (result.grants || []).forEach(grant => this.applyDailyGrant(grant));
       this.invalidate();
     }).catch(function () {});
@@ -2240,10 +2335,11 @@ class ClearedApp {
         return false;
       }
     }
-    const token = { scene: this.scene, runKey: this.runSequence, runner, context };
+    const token = { scene: this.scene, runKey: this.runSequence, runner, context, account: this.captureAccountContext() };
     this.hintRequest = token;
     this.hintFeedback = null;
     const apply = result => {
+      if (!this.isCurrentAccount(token.account)) return false;
       // A completed global request may re-enable the button in another run.
       if (!this.disposed) this.invalidate();
       if (this.hintRequest !== token) return false;
@@ -2272,11 +2368,11 @@ class ClearedApp {
   shareResult() {
     const context = this.shareContext();
     if (this.pendingShare || !context.completed || !this.share || !this.share.isResultEnabled()) return false;
-    const token = { scene: this.scene, result: this.scene === 'result' ? this.result : this.daily.result };
+    const token = { scene: this.scene, result: this.scene === 'result' ? this.result : this.daily.result, account: this.captureAccountContext() };
     this.pendingShare = token;
     this.invalidate();
     this.engagement.shareResult(context).catch(() => ({ initiated: false })).finally(() => {
-      if (this.pendingShare !== token) return;
+      if (!this.isCurrentAccount(token.account) || this.pendingShare !== token) return;
       this.pendingShare = null;
       if (this.scene === token.scene && token.result === (this.scene === 'result' ? this.result : this.daily.result)) this.invalidate();
     });
@@ -2285,8 +2381,9 @@ class ClearedApp {
 
   mountAccountProfile() {
     if (this.scene !== 'account' || this.hidden || this.disposed || !this.profile) return false;
-    const generation = this.accountGeneration;
-    const current = () => this.scene === 'account' && !this.hidden && !this.disposed && generation === this.accountGeneration;
+    const generation = this.accountSceneGeneration;
+    const account = this.captureAccountContext();
+    const current = () => this.isCurrentAccount(account) && this.scene === 'account' && !this.hidden && generation === this.accountSceneGeneration;
     const skin = this.skins.current();
     const result = this.profile.mount({
       rect: accountLayout(this.platform.metrics).profileButton,
@@ -2304,7 +2401,7 @@ class ClearedApp {
   }
 
   leaveAccount() {
-    this.accountGeneration++;
+    this.accountSceneGeneration++;
     this.accountSyncPending = null;
     this.accountProfilePending = false;
     if (this.profile) this.profile.unmount();
@@ -2312,11 +2409,11 @@ class ClearedApp {
 
   retryAccountSync() {
     if (this.accountSyncPending || this.scene !== 'account') return false;
-    const token = { generation: this.accountGeneration };
+    const token = { generation: this.accountSceneGeneration, account: this.captureAccountContext() };
     this.accountSyncPending = token;
     this.invalidate();
     this.resumeOnline().then(result => {
-      if (this.accountSyncPending !== token || this.scene !== 'account' || this.hidden) return;
+      if (!this.isCurrentAccount(token.account) || this.accountSyncPending !== token || this.scene !== 'account' || this.hidden) return;
       this.accountSyncPending = null;
       this.accountMessage = result.ok ? '同步完成' : result.reason === 'account-mismatch'
         ? '当前账号与本地存档绑定的账号不同' : '当前使用本地存档，可稍后重试';
@@ -2545,6 +2642,8 @@ class ClearedApp {
   }
 
   recoverRewardUnlocks() {
+    const mode = this.authorityMode(this.rewardUnlocks);
+    if (mode !== 'legacy-local') return { ok: false, reason: mode, amountDelta: 0, newRewards: [], sources: [] };
     if (!this.rewardUnlocks) return { ok: false, reason: 'not-configured', amountDelta: 0, newRewards: [] };
     if (!this.rewardUnlocks.view().available) {
       const loaded = this.rewardUnlocks.retryLoad();
@@ -2632,6 +2731,7 @@ class ClearedApp {
   }
 
   requestRewardUnlock(retry) {
+    if (this.accountGuard && !this.accountGuard.matches(this.captureAccountContext())) return false;
     const dialog = this.rewardDialog;
     if (!dialog || dialog.state === 'working' || dialog.state === 'loading') return false;
     const rewardId = dialog.rewardId;
@@ -2645,6 +2745,7 @@ class ClearedApp {
     dialog.state = 'working';
     dialog.message = retry ? '正在重试保存…' : '正在处理…';
     const generation = ++this.rewardRequestGeneration;
+    const account = this.captureAccountContext();
     this.pointer = null;
     this.pressedId = null;
     this.invalidate();
@@ -2654,6 +2755,7 @@ class ClearedApp {
       task = this.engagement.requestRewardUnlock({ rewardId, scene: this.scene });
     } else task = { ok: false, reason: 'not-configured', newRewards: [] };
     const finish = result => {
+      if (!this.isCurrentAccount(account)) return { ok: false, reason: 'stale-account-context', amountDelta: 0, newRewards: [] };
       if (this.disposed || generation !== this.rewardRequestGeneration || !this.rewardDialog ||
           this.rewardDialog.rewardId !== rewardId) return result;
       if (result && result.ok && result.newRewards && result.newRewards.length) {
@@ -2768,14 +2870,15 @@ class ClearedApp {
   }
 
   loadSkinPackage(skinId, requestId, selectOnSuccess) {
+    const account = this.captureAccountContext();
     const originScene = this.scene;
     const dialogId = this.rewardDialog && this.rewardDialog.dialogId;
     this.pendingSkinId = skinId;
     this.invalidate();
     this.subpackages.ensureTheme(skinId, () => {
-      if (!this.disposed && requestId === this.skinLoadRequestId) this.invalidate();
+      if (this.isCurrentAccount(account) && requestId === this.skinLoadRequestId) this.invalidate();
     }).then(() => {
-      if (this.disposed || requestId !== this.skinLoadRequestId || !this.rewardUnlocks.canUse('theme', skinId) ||
+      if (!this.isCurrentAccount(account) || requestId !== this.skinLoadRequestId || !this.rewardUnlocks.canUse('theme', skinId) ||
           (selectOnSuccess && (originScene !== this.scene || (dialogId && (!this.rewardDialog || this.rewardDialog.dialogId !== dialogId))))) return;
       this.pendingSkinId = null;
       const selected = !selectOnSuccess || this.skins.select(skinId);
@@ -2790,7 +2893,7 @@ class ClearedApp {
       }
       this.invalidate();
     }).catch(() => {
-      if (this.disposed) return;
+      if (!this.isCurrentAccount(account)) return;
       // The service exposes a stable failed state. No saved setting changes
       // on failure, and an older download cannot clear the newest pending ID.
       if (requestId === this.skinLoadRequestId) this.pendingSkinId = null;
@@ -3037,6 +3140,7 @@ class ClearedApp {
   }
 
   recoverStaminaRefunds(now) {
+    if (this.authorityMode(this.stamina) !== 'legacy-local') return;
     // A saved fast completion also proves a refund that was interrupted by a
     // failed stamina write or process exit. Spent entitlements cannot repeat.
     catalog.levels.forEach(entry => {
@@ -3232,20 +3336,34 @@ class ClearedApp {
 
   resumeOnline() {
     if (!this.auth) return Promise.resolve({ ok: false, reason: 'not-configured' });
+    let account = this.captureAccountContext();
+    const stale = () => ({ ok: false, reason: 'account-mismatch' });
     return this.auth.ensureSession().then(result => {
+      const session = this.auth.current && this.auth.current();
+      if (!this.isCurrentAccount(account) && !(result.ok && this.acceptsLegacyTransition(account, session && session.userId, false))) return stale();
+      account = this.captureAccountContext();
       if (!result.ok) return result;
       if (this.profile) {
+        const profileAccount = account;
         Promise.resolve().then(() => this.profile.refresh()).then(() => {
-          if (!this.disposed) this.invalidate();
+          if (this.isCurrentAccount(profileAccount)) this.invalidate();
         }).catch(function () {});
       }
       const sync = this.progressSync ? this.progressSync.bootstrap(this.auth.current()) : Promise.resolve(result);
       return sync.then(synced => {
+        if (!this.isCurrentAccount(account) && !(synced.ok && this.acceptsLegacyTransition(account, session && session.userId, true))) return stale();
+        account = this.captureAccountContext();
         if (!this.share) return synced;
         this.share.prepareContext(this.shareContext());
         return this.share.consumePendingAttribution(this.auth.current()).then(() => synced);
       });
-    }).then(result => this.recoverDailyRewards().then(() => { this.invalidate(); return result; })).catch(() => ({ ok: false, reason: 'network' }));
+    }).then(result => {
+      if (!this.isCurrentAccount(account)) return stale();
+      return this.recoverDailyRewards().then(() => {
+        if (!this.isCurrentAccount(account)) return stale();
+        this.invalidate(); return result;
+      });
+    }).catch(() => ({ ok: false, reason: 'network' }));
   }
 
   onShow(options) {
@@ -3271,6 +3389,9 @@ class ClearedApp {
 
   dispose() {
     this.disposed = true;
+    this.accountGeneration++;
+    if (this.unbindAccount) this.unbindAccount();
+    if (this.unbindScope) this.unbindScope();
     ++this.rewardRequestGeneration;
     ++this.skinLoadRequestId;
     if (this.engagement && this.engagement.cancelRewardUnlocks) this.engagement.cancelRewardUnlocks();

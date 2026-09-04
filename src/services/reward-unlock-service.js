@@ -135,7 +135,25 @@ class RewardUnlockService {
     this.state = null;
     this.loadError = null;
     this.pendingExternal = null;
+    this._authorityMode = 'legacy-local';
     this.load();
+  }
+
+  authorityMode() { return this._authorityMode; }
+  setAuthorityMode(mode) {
+    if (!['legacy-local', 'migration-freeze', 'cloud-authoritative'].includes(mode) ||
+        (this._authorityMode !== 'legacy-local' && mode === 'legacy-local')) return false;
+    this._authorityMode = mode;
+    return true;
+  }
+  authorityBlocked() {
+    return { ok: false, reason: this._authorityMode, amountDelta: 0, newRewards: [], sources: [] };
+  }
+  exportMigrationSnapshot() {
+    if (!this.state) return { ok: false, reason: this.loadError };
+    if (!normalizeState(this.state)) return { ok: false, reason: 'invalid-storage' };
+    return { ok: true, economy: { balance: this.state.balance, claimedOrdinary: clone(this.state.claimedOrdinary),
+      claimedDaily: clone(this.state.claimedDaily) }, entitlements: { ownedRewards: clone(this.state.ownedRewards) } };
   }
 
   readResult() {
@@ -239,6 +257,7 @@ class RewardUnlockService {
   }
 
   reconcile(input) {
+    if (this._authorityMode !== 'legacy-local') return this.authorityBlocked();
     if (!this.state) return { ok: false, reason: this.loadError, amountDelta: 0, newRewards: [] };
     const ordinary = input && input.ordinary;
     const daily = input && input.daily;
@@ -285,6 +304,7 @@ class RewardUnlockService {
   }
 
   purchase(rewardId) {
+    if (this._authorityMode !== 'legacy-local') return this.authorityBlocked();
     if (!this.state) return { ok: false, reason: this.loadError, amountDelta: 0, newRewards: [] };
     const item = this.item(rewardId);
     if (!item || item.unlock.type !== 'currency') return { ok: false, reason: 'invalid-reward', amountDelta: 0, newRewards: [] };
@@ -303,6 +323,7 @@ class RewardUnlockService {
   }
 
   recordAdCompletion(input, fromRetry) {
+    if (this._authorityMode !== 'legacy-local') return this.authorityBlocked();
     if (this.pendingExternal && !fromRetry) return { ok: false, reason: 'pending-save', amountDelta: 0, newRewards: [] };
     if (!this.state) return { ok: false, reason: this.loadError, amountDelta: 0, newRewards: [] };
     const rewardId = input && input.rewardId;
@@ -326,6 +347,7 @@ class RewardUnlockService {
   }
 
   recordShareInitiated(input, fromRetry) {
+    if (this._authorityMode !== 'legacy-local') return this.authorityBlocked();
     if (this.pendingExternal && !fromRetry) return { ok: false, reason: 'pending-save', amountDelta: 0, newRewards: [] };
     const rewardId = input && input.rewardId;
     const item = this.item(rewardId);

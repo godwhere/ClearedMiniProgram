@@ -89,6 +89,13 @@ function run() {
   const transportSource = fs.readFileSync(cloudTransport, 'utf8');
   assert(!/SessionStore|SyncStore|RewardUnlockService|StaminaService|mergeCloudSnapshot|setStorage/.test(transportSource),
     'cloud transport cannot bind identity, save storage or apply business state');
+  const builderSource = fs.readFileSync(path.join(SRC_DIR, 'services', 'legacy-migration-builder.js'), 'utf8');
+  assert(!/Date\.now|Math\.random|\.save\s*\(|setStorage|ApiClient|WechatPlatform|\.activateScope\s*\(/.test(builderSource),
+    'migration builder must stay deterministic and read-only');
+  assert.deepStrictEqual(dependencies(builderSource), ['./sync-payload.js']);
+  const applierSource = fs.readFileSync(path.join(SRC_DIR, 'services', 'authoritative-state-applier.js'), 'utf8');
+  assert(!/this\.(?:balance|ownedRewards|progress|stamina|pendingOperations)\s*=/.test(applierSource),
+    'applier owns only injected references, never a second business state');
   ['gameplay', 'mechanics', 'ui/board'].forEach(dir => javascriptFiles(path.join(SRC_DIR, dir)).forEach(file => {
     const source = fs.readFileSync(file, 'utf8');
     assert(!/(?:auth|api-client|ads|engagement|behavior|reward|share|progress-sync)-service|\bdeps\.ads\b/.test(source),
@@ -144,8 +151,11 @@ function run() {
     assert(!/consumeOrdinaryAttempt|unlockOrdinaryLevel|refundQuickClear/.test(source), `${file} cannot debit or refund stamina`);
   }));
   ['progress-store.js', 'daily-progress-store.js', 'progress-sync-service.js', 'sync-store.js'].forEach(file => {
-    assert(!/stamina|nextRecoveryAt/.test(fs.readFileSync(path.join(SRC_DIR, 'services', file), 'utf8')),
+    const source = fs.readFileSync(path.join(SRC_DIR, 'services', file), 'utf8');
+    assert(!/nextRecoveryAt|StaminaService|\.stamina\b/.test(source),
       `${file} must not own stamina fields`);
+    if (file === 'sync-store.js') assert(!/\bbalance\b|\bownedRewards\b/.test(source), 'scope metadata is not a wallet or asset store');
+    if (file !== 'sync-store.js') assert(!/stamina/.test(source), `${file} must not handle stamina`);
   });
   const rendererSource = fs.readFileSync(path.join(SRC_DIR, 'ui', 'canvas-renderer.js'), 'utf8');
   assert(!/StaminaService|this\.stamina|stamina:|(?:get|set)Storage/.test(rendererSource),

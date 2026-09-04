@@ -51,6 +51,7 @@ class EngagementService {
     }).catch(() => ({ granted: false, mode: 'rewarded', reason: 'error' }));
   }
   requestHintUnlock(context) {
+    const account = this.accountGuard && this.accountGuard.capture();
     const state = this.hintState(context);
     const token = { mode: state.mode, action: state.action, dateKey: context && context.dateKey,
       levelKey: context && context.levelKey, scene: context && context.scene };
@@ -61,6 +62,7 @@ class EngagementService {
     if (state.action === 'view') return result({ ok: true, granted: true, unlocked: true, alreadyUnlocked: true });
     if (this.hintPending || state.action === 'busy') return denied('busy');
     const commit = show => {
+      if (account && !this.accountGuard.matches(account)) return denied('stale-account-context');
       const saved = token.action === 'retry-save' && token.mode === 'tiered'
         ? this.hintAccess.retryPendingSave() : this.hintAccess.unlock(token);
       return result({ ok: saved.ok, granted: saved.ok && show, unlocked: saved.ok,
@@ -138,6 +140,8 @@ class EngagementService {
     return Object.assign({}, state, { actionEnabled: state.action !== 'locked' && state.action !== 'unavailable' });
   }
   requestRewardUnlock(context) {
+    const account = this.accountGuard && this.accountGuard.capture();
+    if (account && !this.accountGuard.matches(account)) return Promise.resolve({ ok: false, reason: 'stale-account-context', newRewards: [] });
     const rewardId = context && context.rewardId;
     if (!this.rewardUnlocks) return Promise.resolve({ ok: false, reason: 'not-configured', newRewards: [] });
     if (this.rewardUnlocks.hasPendingExternal && this.rewardUnlocks.hasPendingExternal()) {
@@ -161,6 +165,7 @@ class EngagementService {
       }
     } catch (error) { task = { ok: false, reason: 'unavailable' }; }
     return Promise.resolve(task).then(outcome => {
+      if (account && !this.accountGuard.matches(account)) return { ok: false, reason: 'stale-account-context', newRewards: [] };
       if (token.generation !== this.rewardUnlockGeneration) return { ok: false, reason: 'stale', newRewards: [] };
       if (token.action === 'share') {
         if (!outcome || outcome.initiated !== true) return { ok: false, reason: outcome && outcome.reason || 'unavailable', newRewards: [] };
@@ -182,8 +187,11 @@ class EngagementService {
     this.rewardUnlockPending = null;
   }
   async dailyExtraEntry(context) {
+    let account = this.accountGuard && this.accountGuard.capture();
     const session = await this.auth.ensureSession();
     if (!session.ok) return { ok: false, reason: session.reason };
+    if (account && account.identityAtStart && !this.accountGuard.matches(account)) return { ok: false, reason: 'stale-account-context' };
+    account = this.accountGuard && this.accountGuard.capture();
     const current = this.auth.current();
     const userId = current && current.userId;
     if (!userId) return { ok: false, reason: 'unauthorized' };
@@ -192,6 +200,7 @@ class EngagementService {
     if (this.rewards.claimedCount(context) >= (this.config.dailyExtraEntryLimit || 1)) return { ok: false, reason: 'DAILY_REWARD_LIMIT_REACHED' };
     if (this.behavior) this.behavior.track('ad_requested', { placement: 'dailyExtraEntry' });
     const result = await this.ads.showRewarded('dailyExtraEntry');
+    if (account && !this.accountGuard.matches(account)) return { ok: false, reason: 'stale-account-context' };
     if (this.behavior) this.behavior.track(result.rewarded ? 'ad_completed' : result.reason === 'closed' ? 'ad_closed_early' : 'ad_error', { placement: 'dailyExtraEntry', reason: result.reason });
     if (!result.rewarded) return { ok: false, reason: result.reason };
     // The session may expire while the video is open. RewardService persists

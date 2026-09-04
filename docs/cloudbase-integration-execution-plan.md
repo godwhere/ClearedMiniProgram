@@ -1,6 +1,6 @@
 # Cleared 微信云开发接入分阶段执行方案与严格代码实施边界
 
-> 文档状态：阶段 0 证据审查与阶段 1 默认关闭的客户端接缝已实施；Node 验证记录见第 21 节。未进入阶段 2，未部署函数、创建数据库或开通云资源。
+> 文档状态：阶段 0/1 和阶段 2 本地隔离与迁移准备已实施；Node 验证记录见第 21–22 节。未进入阶段 3，未部署函数、创建数据库或连接真实云资源。
 > 客户端仓库：`godwhere/ClearedMiniProgram`  
 > 审查基线：`main@69bcd6e4a0996149ef4b521d0d1764407bfc69cb`  
 > 编写日期：2026-09-04  
@@ -2460,3 +2460,109 @@ README 未修改：本轮没有新增可用产品入口、上线能力或用户�
 - 最终命令：`node tests/run.js`、`node scripts/check-package-budget.js`、`git diff --check`，并复核 status/stat/src/tests/docs 差异。完整日志：`/tmp/cleared-cloudbase-final-tests.log`、`/tmp/cleared-cloudbase-final-budget.log`、`/tmp/cleared-cloudbase-mutation-final.log`。
 
 **未执行：阶段 1 不创建云资源。** 微信开发者工具 CloudBase 联调、真实 callFunction/云函数/数据库、真机不同账号、Android/iOS、生产发布均未执行。没有提交、推送或部署。本轮未进入阶段 2。
+
+## 22. Implementation Notes：阶段 2 本地账号隔离与迁移准备
+
+### 基线和实施边界
+
+本轮开始／结束 HEAD 均为 `859bbc84f30c8175c0e53a7c25ff5bbe820d2e96`（“云开发阶段0-1”）。开始时 main 干净，领先本地 origin/main 引用一个提交；未 fetch、提交或推送。阶段 1 代码和 66 组测试、包预算、diff 检查已先复验，没有发现需要重写阶段 1 的问题。本轮完成后仅保留阶段 2 工作区改动。
+
+新增三个运行时文件：`sync-payload.js`、`legacy-migration-builder.js`、`authoritative-state-applier.js`。分别承担纯数据指纹、只读迁移投影、既有 Store 的有序应用，没有平行钱包、体力、进度或队列权威。
+
+除了正式阶段 2 白名单，还对两个共同出口做了必要的小改动：
+
+- EngagementService：真正的广告／提示许可／永久拥有权提交发生在服务内部，必须在写入前检查 App 注入的账号令牌，不能只在 App 收到结果后挡 UI。
+- ApiClient：对认证 HTTP 请求发送前和响应返回时检查可选账号 guard，为既有 profile/share/reward 调用方共用。路径、body、Bearer、幂等头、401 和 POST 不自动重试的协议不变；未增加云身份实现。
+
+旧测试中仅调整两个必要 fixture／门禁：进度溢出测试先绑定明确的旧 HTTP owner，再产生原来的 201 次操作；开发工具 bootstrap 假平台补齐 getStorageInfoSync，保持原断言。架构门禁允许 SyncStore 声明 stamina revision 名称，但继续禁止体力实例、恢复锚点、余额或拥有权。原因和基线证据同时记录于 [`cloudbase-phase-0-evidence.md`](cloudbase-phase-0-evidence.md)。
+
+### SyncStore v2 的实际格式与唯一权威
+
+保持原 key `cleared:minigame:online:v1`，内部 schemaVersion 升为 2：
+
+```text
+安装级：installId / migrationId / nextOperationSequence
+归属：activeOwnerId / localOwnerId / activationSequence / boundUserId
+恢复保护：authorityMode
+队列：scopes[scopeKey]
+回退证据：legacyBackup（只读原始 v1，不发送，不再参与队列读写）
+```
+
+每个 scope 保存 ownerId、bindingEpoch、六域 revisions、pendingOperations、snapshotRequired、lastSyncAt、lastError，以及 migration、pendingApplication、lastApplication 元数据。
+
+- guest 的 ownerId 为 null、scopeKey 为 guest、epoch 为 0。
+- Cloud owner 为合法 `player_*`，epoch 为正安全整数。
+- 旧 HTTP owner 为 `legacy-http:<userId>`，epoch 为 0，不能当成 Cloud playerId。
+- localOwnerId 说明当前**唯一玩法缓存**属于谁；active scope 改变不代表已有玩法缓存已经换账号。它与 activeOwnerId 不匹配时，暂停账号网络、应用和外部奖励，保留原进度／钱包／体力。
+- boundUserId 保留旧 HTTP 本地缓存绑定的含义，不是新增 Cloud 身份权威。
+- 原 state.pendingOperations/serverRevision 等为只读兼容投影，不再重复持久化；实际队列和 revision 只存在 scope 中。公开查询返回副本，内部 operation/嵌套 payload 冻结。
+
+v1 读取：保留 installId、migrationId、sequence、revision、全部合法 pending 操作和原绑定；有 boundUserId 时映射到对应 legacy-http scope，否则映射到 guest。候选 v2 与完整 legacyBackup 在一次存储写入中提交；失败时磁盘仍是原 v1，可重试升级。损坏身份／操作不静默降为游客，不删除原字节；异常序号不能再暴露可重用 ID。未知／损坏 v2 或读取失败也不能重启 legacy 补奖，因此使用保守冻结门禁并暂停账号写操作。
+
+activateScope 验证 owner/epoch，候选先写盘，成功才换 active；A→B→A 增加持久 activationSequence，旧令牌失效。旧 epoch 的 operation 不改归属、不重新盖章、不发送／ACK。每 scope 最多接受 200 项新操作，达到上限明确失败并标记 snapshotRequired，不覆盖旧经济／体力操作；本轮只有原普通进度业务自动入队，其他域仅有数据合同。
+
+### 操作幂等和旧 HTTP 兼容
+
+operation 包含 operationId、domain、type、ownerIdAtCreation、bindingEpochAtCreation、payloadHash、payload、occurredAtClient。创建身份和时间固定；序号是安装级，不随 scope 重置。ID 在序号落盘后才可暴露，失败可能留未使用的序号空洞，但不能重复使用已暴露 ID。
+
+`sync-payload.js` 对普通 JSON 对象键排序、数组保留语义顺序，拒绝函数、非法数字、污染键和超过 32 层的数据；未来需要更深协议时先评审数据模型，不直接放宽。指纹为带长度的 FNV-1a 32 位本地标识，重试同时比较 canonical 内容，短哈希碰撞也不能放行不同 payload。它不证明身份、资产真实性或防作弊；服务器仍需独立验证和计算可信 hash。
+
+同 ID 的未完成操作只在原 owner/epoch 下重试；同 ID 不同 payload/type/创建时间拒绝，未知的调用方指定 ID 不创建新操作。ACK 只删除当前 scope、正确 epoch、实际发送／应用开始时已存在且被明确接受的项目；保存失败保留原队列和 revision。应用过程中新增的操作不会被旧回执猜中 ID 后删除。
+
+ProgressSyncService 保留原 HTTP snapshot bootstrap、完成并集／最短时间、缺失时间省略、单次幂等重试及溢出补漏。HTTP wire operation 仍只有原 operationId/type/payload，新增本地元数据不混入旧协议。首次旧 HTTP snapshot 绑定可以创建 legacy scope，但**不会搬走或 ACK guest 操作**；guest 记录保留等待未来明确迁移。切 B 不发送 A 的 snapshot 或 outbox；冻结／云权威模式不运行旧 HTTP 同步。
+
+### 奖励、体力与迁移冻结
+
+默认始终 legacy-local：普通 +100、每日完整 +500、购买 10000、体力 5/5 分钟/首次解锁/快通规则不变。RewardUnlockService.reconcile 保留原实现，仅在入口加明确模式门禁；App.recoverRewardUnlocks 也在调用领域服务前拦截。
+
+| 模式 | 奖励与资产 | 体力恢复 |
+| --- | --- | --- |
+| legacy-local | 原补记、购买、外部解锁均保留 | 原自然恢复、解锁、快通返还 |
+| migration-freeze | 可读、已拥有仍可用；不补历史奖励，不新增本地经济 mutation | 冻结已结算体力，不再从 progress 补返 |
+| cloud-authoritative | 只能等待未来权威回执；completed/daily 不能产生 +100/+500 | 不按云 bestMs 补返，不自行重算假云余额 |
+
+后两种模式没有用户入口，不由 CloudBase 开关或登录自动启用，仅用于本轮测试和未来集成接口。默认本地真实玩家不会被切换。新的本地真实通关仍沿原入口保存进度；在模拟冻结期间不把它混入已冻结历史奖励，重建快照内容发生变化会返回 snapshot-changed，而非重写旧 import。
+
+StaminaService 的 exportAuthoritativeSnapshot 不读当前时钟、不 settle、不写盘。applyAuthoritativeSnapshot 只在显式 cloud-authoritative 下接受完整 schema：非负安全整数余额、合法时间、去重关卡键、refundedLevels 属于 unlockedLevels；先候选、后写盘、成功才提交。合法余额 8 等原样保留，5 从来不是硬余额上限。失败不改内存或已保存状态；成功清掉旧进程待返还，模式门禁也能阻止缺少 refund 标记时从云 bestMs 再补 1。
+
+App.prepareLegacyMigration 是本地准备接口：确认本地 owner → 源存档保存/体力 flush → 最后一次 legacy 奖励恢复 → 只读 buildSnapshot → 持久 importId/hash/prepared 状态与 migration-freeze → 设置两个领域模式。没有网络调用。已有外部奖励待保存时不冻结；写失败不宣布 prepared。准备成功后同快照重试返回同 importId，原 migrationId 始终不变；重启读回冻结门禁，源内容变化则拒绝替换。
+
+### 迁移快照
+
+包含 schema/policyVersion、原 installId/migrationId、普通完成/最佳时间/lastPlayed、每日日期/dayId/两关记录/进入次数/entryKeys/grantIds、余额和领取索引、永久 ownedRewards、体力余额/恢复锚点/解锁/返还、当前 skinId/clearEffectId/soundEnabled。
+
+每日 levelIds 按 levelIndex 保持两关顺序，不按 ID 字母序颠倒。永久拥有、当前选择和下载状态分开；不含 session/accessToken/openid/session_key/AppSecret、行为队列、pendingNotices、广告原始结果、分享 query、素材下载、UI/Runner/pointer/动画。Builder 只投影既有服务的副本，没有时间采样、随机数、存储写入或账号切换；返回冻结对象和稳定本地指纹。
+
+### 权威应用和可恢复性
+
+调用方必须在开始异步工作**之前**捕获账号令牌，再传入 App.applyAuthoritativeState/Applier.apply；缺少令牌直接拒绝，不能在迟到响应到达后自动补取新令牌。
+
+Applier 按 progress → daily → economy → entitlements → stamina → preferences 固定顺序工作。当前真实实现支持普通进度和体力；其他域必须有明确注入的 apply 接口，否则整个请求在写入前返回 domain-not-supported。不提前实现真实每日／钱包／购买／偏好同步。缺失域不得推进该域 revision，也不能 ACK 该域操作。
+
+顺序：账号/epoch/generation 校验 → 协议及已支持域校验 → 保存 pendingApplication 回执 ID/内容指纹和云权威恢复门禁 → 各领域候选落盘 → 再次校验账号 → 同次保存 revisions、lastApplication 并删除明确 ACK 项。Applier 只持有服务引用，不保存第二份业务状态。
+
+本地多个 key **不是原子事务**。中途失败可以已保存 progress，但 pending 回执和 operation 保留、revision 不动，重启也不能从这些 progress 补奖；由调用方重新提供同一 canonical receipt 重放。回执元数据不是第二份全量存档，真实服务器保留／查询回执仍待后续阶段。回执指纹排除 requestId/服务器观察时间，ACK ID 按集合排序；网络重试元数据变化不会伪装成资产冲突，同 receiptId 不同权威内容仍拒绝。
+
+### 账号竞态
+
+App.accountGeneration 用于身份生命周期，原账号页进出改用独立 accountSceneGeneration，避免普通页面切换被误认为换账号。令牌同时包含 owner、bindingEpoch、activationSequence、accountGeneration 和逻辑身份；Cloud 身份元数据中的 owner/epoch 变化也会使旧令牌失效。SyncStore 只在 scope 成功持久切换后通知 App，使旧原生资料按钮立即 unmount，迟到 tap 不能再取得新账号令牌；普通队列/revision 写入不会触发换账号。旧 HTTP token 过期/同账号 401 重认证不把已有本地缓存变为游客。
+
+同步响应、ACK、迁移模拟、广告拥有权、提示许可、每日 grant、账号页回调和主题异步应用均在提交处校验。已绑定 A、身份变 B 但 scope 尚未切换时也禁止发送 A 的本地内容。失效只撤销待处理 UI 请求，不清空任何玩法存档或旧 scope。
+
+### 验证、回退和下一阶段
+
+- `node tests/run.js`：69/69 组通过，保留原 66 组，新增 cloud-account-scope、cloud-session-migration、cloud-stale-callback。
+- 覆盖 guest/A/B 保留与重启、无损 v1 升级及失败、序号不重置、scope 切换失败原子性、操作不可变／指纹冲突、部分 ACK、旧 epoch、A→B→A、同账号 HTTP 401、源冻结确定性及隐私投影。
+- 真实 App/Store 验证 cloud completed 后余额仍 0；真实每日 Store 的两关持久事实经**测试注入的每日 writer**验证不发 500（不是宣称已实现每日云应用）；实际 StaminaService 验证余额 8、不重复返还和非法快照拒绝。
+- 权威应用的四个持久化检查点逐个失败，再从磁盘重建 App/Store、重放同一回执，全部恢复且不补钱／提前 ACK。真实 AdsService close → EngagementService → RewardUnlockService 测试证明 A→B、旧 epoch、旧 generation 不写拥有权，当前有效请求可正常完成。
+- 八项内存源码反例被测试拒绝：撤销补奖门禁、把体力裁到 5、先改 active 后写盘、放行不同 payload、忽略账号 generation、迟到广告先提交、提前 ACK、把凭证混入迁移快照。没有改写仓库文件来运行这些反例。
+- `node scripts/check-package-budget.js`：主包 **2,814,625 → 2,859,372 bytes（+44,747）**；总包 **16,105,565 → 16,150,312 bytes（+44,747）**；十个分包不变，全部预算通过。最大新增入包文件 authoritative-state-applier.js 为 **5,931 bytes**；最大新增文件 cloud-session-migration.test.js 为 **19,346 bytes**，属于不入包的测试。这是源码估算，不是上传包体。
+- `git diff --check` 及 status/stat/src/tests/docs 白名单复核通过。最终日志：`/tmp/cleared-cloudbase-phase2-final-tests.log`、`/tmp/cleared-cloudbase-phase2-final-budget.log`、`/tmp/cleared-cloudbase-phase2-mutations.log`。
+
+回退只能保留新 v1/v2 reader 并关闭在线／迁移入口；不得删除 v2 key、恢复旧 writer、清空玩家数据、重新生成 installId，或把 cloud-authoritative 降回 legacy-local 补奖。legacyBackup 至少保留一个发布周期，本轮不删除；它不替代仍在 v2 中继续增长的队列。
+
+README 未修改：没有新增可用产品入口、云上线能力或用户命令；内部 schema、回退和验收变化集中记录在本节。CloudBase/backend/engagement/广告配置保持关闭；原 daily 调试开关未改。
+
+未执行：真实 CloudBase 环境、云函数部署、数据库部署、微信账号 Cloud identity、真实跨设备云同步、正式玩家迁移、真实云钱包、真机 CloudBase 联调及发布。现有单一玩法缓存仍不能自动切成 B 的缓存；真实多账号缓存切换、服务端身份/回执/迁移政策和其余域应用留待相应后续阶段，不能用本轮 Node 替身替代。
+
+**本轮严格停在阶段 2，没有进入阶段 3；没有创建、部署或连接任何真实 CloudBase 资源。**

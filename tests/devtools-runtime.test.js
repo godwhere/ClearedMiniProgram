@@ -89,6 +89,7 @@ function bootstrapApi(platform) {
     },
     getMenuButtonBoundingClientRect() { return { bottom: 40 }; },
     getStorageSync(key) { return storage[key] || null; },
+    getStorageInfoSync() { return { keys: Object.keys(storage) }; },
     setStorageSync(key, value) { storage[key] = JSON.parse(JSON.stringify(value)); },
     onTouchStart() {},
     onTouchMove() {},

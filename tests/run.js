@@ -1,4 +1,7 @@
 const tests = [
+  ['cloud account scopes', require('./cloud-account-scope.test.js')],
+  ['cloud local migration and authoritative safety', require('./cloud-session-migration.test.js')],
+  ['cloud stale callbacks', require('./cloud-stale-callback.test.js')],
   ['cloud function transport', require('./cloud-function-transport.test.js')],
   ['cloudbase disabled local behavior', require('./cloudbase-disabled.test.js')],
   ['level records, gallery navigation and beginner instructions', require('./level-ui.test.js')],
