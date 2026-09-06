@@ -226,6 +226,7 @@ class ClearedApp {
     this.progress = opts.progress || new ProgressStore(platform);
     this.auth = opts.auth || null;
     this.progressSync = opts.progressSync || null;
+    this.preferences = opts.preferences || null;
     this.syncStore = opts.syncStore || (this.progressSync && this.progressSync.store) || null;
     this.behavior = opts.behavior || null;
     this.profile = opts.profile || null;
@@ -1664,7 +1665,9 @@ class ClearedApp {
     this.result = completion;
     this.resultVisibleAt = now + this.skins.current().animation.resultDelayMs;
     this.scene = 'result';
-    if (runner === this.runner && this.runContext.progressionScope === 'ordinary') {
+    const cloudStaminaRefund = runner === this.runner && this.runContext.progressionScope === 'ordinary' &&
+      this.authorityMode(this.stamina, 'stamina') === 'cloud-authoritative';
+    if (runner === this.runner && this.runContext.progressionScope === 'ordinary' && !cloudStaminaRefund) {
       const refundAt = this.clockNow().getTime();
       const refund = this.stamina.refundQuickClear(
         `${this.runContext.setIndex}:${this.runContext.levelIndex}`, completion.elapsedMs, refundAt
@@ -1685,12 +1688,26 @@ class ClearedApp {
       status: !rewardResult.ok ? 'pending' : (rewardResult.sources || []).includes(source) ? 'granted' : 'already-claimed',
       amount: rewardResult.ok && (rewardResult.sources || []).includes(source) ? rewardConfig.currency.ordinaryFirstClear : 0
     };
+    let completionQueued = false;
     if (completion.persisted && this.progressSync) {
       const account = this.captureAccountContext();
-      try { this.progressSync.enqueueCompletion({ setIndex: this.setIndex, levelIndex: this.levelIndex,
+      try { completionQueued = this.progressSync.enqueueCompletion({ setIndex: this.setIndex, levelIndex: this.levelIndex,
         elapsedMs: completion.elapsedMs, completedAtClient: now,
         firstClear: completion.firstClear, newBest: completion.newBest },
       settled => this.applyCloudCurrencyResult(completion, account, settled)); } catch (error) {}
+    }
+    if (cloudStaminaRefund && completionQueued && this.progressSync && this.progressSync.refundQuickClear) {
+      const refundAt = this.clockNow().getTime();
+      let refund = { ok: false, refunded: 0, reason: 'sync-pending' };
+      try {
+        refund = this.progressSync.refundQuickClear(
+          `${this.runContext.setIndex}:${this.runContext.levelIndex}`, completion.elapsedMs, refundAt
+        );
+      } catch (error) {}
+      this.result.staminaRefunded = refund.refunded;
+      this.refreshStamina(refundAt);
+      if (refund.refunded > 0) this.showStaminaFeedback('quick-clear-refund', refundAt, refund.refunded);
+      else if (!refund.ok) this.showStaminaFeedback(refund.reason, refundAt);
     }
     if (!completion.persisted) return;
     try {
@@ -2048,6 +2065,9 @@ class ClearedApp {
         action === 'daily:sound' || action === 'dailyResult:sound' ||
         action === 'corridor:sound' || action === 'effects:sound') {
       const enabled = this.audio.toggle();
+      if (this.progressSync && this.preferences) {
+        try { this.progressSync.enqueuePreference('soundEnabled', enabled); } catch (error) {}
+      }
       if (enabled) this.audio.playSfx('click');
       this.invalidate();
       return enabled;
@@ -2734,7 +2754,12 @@ class ClearedApp {
     } catch (error) {
       selected = false;
     }
-    if (selected) this.invalidate();
+    if (selected) {
+      if (this.progressSync && this.preferences) {
+        try { this.progressSync.enqueuePreference('clearEffectId', effectId); } catch (error) {}
+      }
+      this.invalidate();
+    }
     return selected;
   }
 
@@ -2986,6 +3011,9 @@ class ClearedApp {
     }
     this.pendingSkinId = null;
     if (!this.skins.select(skinId)) return false;
+    if (this.progressSync && this.preferences) {
+      try { this.progressSync.enqueuePreference('skinId', skinId); } catch (error) {}
+    }
     this.renderer.invalidateThemeAssets(skinId);
     this.renderer.loadSkinAssets();
     this.invalidate();
@@ -3022,6 +3050,9 @@ class ClearedApp {
       }
       this.pendingSkinId = null;
       const selected = !selectOnSuccess || this.skins.select(skinId);
+      if (selectOnSuccess && selected && this.progressSync && this.preferences) {
+        try { this.progressSync.enqueuePreference('skinId', skinId); } catch (error) {}
+      }
       this.renderer.invalidateThemeAssets(skinId);
       this.renderer.loadSkinAssets();
       if (selectOnSuccess && this.rewardDialog && this.rewardDialog.rewardId === `theme:${skinId}`) {
@@ -3225,8 +3256,11 @@ class ClearedApp {
     if (!runner) return false;
     const now = this.clockNow().getTime();
     // Completed progress can also arrive from cloud sync after construction.
+    const levelKey = `${setIndex}:${levelIndex}`;
     const unlocked = this.progress.isCompleted(setIndex, levelIndex)
-      ? { ok: true } : this.stamina.unlockOrdinaryLevel(`${setIndex}:${levelIndex}`, now);
+      ? { ok: true } : this.progressSync && this.progressSync.unlockOrdinaryLevel
+        ? this.progressSync.unlockOrdinaryLevel(levelKey, now)
+        : this.stamina.unlockOrdinaryLevel(levelKey, now);
     this.refreshStamina(now);
     if (!unlocked.ok) {
       this.showStaminaFeedback(unlocked.reason, now);

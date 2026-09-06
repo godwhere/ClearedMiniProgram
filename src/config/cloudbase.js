@@ -1,6 +1,6 @@
 'use strict';
 
-// Checked-in defaults never connect to a cloud environment. Stage 4 test
+// Checked-in defaults never connect to a cloud environment. Stage 4/5 test
 // writes require an explicit develop/trial override plus server-side gates.
 module.exports = {
   schemaVersion: 1,

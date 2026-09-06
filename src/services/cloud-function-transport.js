@@ -43,8 +43,7 @@ class CloudFunctionTransport {
     return this.config.enabled === true && typeof this.config.env === 'string' &&
       /^[A-Za-z0-9_-]{1,128}$/.test(this.config.env) && this.config.testOnly === true &&
       ['identityEnabled', 'readEnabled', 'writeEnabled', 'migrationEnabled', 'economyEnabled',
-        'staminaEnabled', 'preferencesEnabled'].every(key => typeof this.config[key] === 'boolean') &&
-      this.config.staminaEnabled === false && this.config.preferencesEnabled === false;
+        'staminaEnabled', 'preferencesEnabled'].every(key => typeof this.config[key] === 'boolean');
   }
 
   async request(input) {

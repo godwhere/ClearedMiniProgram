@@ -3,6 +3,8 @@
 const assert = require('assert');
 const SessionStore = require('../src/services/session-store.js');
 const SyncStore = require('../src/services/sync-store.js');
+const AuthService = require('../src/services/auth-service.js');
+const WechatPlatform = require('../src/platform/wechat.js');
 const { fakeApi } = require('./account-bootstrap.test.js');
 const { fixture, envelope, business, tick, clone } = require('./helpers/cloud-readonly-fixture.js');
 
@@ -115,4 +117,32 @@ module.exports = async function run() {
       assert.strictEqual(h.calls.length, 1); assert(h.app.openLevel(0, 0));
     } finally { h.app.dispose(); }
   }
+
+  // Stage 5 changes the two deferred revisions from zero to positive values.
+  // A real cold start must revalidate that persisted identity before state.read.
+  const native = fakeApi(); const platform = new WechatPlatform(native);
+  const sessions = new SessionStore(platform); const sync = new SyncStore(platform);
+  assert(sync.activateScope('player_A', 1, 'test-fixture', true).ok);
+  sync.state.localOwnerId = 'player_A'; sync.state.localEnvironmentId = 'test-fixture';
+  assert(sync.save());
+  assert(sessions.set({ schemaVersion: 2, mode: 'cloud', ownerId: 'player_A', bindingEpoch: 1,
+    environmentId: 'test-fixture', migrationState: 'complete', migrationImportId: 'import_one',
+    migrationReceiptId: 'migration_one' }));
+  const restartedSessions = new SessionStore(platform); const restartedSync = new SyncStore(platform);
+  const transport = { config: { env: 'test-fixture', identityEnabled: true, writeEnabled: true,
+    staminaEnabled: true, preferencesEnabled: true }, isConfigured: () => true };
+  const api = { transport, isConfigured: () => true, request: async request => {
+    const value = envelope(request);
+    value.player = { playerId: 'player_A', bindingEpoch: 1, migrationState: 'complete', hasCloudState: true,
+      completedDomains: SyncStore.DOMAINS.slice(), deferredDomains: [], migrationImportId: 'import_one',
+      migrationReceiptId: 'migration_one' };
+    value.revisions = Object.fromEntries(SyncStore.DOMAINS.map(domain => [domain, 1]));
+    value.bindingStatus = 'MATCHED';
+    return { ok: true, data: value };
+  } };
+  const coldAuth = new AuthService(platform, api, restartedSessions, restartedSync,
+    { mode: 'cloud', enabled: true, clientVersion: '1.0.0' });
+  const cold = await coldAuth.ensureSession({ force: true });
+  assert(cold.ok, JSON.stringify(cold)); assert.strictEqual(coldAuth.current().ownerId, 'player_A');
+  assert.deepStrictEqual(coldAuth.current().completedDomains, SyncStore.DOMAINS);
 };

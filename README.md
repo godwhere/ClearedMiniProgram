@@ -3,7 +3,7 @@
 工程使用微信小游戏原生 JavaScript + Canvas 2D，不依赖 Cocos、Unity、npm
 或网页运行环境。
 
-CloudBase 阶段 4 的迁移、同步与云经济代码已经就绪，测试环境中的三个普通事件函数和 12 个私有集合仍保持关闭写入门禁。阶段 3 的真实身份、只读状态与离线回归未退化；首次合成旧存档迁移、云钱包和真实双设备验收仍未执行。测试开关、回滚及证据边界见 [阶段 4 测试手册](docs/cloudbase-phase-4-test-runbook.md)。
+CloudBase 阶段 4 的迁移、同步、云经济与真实双设备验收已完成；阶段 5 的体力/偏好已在测试环境完成账号 A 的 iPhone/iPad 双向偏好、跨设备体力去重、冷启动和离线恢复验收。测试环境只允许账号 A 写入，账号 B 不在白名单；仓库默认和发布配置仍全部关闭。阶段 4 记录见 [测试手册](docs/cloudbase-phase-4-test-runbook.md)，当前状态见 [分阶段方案第 25 节](docs/cloudbase-integration-execution-plan.md)。
 
 现有内容：
 
@@ -72,9 +72,9 @@ CloudBase 阶段 4 的迁移、同步与云经济代码已经就绪，测试环�
 
 ### CloudBase 测试状态
 
-测试环境已进入阶段4的“关闭门禁”检查点：三个Event函数和12个拒绝客户端直读写的集合已部署，但玩家白名单为空，迁移、同步和经济写入全部关闭。开发者工具只会进行可信身份与状态读取，本地存档不会自动上传；账号页的“云身份／只读测试，本地存档未上传”仍是当前正确文案。
+测试环境已完成阶段 5 真机验收：三个 Event 函数和 15 个拒绝客户端直读写的集合已部署。`player-state-api` 只允许账号 A 使用体力/偏好同步，迁移和经济购买关闭；账号 B 不在写白名单。Git 忽略的 develop/trial 阶段 5 开关保持用于该测试环境。
 
-阶段4本机配置只能通过Git忽略的 `src/config/cloudbase.local.js` 在develop/trial逐项开启；仓库默认和release始终全关。首次真实迁移必须使用专用可丢弃微信测试账号，先导出本地存储，再构造合成旧存档，不能使用现有重要存档。服务端prepare通过后，客户端先把完整冻结快照写入独立本地迁移档案，再进入freeze；写盘失败不切权威，SUPPLEMENTAL未接受的余额或资产会返回冲突摘要且原快照仍可恢复。执行顺序、验收与回滚见 [`docs/cloudbase-phase-4-test-runbook.md`](docs/cloudbase-phase-4-test-runbook.md)。
+CloudBase 本机配置只能通过 Git 忽略的 `src/config/cloudbase.local.js` 在 develop/trial 逐项开启；仓库默认和 release 始终全关。账号 A 的阶段 4 数据继续保留，不能清库或降回本地余额权威。阶段 5 已验证 `writeEnabled/staminaEnabled/preferencesEnabled` 的真实设备路径；离线体力冲突采用轻量的服务器结果覆盖策略，不建设复杂补偿系统。本结果不代表生产发布，执行边界见 [`docs/cloudbase-integration-execution-plan.md`](docs/cloudbase-integration-execution-plan.md)。
 
 项目根目录已经包含 `game.js`、`game.json` 和 `project.config.json`，其
 `compileType` 为 `game`，不需要运行构建命令。旧小程序页面仍保留作为迁移参考，
@@ -109,8 +109,8 @@ CloudBase 阶段 4 的迁移、同步与云经济代码已经就绪，测试环�
 
 **5 点是自然恢复上限，余额可以超过 5。** 低于 5 时每 5 分钟恢复 1 点；达到或超过 5 时停止恢复、清除倒计时，
 不保留半段进度。消费后首次低于 5 时重新开始完整 5 分钟，恢复期间再次消费不重置倒计时。
-体力使用独立本地键 `cleared:minigame:stamina:v1`，在同一次写入中保存余额及永久解锁列表 `unlockedLevels`，返还时与去重列表 `refundedLevels` 同存；不改变普通／每日进度或云同步 schema。旧存档保留原余额，并从已有完成及最后游玩记录恢复免费资格；更早且未完成的访问没有完整旧记录，无法还原。已有有效的 1 分钟快通最佳纪录会补返一次，无有效用时记录则不推定达成。自然恢复仍按绝对时间戳补算。
-当前依赖客户端设备时间：时钟后调会延长等待，前调可能提前恢复，清数据或重装会重新获得初始体力；不提供跨设备同步。
+体力使用独立本地键 `cleared:minigame:stamina:v1`，在同一次写入中保存余额及永久解锁列表 `unlockedLevels`，返还时与去重列表 `refundedLevels` 同存；普通／每日进度 schema 不变。旧存档保留原余额，并从已有完成及最后游玩记录恢复免费资格；更早且未完成的访问没有完整旧记录，无法还原。已有有效的 1 分钟快通最佳纪录会补返一次，无有效用时记录则不推定达成。
+默认关闭或未迁移账号继续使用设备时间和本地存档。阶段 5 测试账号在明确开启后会一次性初始化云体力，随后由服务器时间结算并跨设备收敛；离线仍先保留本地游玩，少见冲突以服务器快照为准。
 完整规则、文件边界和验证记录见 [`docs/stamina-system.md`](docs/stamina-system.md)。
 
 ## 轻量架构

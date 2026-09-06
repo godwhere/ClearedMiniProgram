@@ -326,6 +326,14 @@ class ClearEffectService {
     return this.currentId;
   }
 
+  refreshSetting() {
+    let savedId = 'none';
+    try { savedId = this.progressStore.getSetting('clearEffectId', 'none'); } catch (error) {}
+    this.currentId = typeof savedId === 'string' && hasOwn(this.effects, savedId) && this.canUse('effect', savedId)
+      ? savedId : 'none';
+    return true;
+  }
+
   get(id) {
     if (typeof id !== 'string' || !hasOwn(this.effects, id)) return null;
     return cloneData(this.effects[id]);

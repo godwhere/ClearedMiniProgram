@@ -17,6 +17,16 @@ class AudioService {
     return !!this.enabled;
   }
 
+  refreshSetting() {
+    const enabled = this.progressStore.getSetting('soundEnabled', this.config.enabledByDefault !== false) === true;
+    if (this.enabled === enabled) return true;
+    this.enabled = enabled;
+    if (enabled) {
+      if (this.unlocked) this.playBgm();
+    } else this.pauseAll();
+    return true;
+  }
+
   unlock() {
     this.unlocked = true;
     if (this.enabled) this.playBgm();

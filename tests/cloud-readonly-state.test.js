@@ -97,7 +97,8 @@ module.exports = async function run() {
   }
   for (const flag of ['staminaEnabled', 'preferencesEnabled']) {
     const h = fixture({ config: { [flag]: true } });
-    try { assert.strictEqual((await h.app.resumeOnline()).reason, 'not-configured'); assert.strictEqual(h.calls.length, 0); }
+    try { const result = await h.app.resumeOnline(); assert(result.ok); assert.strictEqual(result.status, 'cloud-readonly');
+      assert.deepStrictEqual(h.calls.map(call => call.data.action), ['identity.init', 'state.read']); }
     finally { h.app.dispose(); }
   }
   for (const flag of ['writeEnabled', 'economyEnabled']) {

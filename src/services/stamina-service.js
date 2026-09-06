@@ -77,13 +77,79 @@ class StaminaService {
     return snapshot ? { ok: true, snapshot } : { ok: false, reason: 'invalid-snapshot' };
   }
 
-  applyAuthoritativeSnapshot(value) {
+  applyAuthoritativeSnapshot(value, pendingOperations) {
     if (this._authorityMode !== 'cloud-authoritative') return { ok: false, reason: 'authority-mismatch' };
-    const candidate = this.validateAuthoritativeSnapshot(value);
+    let candidate = this.validateAuthoritativeSnapshot(value);
     if (!candidate) return { ok: false, reason: 'invalid-snapshot' };
+    for (const operation of Array.isArray(pendingOperations) ? pendingOperations : []) {
+      if (!operation || operation.domain !== 'stamina' || !record(operation.payload)) continue;
+      if (operation.type === 'STAMINA_LEVEL_UNLOCKED') {
+        const levelKey = operation.payload.levelKey;
+        if (!validLevelKey(levelKey)) return { ok: false, reason: 'invalid-operation-overlay' };
+        if (candidate.unlockedLevels.includes(levelKey) || candidate.balance < this.config.ordinaryUnlockCost) continue;
+        const before = candidate.balance;
+        candidate = Object.assign({}, candidate, { balance: before - this.config.ordinaryUnlockCost,
+          unlockedLevels: candidate.unlockedLevels.concat(levelKey).sort() });
+        if (candidate.balance >= this.config.naturalCap) candidate.nextRecoveryAt = null;
+        else if (before >= this.config.naturalCap) {
+          candidate.nextRecoveryAt = this.time(operation.occurredAtClient) + this.config.recoveryIntervalMs;
+        }
+      } else if (operation.type === 'STAMINA_QUICK_CLEAR_REFUNDED') {
+        const levelKey = operation.payload.levelKey; const elapsedMs = operation.payload.elapsedMs;
+        if (!validLevelKey(levelKey) || !Number.isSafeInteger(elapsedMs) || elapsedMs <= 0) {
+          return { ok: false, reason: 'invalid-operation-overlay' };
+        }
+        if (elapsedMs > this.config.quickClearLimitMs || !candidate.unlockedLevels.includes(levelKey) ||
+            candidate.refundedLevels.includes(levelKey)) continue;
+        candidate = Object.assign({}, candidate, { balance: candidate.balance + this.config.quickClearRefundAmount,
+          refundedLevels: candidate.refundedLevels.concat(levelKey).sort() });
+        if (candidate.balance >= this.config.naturalCap) candidate.nextRecoveryAt = null;
+      }
+    }
     if (!this.persist(candidate)) return { ok: false, reason: 'persist-failed' };
     this._state = candidate; this._pending = false; this._pendingRefunds.clear();
     return { ok: true };
+  }
+
+  applyPendingUnlock(levelKey, now) {
+    const timestamp = this.time(now);
+    this.settle(timestamp);
+    const before = this._state.balance;
+    if (this._authorityMode !== 'cloud-authoritative') return { ok: false, reason: 'authority-mismatch', snapshot: this.view(timestamp) };
+    if (!validLevelKey(levelKey)) return { ok: false, reason: 'invalid-level', snapshot: this.view(timestamp) };
+    if (this._state.unlockedLevels.includes(levelKey)) {
+      return { ok: true, spent: 0, before, after: before, snapshot: this.view(timestamp) };
+    }
+    if (before < this.config.ordinaryUnlockCost) {
+      return { ok: false, reason: 'insufficient-stamina', snapshot: this.view(timestamp) };
+    }
+    const candidate = Object.assign({}, this._state, { balance: before - this.config.ordinaryUnlockCost,
+      unlockedLevels: this._state.unlockedLevels.concat(levelKey).sort() });
+    if (candidate.balance >= this.config.naturalCap) candidate.nextRecoveryAt = null;
+    else if (before >= this.config.naturalCap) candidate.nextRecoveryAt = timestamp + this.config.recoveryIntervalMs;
+    if (!this.persist(candidate)) return { ok: false, reason: 'persist-failed', snapshot: this.view(timestamp) };
+    this._state = candidate; this._pending = false;
+    return { ok: true, spent: this.config.ordinaryUnlockCost, before, after: candidate.balance,
+      snapshot: this.view(timestamp) };
+  }
+
+  applyPendingRefund(levelKey, elapsedMs, now) {
+    const timestamp = this.time(now);
+    this.settle(timestamp);
+    if (this._authorityMode !== 'cloud-authoritative') return { ok: false, reason: 'authority-mismatch', refunded: 0,
+      snapshot: this.view(timestamp) };
+    if (!validLevelKey(levelKey) || !Number.isSafeInteger(elapsedMs) || elapsedMs <= 0) {
+      return { ok: false, reason: 'invalid-completion', refunded: 0, snapshot: this.view(timestamp) };
+    }
+    if (elapsedMs > this.config.quickClearLimitMs || !this._state.unlockedLevels.includes(levelKey) ||
+        this._state.refundedLevels.includes(levelKey)) return { ok: true, refunded: 0, snapshot: this.view(timestamp) };
+    const candidate = Object.assign({}, this._state, { balance: this._state.balance + this.config.quickClearRefundAmount,
+      refundedLevels: this._state.refundedLevels.concat(levelKey).sort() });
+    if (candidate.balance >= this.config.naturalCap) candidate.nextRecoveryAt = null;
+    if (!this.persist(candidate)) return { ok: false, reason: 'refund-persist-failed', refunded: 0,
+      snapshot: this.view(timestamp) };
+    this._state = candidate; this._pending = false;
+    return { ok: true, refunded: this.config.quickClearRefundAmount, snapshot: this.view(timestamp) };
   }
 
   time(now) {

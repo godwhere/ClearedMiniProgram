@@ -22,6 +22,7 @@ const ApiClient = require('./services/api-client.js');
 const AuthService = require('./services/auth-service.js');
 const ProgressSyncService = require('./services/progress-sync-service.js');
 const AuthoritativeStateApplier = require('./services/authoritative-state-applier.js');
+const PreferencesService = require('./services/preferences-service.js');
 const EconomyService = require('./services/economy-service.js');
 const BehaviorService = require('./services/behavior-service.js');
 const EngagementService = require('./services/engagement-service.js');
@@ -56,6 +57,7 @@ function start() {
   const rewardUnlocks = new RewardUnlockService(platform, rewardConfig);
   const sessions = new SessionStore(platform);
   const syncStore = new SyncStore(platform);
+  const preferences = new PreferencesService(progress);
   const transport = cloudConfig.enabled === true ? new CloudFunctionTransport(platform, cloudConfig) : null;
   const api = new ApiClient(platform, sessions, backendConfig, { transport });
   const auth = new AuthService(platform, api, sessions, syncStore,
@@ -64,10 +66,10 @@ function start() {
   const behavior = new BehaviorService(platform, api, syncStore, engagementConfig.behavior);
   const profile = new ProfileService(platform, api, auth, engagementConfig.profile, behavior);
   const authoritativeApplier = new AuthoritativeStateApplier({ progress, daily: dailyStore,
-    rewards: rewardUnlocks, stamina, syncStore, sessions }, null);
+    rewards: rewardUnlocks, stamina, preferences, syncStore, sessions }, null);
   const economy = new EconomyService(platform, api, auth, syncStore, rewardUnlocks, authoritativeApplier);
   const progressSync = new ProgressSyncService(api, progress, syncStore, auth, engagementConfig.progressSync, behavior,
-    { daily: dailyStore, rewards: rewardUnlocks, stamina, sessions, economy, applier: authoritativeApplier });
+    { daily: dailyStore, rewards: rewardUnlocks, stamina, preferences, sessions, economy, applier: authoritativeApplier });
   const ads = new AdsService(platform, adConfig, { nextAttemptId: () => syncStore.nextId('adatt_') });
   const rewards = new RewardService(platform, api, auth, syncStore,
     { enabled: engagementConfig.rewards.dailyExtraEntryEnabled === true || engagementConfig.share.rewardsEnabled === true }, behavior);
@@ -92,7 +94,7 @@ function start() {
       platform.isDevTools() === true
   });
   const app = new ClearedApp(platform, {
-    stamina, rewardUnlocks, syncStore, economy, authoritativeApplier,
+    stamina, preferences, rewardUnlocks, syncStore, economy, authoritativeApplier,
     progress, dailyStore, auth, progressSync, behavior, ads, engagement, profile, share, rewards, hintAccess,
     subpackages,
     skins,
@@ -116,6 +118,8 @@ function start() {
     dailyTestDateKey: acceptsLocalTestConfig && typeof cloudConfig.dailyTestDateKey === 'string'
       ? cloudConfig.dailyTestDateKey : ''
   });
+  preferences.bind({ skins: app.skins, clearEffects: app.clearEffects, audio: app.audio,
+    canUse: (kind, itemId) => app.rewardUnlocks.canUse(kind, itemId) });
   authoritativeApplier.accountGuard = app.accountGuard;
   economy.accountGuard = app.accountGuard;
   progressSync.prepareMigrationSnapshot = () => app.prepareLegacyMigration();

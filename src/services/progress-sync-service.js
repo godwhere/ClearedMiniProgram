@@ -106,6 +106,61 @@ class ProgressSyncService {
     return queued.ok;
   }
 
+  stage5Enabled(domain) {
+    const transport = this.api && this.api.transport;
+    return !!(transport && transport.config && transport.config.writeEnabled === true &&
+      transport.config[domain === 'stamina' ? 'staminaEnabled' : 'preferencesEnabled'] === true);
+  }
+
+  unlockOrdinaryLevel(levelKey, now) {
+    const stamina = this.services.stamina;
+    if (!stamina) return { ok: false, reason: 'not-configured' };
+    if (this.store.authorityMode('stamina') !== 'cloud-authoritative') return stamina.unlockOrdinaryLevel(levelKey, now);
+    const exported = stamina.exportAuthoritativeSnapshot();
+    if (!exported.ok) return { ok: false, reason: exported.reason };
+    if (exported.snapshot.unlockedLevels.includes(levelKey) ||
+        exported.snapshot.balance < stamina.config.ordinaryUnlockCost) return stamina.applyPendingUnlock(levelKey, now);
+    if (!this.stage5Enabled('stamina')) return { ok: false, reason: 'network-required', snapshot: stamina.snapshot(now) };
+    const occurredAtClient = Math.max(0, Math.round(Number(now) || Date.now()));
+    const queued = this.store.enqueueOperation({ domain: 'stamina', type: 'STAMINA_LEVEL_UNLOCKED', occurredAtClient,
+      payload: { levelKey } });
+    if (!queued.ok) return { ok: false, reason: queued.reason, snapshot: stamina.snapshot(now) };
+    const applied = stamina.applyPendingUnlock(levelKey, occurredAtClient);
+    if (applied.ok) this.flush().catch(function () {});
+    return applied;
+  }
+
+  refundQuickClear(levelKey, elapsedMs, now) {
+    const stamina = this.services.stamina;
+    if (!stamina) return { ok: false, reason: 'not-configured', refunded: 0 };
+    if (this.store.authorityMode('stamina') !== 'cloud-authoritative') {
+      return stamina.refundQuickClear(levelKey, elapsedMs, now);
+    }
+    const exported = stamina.exportAuthoritativeSnapshot();
+    if (!exported.ok) return { ok: false, reason: exported.reason, refunded: 0 };
+    if (!Number.isSafeInteger(elapsedMs) || elapsedMs <= 0 || elapsedMs > stamina.config.quickClearLimitMs ||
+        !exported.snapshot.unlockedLevels.includes(levelKey) || exported.snapshot.refundedLevels.includes(levelKey)) {
+      return stamina.applyPendingRefund(levelKey, elapsedMs, now);
+    }
+    if (!this.stage5Enabled('stamina')) return { ok: false, reason: 'network-required', refunded: 0,
+      snapshot: stamina.snapshot(now) };
+    const occurredAtClient = Math.max(0, Math.round(Number(now) || Date.now()));
+    const queued = this.store.enqueueOperation({ domain: 'stamina', type: 'STAMINA_QUICK_CLEAR_REFUNDED', occurredAtClient,
+      payload: { levelKey, elapsedMs: Math.round(elapsedMs) } });
+    if (!queued.ok) return { ok: false, reason: queued.reason, refunded: 0, snapshot: stamina.snapshot(now) };
+    const applied = stamina.applyPendingRefund(levelKey, Math.round(elapsedMs), occurredAtClient);
+    if (applied.ok) this.flush().catch(function () {});
+    return applied;
+  }
+
+  enqueuePreference(field, value) {
+    if (this.store.authorityMode('preferences') !== 'cloud-authoritative' || !this.stage5Enabled('preferences')) return false;
+    const queued = this.store.enqueueOperation({ domain: 'preferences', type: 'PREFERENCE_FIELD_SET',
+      occurredAtClient: Date.now(), payload: { field, value } });
+    if (queued.ok) this.flush().catch(function () {});
+    return queued.ok;
+  }
+
   async grantShareEntitlement(rewardId) {
     if (!this.enqueueShareEntitlement(rewardId)) return { ok: false, reason: 'network-required', newRewards: [] };
     const result = await this.flush();
@@ -254,6 +309,9 @@ class ProgressSyncService {
         { adoptLocal: adopting, migration: adopting, importId: read.data.data.migrationImportId,
           migrationReceiptId: read.data.data.migrationReceiptId });
       if (!applied.ok) return this.cloudFailed(applied.reason, current, scope, account);
+      const stage5 = this.ensureStage5Bootstrap(read.data.data.deferredDomains);
+      if (!stage5.ok) return this.cloudFailed(stage5.reason, current, this.store.context(),
+        this.accountGuard && this.accountGuard.capture());
       return this.pushCloud(current, this.store.context(), this.accountGuard && this.accountGuard.capture());
     }
     if (this.auth.readOnlyPhase || this.api.transport.config.migrationEnabled !== true) {
@@ -264,6 +322,25 @@ class ProgressSyncService {
       return { ok: true, status: this.status, readOnlyPhase: this.auth.readOnlyPhase };
     }
     return this.runMigration(current, scope, account);
+  }
+
+  ensureStage5Bootstrap(deferredDomains) {
+    const deferred = Array.isArray(deferredDomains) ? deferredDomains : [];
+    const pending = this.store.currentScope().pendingOperations;
+    const definitions = [
+      ['stamina', 'STAMINA_BOOTSTRAP', this.services.stamina],
+      ['preferences', 'PREFERENCES_BOOTSTRAP', this.services.preferences]
+    ];
+    for (const [domain, type, service] of definitions) {
+      if (!deferred.includes(domain) || !this.stage5Enabled(domain) ||
+          pending.some(operation => operation.domain === domain && operation.type === type)) continue;
+      const exported = service && service.exportAuthoritativeSnapshot && service.exportAuthoritativeSnapshot();
+      if (!exported || !exported.ok) return { ok: false, reason: exported && exported.reason || 'invalid-snapshot' };
+      const queued = this.store.enqueueOperation({ domain, type, occurredAtClient: Date.now(),
+        payload: { snapshot: exported.snapshot } });
+      if (!queued.ok) return queued;
+    }
+    return { ok: true };
   }
 
   migrationSummary(snapshot) {
@@ -410,13 +487,17 @@ class ProgressSyncService {
 
   async pushCloud(current, scope, account) {
     if (!this.cloudMatches(current, scope, account)) return this.cloudFailed('account-mismatch', current, scope, account);
-    const pending = this.store.currentScope().pendingOperations.slice(0, 50);
+    const allPending = this.store.currentScope().pendingOperations;
+    const pending = allPending.filter(item => SyncStore.CORE_DOMAINS.includes(item.domain) ||
+      (item.domain === 'stamina' && this.stage5Enabled('stamina')) ||
+      (item.domain === 'preferences' && this.stage5Enabled('preferences'))).slice(0, 50);
     if (!pending.length || this.api.transport.config.writeEnabled !== true) {
-      this.status = pending.length ? 'cloud-pending' : 'cloud-synced';
-      return { ok: true, status: this.status, pending: pending.length };
+      this.status = allPending.length ? 'cloud-pending' : 'cloud-synced';
+      return { ok: true, status: this.status, pending: allPending.length };
     }
     if (pending.some(item => item.ownerIdAtCreation !== current.ownerId || item.bindingEpochAtCreation !== current.bindingEpoch ||
-        item.environmentIdAtCreation !== current.environmentId || !SyncStore.CORE_DOMAINS.includes(item.domain))) {
+        item.environmentIdAtCreation !== current.environmentId ||
+        !(SyncStore.CORE_DOMAINS.includes(item.domain) || ['stamina', 'preferences'].includes(item.domain)))) {
       return this.cloudFailed('account-mismatch', current, scope, account);
     }
     const sentIds = pending.map(item => item.operationId);

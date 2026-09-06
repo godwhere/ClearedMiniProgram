@@ -6,6 +6,7 @@ const DailyStore = require('../../src/services/daily-progress-store.js');
 const Rewards = require('../../src/services/reward-unlock-service.js');
 const SessionStore = require('../../src/services/session-store.js');
 const Stamina = require('../../src/services/stamina-service.js');
+const Preferences = require('../../src/services/preferences-service.js');
 const Applier = require('../../src/services/authoritative-state-applier.js');
 const rewardConfig = require('../../src/config/rewards.js');
 const { RewardPlatform } = require('../helpers/reward-fixture.js');
@@ -19,6 +20,7 @@ function setup(options = {}) {
   const platform = options.platform || new RewardPlatform(); const store = new SyncStore(platform);
   const progress = new ProgressStore(platform); const daily = new DailyStore(platform);
   const rewards = new Rewards(platform, rewardConfig); const stamina = new Stamina(platform);
+  const preferences = new Preferences(progress);
   const sessions = new SessionStore(platform);
   assertScope(store);
   const guard = {
@@ -34,10 +36,10 @@ function setup(options = {}) {
         token.environmentIdAtStart === scope.environmentId && token.activationSequenceAtStart === scope.activationSequence;
     }
   };
-  const applier = new Applier({ progress, daily, rewards, stamina, syncStore: store, sessions }, guard);
+  const applier = new Applier({ progress, daily, rewards, stamina, preferences, syncStore: store, sessions }, guard);
   const auth = { mode: 'cloud', readOnlyPhase: false, current: () => ({ mode: 'cloud', ownerId: 'player_A',
     bindingEpoch: 1, environmentId: 'test-env', generation: 1 }) };
-  return { platform, store, progress, daily, rewards, stamina, sessions, guard, applier, auth };
+  return { platform, store, progress, daily, rewards, stamina, preferences, sessions, guard, applier, auth };
 }
 
 function assertScope(store) {

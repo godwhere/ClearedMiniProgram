@@ -23,13 +23,14 @@ const failure = (code, statusCode, retryable) => ({ ok: false, statusCode: statu
 const record = value => !!value && typeof value === 'object' && !Array.isArray(value);
 const FIELDS = ['progress', 'daily', 'economy', 'entitlements', 'stamina', 'preferences'];
 const CORE = ['progress', 'daily', 'economy', 'entitlements'];
+const DEFERRED = ['stamina', 'preferences'];
 const validId = value => typeof value === 'string' && /^[A-Za-z0-9_:-]{1,200}$/.test(value) &&
   !['__proto__', 'constructor', 'prototype'].includes(value);
 const validPlayerId = value => typeof value === 'string' && /^player_[A-Za-z0-9_-]{1,120}$/.test(value);
 const validEnvironmentId = value => typeof value === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(value);
 const validRevisions = value => record(value) && Object.keys(value).length === FIELDS.length &&
   FIELDS.every(key => Number.isSafeInteger(value[key]) && value[key] >= 0);
-const validDomains = value => record(value) && Object.keys(value).every(key => CORE.includes(key) && record(value[key]));
+const validDomains = value => record(value) && Object.keys(value).every(key => FIELDS.includes(key) && record(value[key]));
 const clone = value => JSON.parse(JSON.stringify(value));
 const exactKeys = (value, keys) => record(value) && Object.keys(value).length === keys.length &&
   keys.every(key => Object.prototype.hasOwnProperty.call(value, key));
@@ -50,13 +51,17 @@ function cloudEnvelope(data, env) {
     Number.isSafeInteger(player.bindingEpoch) && player.bindingEpoch > 0 &&
     ['none', 'prepared', 'uploading', 'complete', 'blocked'].includes(player.migrationState) &&
     typeof player.hasCloudState === 'boolean' && Array.isArray(player.completedDomains) &&
-    player.completedDomains.every(key => CORE.includes(key)) &&
+    player.completedDomains.every(key => FIELDS.includes(key)) &&
     new Set(player.completedDomains).size === player.completedDomains.length && Array.isArray(player.deferredDomains) &&
-    player.deferredDomains.length === 2 && player.deferredDomains[0] === 'stamina' && player.deferredDomains[1] === 'preferences' &&
+    player.deferredDomains.every(key => DEFERRED.includes(key)) &&
+    new Set(player.deferredDomains).size === player.deferredDomains.length &&
     (player.migrationImportId === null || validId(player.migrationImportId)) &&
     (player.migrationReceiptId === null || validId(player.migrationReceiptId)) &&
     player.hasCloudState === (player.migrationState === 'complete') &&
-    (player.hasCloudState ? sameSet(player.completedDomains, CORE) : player.completedDomains.length === 0) &&
+    (player.hasCloudState ? CORE.every(key => player.completedDomains.includes(key)) &&
+      sameSet(player.completedDomains.concat(player.deferredDomains), FIELDS) &&
+      !player.completedDomains.some(key => player.deferredDomains.includes(key))
+      : player.completedDomains.length === 0 && sameSet(player.deferredDomains, DEFERRED)) &&
     (player.migrationState === 'complete' || FIELDS.every(key => data.revisions[key] === 0));
 }
 
@@ -68,8 +73,8 @@ function validateStateEnvelope(data, env) {
   if (!cloudEnvelope(data, env) || !record(data.data) || !record(data.data.changedDomains) ||
       typeof data.data.hasCloudState !== 'boolean' || data.data.readOnlyPhase !== false ||
       !Array.isArray(data.data.completedDomains) || !Array.isArray(data.data.deferredDomains) ||
-      data.data.deferredDomains.length !== 2 || data.data.deferredDomains[0] !== 'stamina' ||
-      data.data.deferredDomains[1] !== 'preferences' ||
+      !sameSet(data.data.completedDomains, data.player.completedDomains) ||
+      !sameSet(data.data.deferredDomains, data.player.deferredDomains) ||
       !validDomains(data.data.changedDomains)) return false;
   const keys = Object.keys(data.data);
   if (!data.data.hasCloudState) return keys.length === 5 &&
@@ -78,7 +83,7 @@ function validateStateEnvelope(data, env) {
     Object.keys(data.data.changedDomains).length === 0 && data.data.completedDomains.length === 0;
   return keys.length === 9 && ['changedDomains', 'hasCloudState', 'readOnlyPhase', 'completedDomains', 'deferredDomains',
     'migrationImportId', 'migrationReceiptId', 'receiptId', 'acceptedOperationIds'].every(key => keys.includes(key)) &&
-    data.player.migrationState === 'complete' && sameSet(data.data.completedDomains, CORE) &&
+    data.player.migrationState === 'complete' &&
     validId(data.data.receiptId) && Array.isArray(data.data.acceptedOperationIds) &&
     data.data.acceptedOperationIds.length === 0 && validId(data.data.migrationImportId) &&
     validId(data.data.migrationReceiptId);
@@ -119,6 +124,7 @@ function validateMigrationEnvelope(data, env, action) {
     'conflicts', 'revisions', 'domains', 'acceptedOperationIds']) && validId(value.receiptId) &&
     validId(value.migrationReceiptId) &&
     ['PRIMARY', 'SUPPLEMENTAL'].includes(value.role) && validRevisions(value.revisions) && validDomains(value.domains) &&
+    Object.keys(value.domains).length === CORE.length &&
     CORE.every(key => Object.prototype.hasOwnProperty.call(value.domains, key)) && sameSet(value.completedDomains, CORE) &&
     Array.isArray(value.deferredDomains) && value.deferredDomains.length === 2 &&
     value.deferredDomains[0] === 'stamina' && value.deferredDomains[1] === 'preferences' &&
@@ -136,7 +142,7 @@ function validateSyncEnvelope(data, env) {
       validId(item.operationId) &&
       ['ACKED', 'RETRYABLE', 'REJECTED'].includes(item.status) && /^[A-Z0-9_]{1,80}$/.test(item.code)) &&
     Array.isArray(value.acceptedOperationIds) && value.acceptedOperationIds.every(validId) &&
-    Array.isArray(value.changedDomains) && value.changedDomains.every(key => CORE.includes(key)) && new Set(value.changedDomains).size === value.changedDomains.length &&
+    Array.isArray(value.changedDomains) && value.changedDomains.every(key => FIELDS.includes(key)) && new Set(value.changedDomains).size === value.changedDomains.length &&
     Array.isArray(value.notificationHints) && value.notificationHints.every(validId)) return false;
   const resultIds = value.results.map(item => item.operationId);
   const acked = value.results.filter(item => item.status === 'ACKED').map(item => item.operationId);

@@ -144,9 +144,9 @@ function run() {
   assert(!/\b(?:wx|GameRunner|Canvas|setInterval|setTimeout|requestAnimationFrame)\b/.test(staminaSource),
     'stamina uses platform storage and timestamps without core, UI or timer dependencies');
   const openLevel = appSource.slice(appSource.indexOf('  openLevel('), appSource.indexOf('  createOrdinaryRunner('));
-  assert.strictEqual((appSource.match(/\.unlockOrdinaryLevel\s*\(/g) || []).length, 1,
-    'App must have exactly one ordinary unlock call');
-  assert(/\.unlockOrdinaryLevel\s*\(/.test(openLevel), 'only openLevel may unlock with stamina');
+  assert.strictEqual((openLevel.match(/\.unlockOrdinaryLevel\s*\(/g) || []).length, 2,
+    'openLevel may route one unlock through cloud sync or the local fallback');
+  assert(!/\.unlockOrdinaryLevel\s*\(/.test(appSource.replace(openLevel, '')), 'only openLevel may unlock with stamina');
   assert(!/consumeOrdinaryAttempt/.test(appSource), 'replaying a level must not use per-attempt debits');
   ['gameplay', 'mechanics', 'ui'].forEach(dir => javascriptFiles(path.join(SRC_DIR, dir)).forEach(file => {
     const source = fs.readFileSync(file, 'utf8');
@@ -154,7 +154,7 @@ function run() {
       `${file} must not depend on stamina service/config`);
     assert(!/consumeOrdinaryAttempt|unlockOrdinaryLevel|refundQuickClear/.test(source), `${file} cannot debit or refund stamina`);
   }));
-  ['progress-store.js', 'daily-progress-store.js', 'progress-sync-service.js', 'sync-store.js'].forEach(file => {
+  ['progress-store.js', 'daily-progress-store.js', 'sync-store.js'].forEach(file => {
     const source = fs.readFileSync(path.join(SRC_DIR, 'services', file), 'utf8');
     assert(!/nextRecoveryAt|StaminaService|\.stamina\b/.test(source),
       `${file} must not own stamina fields`);

@@ -111,6 +111,12 @@ class SkinService {
     return this.skins[availableId];
   }
 
+  refreshSetting() {
+    const savedId = this.progressStore.getSetting('skinId', 'classic');
+    this.currentId = hasOwn(this.skins, savedId) && this.canUse('theme', savedId) ? savedId : 'classic';
+    return true;
+  }
+
   // Renderer-facing lookup for a registered manifest. Gallery descriptors
   // returned by list() intentionally stay small, while tile previews need the
   // declarative asset/tileVisuals sections for the matching theme.

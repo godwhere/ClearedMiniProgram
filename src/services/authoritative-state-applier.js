@@ -2,7 +2,7 @@
 
 const { record, validId, clone, fingerprint } = require('./sync-payload.js');
 const SyncStore = require('./sync-store.js');
-const CORE = SyncStore.CORE_DOMAINS;
+const DOMAINS = SyncStore.DOMAINS;
 
 class AuthoritativeStateApplier {
   constructor(services, accountGuard) { this.services = services; this.accountGuard = accountGuard || null; }
@@ -56,7 +56,7 @@ class AuthoritativeStateApplier {
     if (!record(response) || response.protocolVersion !== 1 || response.environmentId !== scopeToken.environmentId ||
         response.ownerId !== scopeToken.ownerId || response.bindingEpoch !== scopeToken.bindingEpoch ||
         !validId(response.receiptId) || !record(response.domains) || !record(response.revisions) ||
-        Object.keys(response.domains).some(key => !CORE.includes(key)) ||
+        Object.keys(response.domains).some(key => !DOMAINS.includes(key)) ||
         Object.keys(response.revisions).length !== SyncStore.DOMAINS.length ||
         !SyncStore.DOMAINS.every(key => Number.isSafeInteger(response.revisions[key]) && response.revisions[key] >= knownRevisions[key]) ||
         !Array.isArray(response.acceptedOperationIds) || !response.acceptedOperationIds.every(validId) ||
@@ -87,7 +87,7 @@ class AuthoritativeStateApplier {
         }
       }
     }
-    const steps = CORE.filter(domain => Object.prototype.hasOwnProperty.call(response.domains, domain));
+    const steps = DOMAINS.filter(domain => Object.prototype.hasOwnProperty.call(response.domains, domain));
     if (SyncStore.DOMAINS.some(domain => !steps.includes(domain) && response.revisions[domain] !== knownRevisions[domain])) {
       return { ok: false, reason: 'missing-domain' };
     }
@@ -113,11 +113,17 @@ class AuthoritativeStateApplier {
     if (opts.importId !== undefined) recoveryOptions.importId = opts.importId;
     if (opts.migrationReceiptId !== undefined) recoveryOptions.migrationReceiptId = opts.migrationReceiptId;
     if (expectedOperationIds !== undefined) recoveryOptions.expectedOperationIds = expectedOperationIds.slice();
+    const cloudDomains = steps.filter(domain => ['stamina', 'preferences'].includes(domain));
+    if (cloudDomains.length) recoveryOptions.cloudDomains = cloudDomains.slice();
     const begun = store.beginApplication(receipt, scopeToken, { adoptLocal: opts.adoptLocal === true,
+      cloudDomains,
       recovery: { schemaVersion: 1, response, options: recoveryOptions } });
     if (!begun.ok) return begun;
     if (this.services.rewards && typeof this.services.rewards.setAuthorityMode === 'function' &&
         !this.services.rewards.setAuthorityMode('cloud-authoritative')) return { ok: false, reason: 'authority-mismatch' };
+    if ((steps.includes('stamina') || store.authorityMode('stamina') === 'cloud-authoritative') &&
+        this.services.stamina && typeof this.services.stamina.setAuthorityMode === 'function' &&
+        !this.services.stamina.setAuthorityMode('cloud-authoritative')) return { ok: false, reason: 'authority-mismatch' };
     if (!begun.alreadyApplied) {
       if (steps.includes('progress')) {
         const result = this.services.progress && this.services.progress.applyAuthoritativeProgressSnapshot
@@ -135,10 +141,20 @@ class AuthoritativeStateApplier {
             entitlements: response.domains.entitlements, notificationHints: response.notificationHints || [] }) : null;
         if (!result || !result.ok) return { ok: false, reason: result && result.reason || 'persist-failed', domain: 'economy' };
       }
+      if (steps.includes('stamina')) {
+        const result = this.services.stamina && this.services.stamina.applyAuthoritativeSnapshot
+          ? this.services.stamina.applyAuthoritativeSnapshot(response.domains.stamina, overlay) : null;
+        if (!result || !result.ok) return { ok: false, reason: result && result.reason || 'persist-failed', domain: 'stamina' };
+      }
+      if (steps.includes('preferences')) {
+        const result = this.services.preferences && this.services.preferences.applyAuthoritativeSnapshot
+          ? this.services.preferences.applyAuthoritativeSnapshot(response.domains.preferences, overlay) : null;
+        if (!result || !result.ok) return { ok: false, reason: result && result.reason || 'persist-failed', domain: 'preferences' };
+      }
       if (!current()) return { ok: false, reason: 'account-mismatch' };
       if (!store.finishApplication(receipt, response.revisions, accepted, scopeToken,
         { adoptLocal: opts.adoptLocal === true, importId: opts.importId,
-          migrationReceiptId: opts.migrationReceiptId || response.receiptId })) {
+          migrationReceiptId: opts.migrationReceiptId || response.receiptId, cloudDomains })) {
         return { ok: false, reason: 'persist-failed' };
       }
     }

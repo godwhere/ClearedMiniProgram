@@ -1,6 +1,8 @@
 'use strict';
 
 const { record, validId, canonical, fingerprint, clone, freeze } = require('./sync-payload.js');
+const staminaDomain = require('./sync-domains/stamina-domain.js');
+const preferencesDomain = require('./sync-domains/preferences-domain.js');
 const STORAGE_KEY = 'cleared:minigame:online:v1';
 const MIGRATION_ARCHIVE_KEY = 'cleared:minigame:migration-archives:v1';
 const MAX_MIGRATION_ARCHIVES = 4;
@@ -18,6 +20,9 @@ const legacyGlobalAuthority = mode => DOMAINS.reduce((result, domain) => {
 const nextCoreAuthority = (mode, current) => DOMAINS.reduce((result, domain) => {
   result[domain] = CORE_DOMAINS.includes(domain) ? mode : current[domain]; return result;
 }, {});
+const withCloudDomains = (current, domains) => DOMAINS.reduce((result, domain) => {
+  result[domain] = (domains || []).includes(domain) ? 'cloud-authoritative' : current[domain]; return result;
+}, {});
 const integer = value => Number.isSafeInteger(value) && value >= 0;
 const environment = value => value === undefined ? null : value;
 const validEnvironment = value => value === null || (typeof value === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(value));
@@ -31,13 +36,16 @@ const validEpoch = (ownerId, epoch) => integer(epoch) &&
 const revisions = () => DOMAINS.reduce((result, domain) => { result[domain] = 0; return result; }, {});
 const validRevisions = value => record(value) && Object.keys(value).length === DOMAINS.length && DOMAINS.every(key => integer(value[key]));
 const validRecoveryOptions = value => record(value) && Object.keys(value).every(key =>
-  ['adoptLocal', 'migration', 'importId', 'migrationReceiptId', 'expectedOperationIds'].includes(key)) &&
+  ['adoptLocal', 'migration', 'importId', 'migrationReceiptId', 'expectedOperationIds', 'cloudDomains'].includes(key)) &&
   (value.adoptLocal === undefined || typeof value.adoptLocal === 'boolean') &&
   (value.migration === undefined || typeof value.migration === 'boolean') &&
   (value.importId === undefined || validId(value.importId)) &&
   (value.migrationReceiptId === undefined || validId(value.migrationReceiptId)) &&
   (value.expectedOperationIds === undefined || (Array.isArray(value.expectedOperationIds) &&
-    value.expectedOperationIds.every(validId) && new Set(value.expectedOperationIds).size === value.expectedOperationIds.length));
+    value.expectedOperationIds.every(validId) && new Set(value.expectedOperationIds).size === value.expectedOperationIds.length)) &&
+  (value.cloudDomains === undefined || (Array.isArray(value.cloudDomains) &&
+    value.cloudDomains.every(domain => ['stamina', 'preferences'].includes(domain)) &&
+    new Set(value.cloudDomains).size === value.cloudDomains.length));
 const validRecovery = value => record(value) && Object.keys(value).length === 3 && value.schemaVersion === 1 &&
   record(value.response) && validRecoveryOptions(value.options);
 const validApplicationReceipt = (value, pending) => {
@@ -92,18 +100,24 @@ function validDaily(type, payload) {
     Number.isSafeInteger(payload.elapsedMs) && payload.elapsedMs > 0 && integer(payload.completedAtClient);
 }
 
+function validStage5(type, domain, payload) {
+  return domain === 'stamina' ? staminaDomain.valid(type, payload)
+    : domain === 'preferences' && preferencesDomain.valid(type, payload);
+}
+
 function operation(input, ownerId, bindingEpoch, env = null) {
   if (!record(input) || !validId(input.operationId) || !DOMAINS.includes(input.domain) ||
       typeof input.type !== 'string' || !/^[A-Za-z0-9_:-]{1,80}$/.test(input.type) ||
       !record(input.payload) || !integer(input.occurredAtClient) ||
       input.ownerIdAtCreation !== ownerId || environment(input.environmentIdAtCreation) !== env || !validEpoch(ownerId, input.bindingEpochAtCreation) ||
       input.bindingEpochAtCreation > bindingEpoch ||
-      !['progress', 'daily', 'entitlements'].includes(input.domain) ||
+      !['progress', 'daily', 'entitlements', 'stamina', 'preferences'].includes(input.domain) ||
       (input.domain === 'progress' && !((input.type === 'level_completed' && validProgress(input.payload)) ||
         validStage4Progress(input.type, input.payload))) ||
       (input.domain === 'daily' && !validDaily(input.type, input.payload)) ||
       (input.domain === 'entitlements' && (input.type !== 'CLIENT_POLICY_SHARE_GRANTED' ||
-        !record(input.payload) || input.payload.rewardId !== 'theme:festival'))) return null;
+        !record(input.payload) || input.payload.rewardId !== 'theme:festival')) ||
+      (['stamina', 'preferences'].includes(input.domain) && !validStage5(input.type, input.domain, input.payload))) return null;
   const payload = clone(input.payload);
   if (input.payloadHash !== fingerprint(payload)) return null;
   const result = { operationId: input.operationId, domain: input.domain, type: input.type,
@@ -153,9 +167,11 @@ function normalize(saved) {
       Object.keys(saved.domainAuthority).length !== DOMAINS.length ||
       DOMAINS.some(domain => !MODES.includes(saved.domainAuthority[domain])) ||
       CORE_DOMAINS.some(domain => saved.domainAuthority[domain] !== saved.authorityMode) ||
-      !((saved.domainAuthority['stamina'] === 'legacy-local' && saved.domainAuthority.preferences === 'legacy-local') ||
-        (saved.authorityMode === 'cloud-authoritative' && saved.domainAuthority['stamina'] === 'cloud-authoritative' &&
-          saved.domainAuthority.preferences === 'cloud-authoritative')) || !record(saved.scopes) ||
+      (saved.authorityMode !== 'cloud-authoritative' &&
+        (saved.domainAuthority['stamina'] !== 'legacy-local' || saved.domainAuthority.preferences !== 'legacy-local')) ||
+      (saved.authorityMode === 'cloud-authoritative' &&
+        [saved.domainAuthority['stamina'], saved.domainAuthority.preferences].some(mode =>
+          !['legacy-local', 'cloud-authoritative'].includes(mode))) || !record(saved.scopes) ||
       (saved.boundUserId !== null && !validId(saved.boundUserId)) ||
       !validEnvironment(environment(saved.activeEnvironmentId)) || !validEnvironment(environment(saved.localEnvironmentId))) return null;
   const scopes = {}; const ids = new Set();
@@ -551,6 +567,7 @@ class SyncStore {
 
   beginApplication(receipt, token, options) {
     const adopting = options && options.adoptLocal === true;
+    const cloudDomains = options && Array.isArray(options.cloudDomains) ? options.cloudDomains : [];
     if (!this.matches(token) || (!this.ownsLocalState() && !adopting)) return { ok: false, reason: 'account-mismatch' };
     const scope = this.currentScope();
     const prior = scope.pendingApplication || scope.lastApplication;
@@ -568,12 +585,14 @@ class SyncStore {
     // Persist the recovery gate BEFORE any domain write. A crash cannot
     // restart in legacy-local and award money from partially applied progress.
     candidate.authorityMode = 'cloud-authoritative';
-    candidate.domainAuthority = nextCoreAuthority('cloud-authoritative', candidate.domainAuthority);
+    candidate.domainAuthority = withCloudDomains(
+      nextCoreAuthority('cloud-authoritative', candidate.domainAuthority), cloudDomains);
     return this.commit(candidate) ? { ok: true } : { ok: false, reason: 'persist-failed' };
   }
 
   finishApplication(receipt, nextRevisions, ids, token, options) {
     const adopting = options && options.adoptLocal === true;
+    const cloudDomains = options && Array.isArray(options.cloudDomains) ? options.cloudDomains : [];
     const migrationReceiptId = options && options.migrationReceiptId;
     const importId = options && options.importId;
     if (!this.matches(token) || (!this.ownsLocalState() && !adopting) || !validRevisions(nextRevisions)) return false;
@@ -606,7 +625,8 @@ class SyncStore {
       }
     }
     candidate.authorityMode = 'cloud-authoritative';
-    candidate.domainAuthority = nextCoreAuthority('cloud-authoritative', candidate.domainAuthority);
+    candidate.domainAuthority = withCloudDomains(
+      nextCoreAuthority('cloud-authoritative', candidate.domainAuthority), cloudDomains);
     return this.commit(candidate);
   }
 

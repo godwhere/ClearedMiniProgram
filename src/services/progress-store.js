@@ -194,6 +194,21 @@ class ProgressStore {
     return { ok: true };
   }
 
+  applyAuthoritativePreferencesSnapshot(snapshot) {
+    if (!isRecord(snapshot) || snapshot.schemaVersion !== 1 || Object.keys(snapshot).length !== 4 ||
+        typeof snapshot.skinId !== 'string' || !snapshot.skinId ||
+        typeof snapshot.clearEffectId !== 'string' || !snapshot.clearEffectId ||
+        typeof snapshot.soundEnabled !== 'boolean') return { ok: false, reason: 'invalid-snapshot' };
+    const previous = this.state;
+    this.state = Object.assign({}, previous, { settings: Object.assign({}, previous.settings, {
+      skinId: snapshot.skinId, clearEffectId: snapshot.clearEffectId, soundEnabled: snapshot.soundEnabled
+    }) });
+    let saved = false;
+    try { saved = this.save() === true; } catch (error) {}
+    if (!saved) { this.state = previous; return { ok: false, reason: 'persist-failed' }; }
+    return { ok: true };
+  }
+
   isBlankCloudCore() {
     return Object.keys(this.exportCloudSnapshot().levels).length === 0 && this.state.lastPlayed === null;
   }
