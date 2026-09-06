@@ -11,6 +11,7 @@ class EngagementService {
     this.hintAccess = opts.hintAccess || null;
     this.hintPending = null;
     this.rewardUnlocks = opts.rewardUnlocks || null;
+    this.shareEntitlement = typeof opts.shareEntitlement === 'function' ? opts.shareEntitlement : null;
     this.rewardUnlockPending = null;
     this.rewardUnlockGeneration = 0;
   }
@@ -170,7 +171,9 @@ class EngagementService {
       if (token.action === 'share') {
         if (!outcome || outcome.initiated !== true) return { ok: false, reason: outcome && outcome.reason || 'unavailable', newRewards: [] };
         if (this.behavior) this.behavior.track('share_initiated', { scene: token.scene, source: 'reward_unlock' });
-        return this.rewardUnlocks.recordShareInitiated({ rewardId: token.rewardId, initiated: true });
+        return this.shareEntitlement
+          ? this.shareEntitlement(token.rewardId)
+          : this.rewardUnlocks.recordShareInitiated({ rewardId: token.rewardId, initiated: true });
       }
       if (!outcome || outcome.rewarded !== true || outcome.placement !== 'rewardUnlock' ||
           typeof outcome.attemptId !== 'string' || !/^[A-Za-z0-9_:-]{1,200}$/.test(outcome.attemptId)) {

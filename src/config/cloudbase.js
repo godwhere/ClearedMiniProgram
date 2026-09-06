@@ -1,7 +1,7 @@
 'use strict';
 
-// Checked-in defaults never connect to a cloud environment. Phase 3 supports
-// only an explicit develop/trial identity + read-only local override.
+// Checked-in defaults never connect to a cloud environment. Stage 4 test
+// writes require an explicit develop/trial override plus server-side gates.
 module.exports = {
   schemaVersion: 1,
   enabled: false,

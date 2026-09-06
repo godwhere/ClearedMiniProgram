@@ -13,9 +13,12 @@ const revisions = () => Object.fromEntries(SyncStore.DOMAINS.map(key => [key, 0]
 function envelope(request, owner = 'player_A', epoch = 1) {
   const data = { ok: true, code: 'OK', protocolVersion: 1, requestId: request.requestId, retryable: false,
     environmentId: 'test-fixture', serverTimeMs: Date.parse('2026-09-03T16:00:00.000Z'), serverDateKey: '2026-09-04',
-    player: { playerId: owner, bindingEpoch: epoch, migrationState: 'none' }, revisions: revisions() };
-  if (request.action === 'identity.init') { data.player.hasCloudState = false; data.bindingStatus = 'UNBOUND'; }
-  else data.data = { changedDomains: {}, hasCloudState: false, readOnlyPhase: true };
+    player: { playerId: owner, bindingEpoch: epoch, migrationState: 'none', hasCloudState: false,
+      completedDomains: [], deferredDomains: ['stamina', 'preferences'], migrationImportId: null,
+      migrationReceiptId: null }, revisions: revisions() };
+  if (request.action === 'identity.init') data.bindingStatus = 'UNBOUND';
+  else data.data = { changedDomains: {}, hasCloudState: false, readOnlyPhase: false,
+    completedDomains: [], deferredDomains: ['stamina', 'preferences'] };
   return data;
 }
 

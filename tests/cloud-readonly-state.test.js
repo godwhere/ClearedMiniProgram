@@ -51,6 +51,8 @@ module.exports = async function run() {
     value => { value.serverDateKey = '2026-09-03'; },
     value => { value.protocolVersion = 2; },
     value => { value.data.hasCloudState = true; },
+    value => { value.data.deferredDomains.push('future-domain'); },
+    value => { value.player.completedDomains = ['progress']; },
     value => { value.acceptedOperationIds = ['fake']; }
   ];
   for (const mutate of mutations) {
@@ -93,9 +95,16 @@ module.exports = async function run() {
       assert.deepStrictEqual(h.native.events, ['frame']); assert(h.app.openLevel(0, 0));
     } finally { h.app.dispose(); }
   }
-  for (const flag of ['writeEnabled', 'migrationEnabled', 'economyEnabled', 'staminaEnabled', 'preferencesEnabled']) {
+  for (const flag of ['staminaEnabled', 'preferencesEnabled']) {
     const h = fixture({ config: { [flag]: true } });
     try { assert.strictEqual((await h.app.resumeOnline()).reason, 'not-configured'); assert.strictEqual(h.calls.length, 0); }
+    finally { h.app.dispose(); }
+  }
+  for (const flag of ['writeEnabled', 'economyEnabled']) {
+    const h = fixture({ config: { [flag]: true } });
+    try { const result = await h.app.resumeOnline(); assert(result.ok); assert.strictEqual(result.status, 'migration-required');
+      assert.strictEqual(h.app.accountMessage, '检测到本地存档，等待安全迁移');
+      assert.deepStrictEqual(h.calls.map(call => call.data.action), ['identity.init', 'state.read']); }
     finally { h.app.dispose(); }
   }
   for (const action of ['identity.init', 'state.read']) {

@@ -106,7 +106,8 @@ async function run() {
   finish(reply); assert.strictEqual((await pending).reason, 'account-mismatch');
   assert.strictEqual(migration.syncStore.state.activeOwnerId, 'player_B');
   assert.strictEqual(canonical(migration.native.storage), before);
-  assert.strictEqual(migration.syncStore.scopeFor('player_A').migration.importId, prepared.migration.importId);
+  assert.strictEqual(migration.syncStore.scopeFor('player_A').migration, null,
+    'building a migration snapshot never freezes or assigns an import before the server accepts prepare');
   migration.app.dispose();
 
   const network = knownCloudCache(fixture()); const sessions = new Sessions(network.platform);

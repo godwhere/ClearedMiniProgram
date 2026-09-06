@@ -72,7 +72,8 @@ function createPlatform() {
     triggerHaptic() {},
     bindPointer() { return function () {}; },
     bindLifecycle() {},
-    startLoop() {}
+    startLoop() {},
+    stopLoop() {}
   };
   platform.storage = storage;
   return platform;
@@ -961,6 +962,20 @@ async function runSubpackageChecks() {
   assert.strictEqual(unsupported.pendingSkinId, null);
   assert.strictEqual(unsupported.themeDescriptors()[1].assetState, 'failed');
   assert.strictEqual(unsupported.openLevel(0, 0), true);
+
+  const revokedPlatform = Object.assign(createPlatform(), controlledPlatform());
+  const revoked = new ClearedApp(revokedPlatform, {
+    subpackages: new SubpackageService(revokedPlatform), stamina: createUnlimitedStaminaFixture()
+  });
+  assert.strictEqual(revoked.setSkin('gem'), true);
+  assert.strictEqual(revoked.pendingSkinId, 'gem');
+  delete revoked.rewardUnlocks.state.ownedRewards['theme:gem'];
+  revokedPlatform.calls[0].success();
+  await flushThemeCallbacks();
+  assert.strictEqual(revoked.pendingSkinId, null, 'revoked ownership clears a completed download indicator');
+  assert.strictEqual(revoked.skins.current().id, 'classic');
+  assert.strictEqual(revoked.progress.getSetting('skinId'), 'classic');
+  revoked.dispose();
 
   // Even thrown image decode errors cannot prevent a successful package from
   // selecting its palette or making the game playable.

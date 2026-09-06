@@ -81,6 +81,36 @@ module.exports = async function run() {
   assert(!offline.renderer.hits.some(hit => hit.id === 'account:authorizeProfile'));
   offline.performAction('account:back'); assert.strictEqual(offline.openLevel(0, 0), true);
 
+  let cloudStatus = 'cloud-reading';
+  const cloud = new ClearedApp(new WechatPlatform(fakeApi()), {
+    auth: { state: () => 'authenticated', readOnlyPhase: false },
+    progressSync: { state: () => ({ status: cloudStatus }) }
+  });
+  cloud.performAction('home:account');
+  assert.strictEqual(cloud.buildModel().accountStatus, 'syncing');
+  cloudStatus = 'migration-uploading'; assert.strictEqual(cloud.buildModel().accountStatus, 'syncing');
+  cloudStatus = 'cloud-pending'; assert.strictEqual(cloud.buildModel().accountStatus, 'pending');
+  cloudStatus = 'cloud-synced'; assert.strictEqual(cloud.buildModel().accountStatus, 'synced');
+  cloudStatus = 'storage-blocked'; assert.strictEqual(cloud.buildModel().accountStatus, 'error');
+  cloudStatus = 'migration-snapshot-missing'; assert.strictEqual(cloud.buildModel().accountStatus, 'error');
+  cloud.dispose();
+
+  const cloudRetry = new ClearedApp(new WechatPlatform(fakeApi()), {
+    auth: { mode: 'cloud', readOnlyPhase: false, state: () => 'authenticated',
+      ensureSession: async () => ({ ok: true }), current: () => ({ mode: 'cloud', ownerId: 'player_A',
+        bindingEpoch: 1, environmentId: 'test-env' }) },
+    progressSync: { state: () => ({ status: 'cloud-pending' }),
+      bootstrapCloud: async () => ({ ok: true, status: 'cloud-pending', pending: 1 }) }
+  });
+  cloudRetry.performAction('home:account');
+  assert.strictEqual(cloudRetry.retryAccountSync(), true);
+  for (let attempts = 0; attempts < 5 && cloudRetry.accountSyncPending; attempts++) {
+    await new Promise(resolve => setImmediate(resolve));
+  }
+  assert.strictEqual(cloudRetry.accountMessage, '云存档待同步，本地进度已保留',
+    'account retry keeps the specific cloud result instead of replacing it with a generic success');
+  cloudRetry.dispose();
+
   let resolve;
   const pending = new ClearedApp(new WechatPlatform(fakeApi()), { auth: { state: () => 'authenticating',
     ensureSession: () => new Promise(done => { resolve = done; }) } });

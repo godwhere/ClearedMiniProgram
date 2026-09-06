@@ -14,6 +14,8 @@ function run() {
   });
   assert.strictEqual(service.dateKey(), '2026-08-31');
   assert.strictEqual(service.dateKey(new Date('2026-08-31T16:00:00.000Z')), '2026-09-01');
+  assert.strictEqual(service.dateKey(new Date('2026-09-03T15:59:59.999Z')), '2026-09-03');
+  assert.strictEqual(service.dateKey(new Date('2026-09-03T16:00:00.000Z')), '2026-09-04');
 
   const resolved = service.resolve();
   assert.strictEqual(resolved.status, 'available');

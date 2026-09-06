@@ -21,6 +21,8 @@ const SyncStore = require('./services/sync-store.js');
 const ApiClient = require('./services/api-client.js');
 const AuthService = require('./services/auth-service.js');
 const ProgressSyncService = require('./services/progress-sync-service.js');
+const AuthoritativeStateApplier = require('./services/authoritative-state-applier.js');
+const EconomyService = require('./services/economy-service.js');
 const BehaviorService = require('./services/behavior-service.js');
 const EngagementService = require('./services/engagement-service.js');
 const AdsService = require('./services/ads-service.js');
@@ -38,7 +40,9 @@ const rewardConfig = require('./config/rewards.js');
 function start() {
   const platform = new WechatPlatform();
   let cloudConfig = cloudbaseConfig;
-  if (['develop', 'trial'].includes(platform.getMiniProgramEnvironmentVersion())) {
+  const environmentVersion = platform.getMiniProgramEnvironmentVersion();
+  const acceptsLocalTestConfig = ['develop', 'trial'].includes(environmentVersion);
+  if (acceptsLocalTestConfig) {
     try {
       // Keep a literal path so DevTools' unused-file filter includes it.
       // Missing/invalid local overrides are caught and keep safe defaults.
@@ -59,14 +63,21 @@ function start() {
       : Object.assign({}, engagementConfig.auth, { mode: 'legacy-http' }));
   const behavior = new BehaviorService(platform, api, syncStore, engagementConfig.behavior);
   const profile = new ProfileService(platform, api, auth, engagementConfig.profile, behavior);
-  const progressSync = new ProgressSyncService(api, progress, syncStore, auth, engagementConfig.progressSync, behavior);
+  const authoritativeApplier = new AuthoritativeStateApplier({ progress, daily: dailyStore,
+    rewards: rewardUnlocks, stamina, syncStore, sessions }, null);
+  const economy = new EconomyService(platform, api, auth, syncStore, rewardUnlocks, authoritativeApplier);
+  const progressSync = new ProgressSyncService(api, progress, syncStore, auth, engagementConfig.progressSync, behavior,
+    { daily: dailyStore, rewards: rewardUnlocks, stamina, sessions, economy, applier: authoritativeApplier });
   const ads = new AdsService(platform, adConfig, { nextAttemptId: () => syncStore.nextId('adatt_') });
   const rewards = new RewardService(platform, api, auth, syncStore,
     { enabled: engagementConfig.rewards.dailyExtraEntryEnabled === true || engagementConfig.share.rewardsEnabled === true }, behavior);
   const share = new ShareService(platform, api, auth, syncStore, engagementConfig.share, behavior);
   const hintAccess = new HintAccessService(platform, { timeZone: dailyConfig.timeZone });
   const engagement = new EngagementService({ ads, share, rewards, rewardUnlocks, auth, behavior, hintAccess, config: Object.assign({}, adConfig.rules,
-    { dailyExtraEntryEnabled: adConfig.rules.dailyExtraEntryEnabled === true && engagementConfig.rewards.dailyExtraEntryEnabled === true }) });
+    { dailyExtraEntryEnabled: adConfig.rules.dailyExtraEntryEnabled === true && engagementConfig.rewards.dailyExtraEntryEnabled === true }),
+    shareEntitlement: rewardId => syncStore.authorityMode('entitlements') === 'cloud-authoritative'
+      ? progressSync.grantShareEntitlement(rewardId)
+      : rewardUnlocks.recordShareInitiated({ rewardId, initiated: true }) });
   auth.onSessionChanged((session, state) => {
     if (auth.mode === 'cloud') return; // No HTTP behavior/profile/share rollout in phase 3.
     if (session) behavior.identify(session.userId);
@@ -81,7 +92,7 @@ function start() {
       platform.isDevTools() === true
   });
   const app = new ClearedApp(platform, {
-    stamina, rewardUnlocks, syncStore,
+    stamina, rewardUnlocks, syncStore, economy, authoritativeApplier,
     progress, dailyStore, auth, progressSync, behavior, ads, engagement, profile, share, rewards, hintAccess,
     subpackages,
     skins,
@@ -101,8 +112,13 @@ function start() {
     // two challenge levels can be exercised repeatedly. Set to false for a
     // production package.
     dailyTimeZone: dailyConfig.timeZone,
-    dailyDebugUnlimited: dailyConfig.debugUnlimitedEntries === true
+    dailyDebugUnlimited: dailyConfig.debugUnlimitedEntries === true,
+    dailyTestDateKey: acceptsLocalTestConfig && typeof cloudConfig.dailyTestDateKey === 'string'
+      ? cloudConfig.dailyTestDateKey : ''
   });
+  authoritativeApplier.accountGuard = app.accountGuard;
+  economy.accountGuard = app.accountGuard;
+  progressSync.prepareMigrationSnapshot = () => app.prepareLegacyMigration();
   app.start();
   share.install(() => app.shareContext());
   share.captureEntry(platform.getLaunchOptions());

@@ -44,9 +44,16 @@ class LegacyMigrationBuilder {
         const levelIds = ids(raw._levelIds || []);
         if (levelIds.some(id => !Object.prototype.hasOwnProperty.call(levels, id))) throw Error('invalid-level-ids');
         levelIds.sort((a, b) => levels[a].levelIndex - levels[b].levelIndex || (a < b ? -1 : a > b ? 1 : 0));
+        const entryKeys = ids(raw._entryKeys || []);
+        if (day.entryLimit !== 3 || day.entriesUsed > day.entryLimit || entryKeys.length > day.entriesUsed) {
+          throw Error('invalid-entry-state');
+        }
+        for (let index = entryKeys.length; index < day.entriesUsed; index++) {
+          entryKeys.push(`migration-entry:${dateKey}:${index}`);
+        }
         days[dateKey] = { dayId: day.dayId, entryLimit: day.entryLimit, entriesUsed: day.entriesUsed,
           completed: day.completed, levels, levelIds,
-          levelCount: raw._levelCount, entryKeys: ids(raw._entryKeys || []), grantIds: ids(raw._grantIds || []) };
+          levelCount: raw._levelCount, entryKeys };
         if (!integer(days[dateKey].levelCount)) throw Error('invalid-level-count');
       }
       const preferences = { skinId: progress.getSetting('skinId', 'classic'),

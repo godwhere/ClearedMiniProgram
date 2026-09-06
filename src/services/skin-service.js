@@ -106,7 +106,9 @@ class SkinService {
   }
 
   current() {
-    return this.skins[this.currentId];
+    const availableId = hasOwn(this.skins, this.currentId) && this.canUse('theme', this.currentId)
+      ? this.currentId : 'classic';
+    return this.skins[availableId];
   }
 
   // Renderer-facing lookup for a registered manifest. Gallery descriptors

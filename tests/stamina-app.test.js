@@ -37,6 +37,25 @@ function preservedState(app) {
 }
 
 function run() {
+  const resumeCalls = [];
+  const cloudOpen = createStaminaFixture();
+  const cloudOpenApp = new App(cloudOpen.platform, { clock: cloudOpen.clock,
+    progressSync: { enqueueLastPlayed(input) { resumeCalls.push(input); return true; } } });
+  assert(cloudOpenApp.openLevel(0, 0));
+  assert.deepStrictEqual(resumeCalls, [{ setIndex: 0, levelIndex: 0, occurredAtClient: NOW }],
+    'a persisted ordinary open reaches the last-played sync boundary');
+  cloudOpenApp.dispose();
+
+  const failedOpen = createStaminaFixture(); const originalSetStorage = failedOpen.platform.setStorage.bind(failedOpen.platform);
+  const failedResumeCalls = [];
+  failedOpen.platform.setStorage = (key, value) => key === 'cleared:minigame:progress:v2'
+    ? false : originalSetStorage(key, value);
+  const failedOpenApp = new App(failedOpen.platform, { clock: failedOpen.clock,
+    progressSync: { enqueueLastPlayed(input) { failedResumeCalls.push(input); return true; } } });
+  assert(failedOpenApp.openLevel(0, 0));
+  assert.deepStrictEqual(failedResumeCalls, [], 'an unpersisted last-played value is never queued');
+  failedOpenApp.dispose();
+
   const direct = createStaminaFixture();
   const directApp = new App(direct.platform, { clock: direct.clock });
   assert.strictEqual(directApp.staminaSnapshot.balance, 5, 'direct construction enables stamina');

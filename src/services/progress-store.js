@@ -155,6 +155,49 @@ class ProgressStore {
     return { ok: true };
   }
 
+  applyAuthoritativeProgressSnapshot(snapshot, pendingOperations) {
+    if (!snapshot || snapshot.schemaVersion !== 1 || !isRecord(snapshot.levels) ||
+        (snapshot.lastPlayed !== null && snapshot.lastPlayed !== undefined &&
+          (!normalizeTarget(snapshot.lastPlayed) || !validCloudKey(`${snapshot.lastPlayed.setIndex}:${snapshot.lastPlayed.levelIndex}`)))) {
+      return { ok: false, reason: 'invalid-snapshot' };
+    }
+    const completed = {}; const bestMs = {};
+    for (const key of Object.keys(snapshot.levels)) {
+      const value = snapshot.levels[key];
+      if (!validCloudKey(key) || !isRecord(value) || value.completed !== true ||
+          (value.bestMs !== undefined && !validBest(value.bestMs))) {
+        return { ok: false, reason: 'invalid-snapshot' };
+      }
+      completed[key] = true;
+      if (value.bestMs !== undefined) bestMs[key] = value.bestMs;
+    }
+    let lastPlayed = snapshot.lastPlayed ? normalizeTarget(snapshot.lastPlayed) : null;
+    const pending = Array.isArray(pendingOperations) ? pendingOperations : [];
+    for (const operation of pending) {
+      if (!operation || operation.domain !== 'progress' || !isRecord(operation.payload)) continue;
+      if (operation.type === 'MAIN_LEVEL_COMPLETED') {
+        const key = operation.payload.levelKey; const elapsed = operation.payload.elapsedMs;
+        if (!validCloudKey(key) || !validBest(elapsed)) return { ok: false, reason: 'invalid-operation-overlay' };
+        completed[key] = true;
+        if (!validBest(bestMs[key]) || elapsed < bestMs[key]) bestMs[key] = elapsed;
+      } else if (operation.type === 'PROGRESS_LAST_PLAYED') {
+        const target = normalizeTarget(operation.payload);
+        if (!target || !validCloudKey(`${target.setIndex}:${target.levelIndex}`)) return { ok: false, reason: 'invalid-operation-overlay' };
+        lastPlayed = target;
+      }
+    }
+    const previous = this.state;
+    this.state = Object.assign({}, previous, { completed, bestMs, lastPlayed });
+    let saved = false;
+    try { saved = this.save() === true; } catch (error) {}
+    if (!saved) { this.state = previous; return { ok: false, reason: 'persist-failed' }; }
+    return { ok: true };
+  }
+
+  isBlankCloudCore() {
+    return Object.keys(this.exportCloudSnapshot().levels).length === 0 && this.state.lastPlayed === null;
+  }
+
   key(setIndex, levelIndex) {
     return `${setIndex}:${levelIndex}`;
   }

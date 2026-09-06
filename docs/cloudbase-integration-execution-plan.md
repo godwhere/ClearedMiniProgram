@@ -2539,7 +2539,7 @@ App.prepareLegacyMigration 是本地准备接口：确认本地 owner → 源存
 
 Applier 按 progress → daily → economy → entitlements → stamina → preferences 固定顺序工作。当前真实实现支持普通进度和体力；其他域必须有明确注入的 apply 接口，否则整个请求在写入前返回 domain-not-supported。不提前实现真实每日／钱包／购买／偏好同步。缺失域不得推进该域 revision，也不能 ACK 该域操作。
 
-顺序：账号/epoch/generation 校验 → 协议及已支持域校验 → 保存 pendingApplication 回执 ID/内容指纹和云权威恢复门禁 → 各领域候选落盘 → 再次校验账号 → 同次保存 revisions、lastApplication 并删除明确 ACK 项。Applier 只持有服务引用，不保存第二份业务状态。
+顺序：账号/epoch/generation 校验 → 协议及已支持域校验 → 保存 pendingApplication 回执 ID/内容指纹、已校验响应和云权威恢复门禁 → 各领域候选落盘 → 再次校验账号 → 同次保存 revisions、lastApplication 并删除明确 ACK 项。已校验响应只作为未完成应用的临时崩溃恢复材料，finish后删除；Applier不保存第二份长期业务状态。
 
 本地多个 key **不是原子事务**。中途失败可以已保存 progress，但 pending 回执和 operation 保留、revision 不动，重启也不能从这些 progress 补奖；由调用方重新提供同一 canonical receipt 重放。回执元数据不是第二份全量存档，真实服务器保留／查询回执仍待后续阶段。回执指纹排除 requestId/服务器观察时间，ACK ID 按集合排序；网络重试元数据变化不会伪装成资产冲突，同 receiptId 不同权威内容仍拒绝。
 
@@ -2567,12 +2567,26 @@ README 未修改：没有新增可用产品入口、云上线能力或用户命�
 
 **本轮严格停在阶段 2，没有进入阶段 3；没有创建、部署或连接任何真实 CloudBase 资源。**
 
-## 23. Implementation Notes：阶段 3（未完成真实验收）
+## 23. Implementation Notes：阶段 3（关闭门禁真实验收完成）
 
 开始基线 `7a7fe72e0aa377ff725f0bc83f2b44ff5d1fa504`（main，阶段2已提交），工作区干净；69组 Node 测试通过，主包2,859,372字节，总包16,150,312字节，diff检查通过。阶段2环境维度尚未落盘，因此本轮补强环境scope，未重做阶段2迁移或资产逻辑。
 
-当前客户端接入真实 identity.init/state.read 合同，默认关闭；服务端源码仅在同级 ClearedCloudBase。测试环境/AppID、两个Event函数和HMAC变量已核实；两集合客户端读写拒绝、原生身份/只读调用、非原生伪造拒绝已实际验证。管理员明确豁免费用告警门禁，未更改套餐/计费。完整客户端真实只读对照和无override回退通过；双真实账号、真机与弱网仍待验收。详细现状、修改职责、验证与回滚见 [阶段3测试手册](cloudbase-phase-3-test-runbook.md)。
+当前客户端接入真实 identity.init/state.read 合同，默认关闭；服务端源码仅在同级 ClearedCloudBase。测试环境/AppID、两个Event函数和HMAC变量已核实；两集合客户端读写拒绝、原生身份/只读调用、非原生伪造拒绝已实际验证。管理员明确豁免费用告警门禁，未更改套餐/计费。完整客户端真实只读对照、无override回退、双真实账号映射、同账号跨手机/iPad复用、iPad离线恢复、Slow 3G迟到保护和预览二维码均已完成关闭门禁验收。该证据只属于阶段3身份/只读链路，不证明阶段4迁移、同步、钱包或双设备并发写入。详细现状、修改职责、验证与回滚见 [阶段3测试手册](cloudbase-phase-3-test-runbook.md)。
 
 与阶段1历史接缝相比，Cloud模式现在只接收明确的 service/action，所有旧HTTP路径返回not-configured，不再把旧路径隐式转换为云请求。历史第21节的cloud-identity-not-ready描述只适用于当时版本。旧HTTP模式保持原合同和回归。
 
 本轮未调用迁移、sync.push或AuthoritativeStateApplier业务应用；未开启广告、分享归因、资料写入或云资产权威；未进入阶段4。
+
+## 24. Implementation Notes：阶段 4（真实验收完成，写门禁已关闭）
+
+开始基线 `639fa992001754e47b1bcaed1ad26885116ac5e3`（main，工作区干净），72组客户端测试、主包2,878,522字节、总包16,169,462字节。最终客户端77组通过，主包2,966,924字节、总包16,257,864字节，分别增加88,402字节；后端52项单元、3项集成和3项并发通过。精确运行边界和人工步骤见 [阶段4测试手册](cloudbase-phase-4-test-runbook.md)。
+
+客户端现已实现 `LEGACY_PRIMARY_SNAPSHOT_V1` 的不可变快照、prepare后二次哈希、独立本地冻结快照档案、完整chunk清单校验、迁移冻结、可恢复chunk/finalize、四个云权威域、部分ACK隔离、新设备权威恢复和按environment/player/epoch隔离的云购买。`progress:resume`固定承载最后游玩位置；服务端明确拒绝的操作必须附带相应权威域以撤销该项乐观状态。pendingApplication会保存精确已校验响应，启动先幂等完成中断的本地应用；结果未知的购买会自动复用原operation，因此不依赖并发设备之后仍返回旧canonical快照。档案必须先写盘才进入freeze，重启使用同一快照；SUPPLEMENTAL把服务器拒绝的余额/claim/不可验证资产作为显式冲突返回并保留原档案。freeze期间普通/每日新入口会跳转账号页并明确提示，活动玩法、每日/分享/广告、奖励/购买或外部保存期间拒绝开始迁移。体力与偏好仍保留本机，不扩大阶段4范围。
+
+没有机械新增建议清单中的`src/services/sync-domains/*`：纯导出/校验/应用职责已经分别位于现有`ProgressStore`、`DailyProgressStore`、`RewardUnlockService`与`AuthoritativeStateApplier`，再拆一层只会形成重复边界。为满足永久拥有权与当前应用状态、素材下载状态分离，实际最小例外是修改既有`src/services/skin-service.js`：`current()`每次读取拥有权，撤销时仅把运行时显示回退到classic，不覆盖本机保存的主题偏好；拥有权恢复后原偏好可继续生效。该文件不读取云、钱包或下载状态，也不新增第二份主题权威。
+
+独立后端新增10个业务集合、严格schema/索引/拒绝规则、迁移不变量、operation回执、钱包账本事务和经济购买。12个集合及8个自定义索引已应用到测试环境；三个Event函数均已部署并验证配置。账号A验收完成后线上已恢复closed：白名单为空，migration/write/economy全false；账号B从未进入写白名单。最终审计为2个subject/2个player、1个钱包、9条账本、9个reward claim、3个永久资产、1个购买回执和1个FINALIZED迁移，余额4200，13类一致性违规全部为0。
+
+真实iOS验收已覆盖账号A的PRIMARY迁移中断恢复、普通与每日奖励、离线operation重启补传、同账号iPhone/iPad空设备恢复、非空本地保护、双设备普通/每日防重，以及甜点主题离线购买转在线重试。购买只扣一次并把永久拥有权、当前应用和分包素材加载保持分离；重复打开不再扣款。
+
+管理员明确授权账号A作为一次性样本并禁止改动B。本地0600玩家门禁依据私密备份中严格有序的两条映射生成，只在迁移、sync和economy各自验收窗口部署A；最终客户端migration/write/economy均关闭，线上三个函数均为closed且白名单为空。账号A已迁移云状态和完整账本继续保留，不清库、不降回本地余额权威。

@@ -145,9 +145,39 @@ function testDailyPendingEvidence() {
   assert.strictEqual(app.rewardUnlocks.view().balance, 500);
 }
 
+function testCloudCurrencySettlementFeedback() {
+  const fixture = createPlatform();
+  const app = new ClearedApp(fixture.platform, { stamina: createUnlimitedStaminaFixture() });
+  const account = app.captureAccountContext();
+  const granted = { currencyReward: { status: 'pending', amount: 0 } };
+  assert.strictEqual(app.applyCloudCurrencyResult(granted, account, {
+    status: 'ACKED', details: { rewardGranted: true, rewardAmount: 100 }
+  }), true);
+  assert.deepStrictEqual(granted.currencyReward, { status: 'granted', amount: 100 });
+
+  const repeated = { currencyReward: { status: 'pending', amount: 0 } };
+  assert.strictEqual(app.applyCloudCurrencyResult(repeated, account, {
+    status: 'ACKED', details: { rewardGranted: false, rewardAmount: 0 }
+  }), true);
+  assert.deepStrictEqual(repeated.currencyReward, { status: 'already-claimed', amount: 0 });
+
+  const rejected = { currencyReward: { status: 'pending', amount: 0 } };
+  assert.strictEqual(app.applyCloudCurrencyResult(rejected, account, {
+    status: 'REJECTED', code: 'VALIDATION_FAILED'
+  }), true);
+  assert.deepStrictEqual(rejected.currencyReward, { status: 'failed', amount: 0 });
+
+  const retryable = { currencyReward: { status: 'pending', amount: 0 } };
+  assert.strictEqual(app.applyCloudCurrencyResult(retryable, account, {
+    status: 'RETRYABLE', code: 'STORE_TEMPORARY'
+  }), false);
+  assert.deepStrictEqual(retryable.currencyReward, { status: 'pending', amount: 0 });
+}
+
 function run() {
   testCompletionRewardRetry();
   testDailyPendingEvidence();
+  testCloudCurrencySettlementFeedback();
   const first = createPlatform();
   const app = new ClearedApp(first.platform, { stamina: createUnlimitedStaminaFixture() });
   assert.deepStrictEqual(app.buildModel().currency, { available: true, balance: 0, error: null });

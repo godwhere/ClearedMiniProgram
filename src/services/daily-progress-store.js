@@ -781,6 +781,73 @@ class DailyProgressStore {
     };
   }
 
+  applyAuthoritativeSnapshot(snapshot, pendingOperations) {
+    if (!isRecord(snapshot) || snapshot.schemaVersion !== 1 || !isRecord(snapshot.days)) {
+      return { ok: false, reason: 'invalid-snapshot' };
+    }
+    const entries = {};
+    for (const dateKey of Object.keys(snapshot.days)) {
+      const day = snapshot.days[dateKey];
+      if (!validDateKey(dateKey) || !isRecord(day) || !stringId(day.dayId) || day.entryLimit !== DEFAULT_ENTRY_LIMIT ||
+          !Number.isSafeInteger(day.entriesUsed) || day.entriesUsed < 0 || !Array.isArray(day.entryKeys) ||
+          day.entriesUsed !== day.entryKeys.length || day.entriesUsed > day.entryLimit ||
+          new Set(day.entryKeys).size !== day.entryKeys.length || !day.entryKeys.every(stringId) ||
+          typeof day.completed !== 'boolean' || !isRecord(day.levels)) {
+        return { ok: false, reason: 'invalid-snapshot' };
+      }
+      const levelIds = [`${day.dayId}-intro-v1`, `${day.dayId}-extreme-v1`];
+      const presentIds = Object.keys(day.levels).sort((a, b) => day.levels[a].levelIndex - day.levels[b].levelIndex);
+      const indexes = new Set();
+      if (presentIds.length > 2 || presentIds.some(id => {
+        const level = day.levels[id];
+        if (level && [0, 1].includes(level.levelIndex)) indexes.add(level.levelIndex);
+        return !levelIds.includes(id) || !isRecord(level) || level.levelIndex !== levelIds.indexOf(id) || typeof level.completed !== 'boolean' ||
+          !Number.isSafeInteger(level.bestMs) || level.bestMs < 0 ||
+          (level.completedAt !== undefined && (!Number.isSafeInteger(level.completedAt) || level.completedAt < 0));
+      }) || indexes.size !== presentIds.length ||
+          day.completed !== levelIds.every(id => day.levels[id] && day.levels[id].completed === true)) {
+        return { ok: false, reason: 'invalid-snapshot' };
+      }
+      entries[dateKey] = { dayId: day.dayId, entryLimit: DEFAULT_ENTRY_LIMIT,
+        entriesUsed: day.entryKeys.length, attempts: day.entryKeys.length, completed: day.completed === true,
+        levels: clone(day.levels), _explicitEntryLimit: true, _levelCount: 2, _levelIds: levelIds,
+        _entryKeys: day.entryKeys.slice(), _grantIds: [], _dateKey: dateKey };
+    }
+    const pending = Array.isArray(pendingOperations) ? pendingOperations : [];
+    for (const operation of pending) {
+      if (!operation || operation.domain !== 'daily' || !isRecord(operation.payload)) continue;
+      const p = operation.payload;
+      if (!validDateKey(p.dateKey) || !stringId(p.dayId) || !Array.isArray(p.levelIds) || p.levelIds.length !== 2) {
+        return { ok: false, reason: 'invalid-operation-overlay' };
+      }
+      const day = entries[p.dateKey] || { dayId: p.dayId, entryLimit: DEFAULT_ENTRY_LIMIT, entriesUsed: 0, attempts: 0,
+        completed: false, levels: {}, _explicitEntryLimit: true, _levelCount: 2, _levelIds: p.levelIds.slice(),
+        _entryKeys: [], _grantIds: [], _dateKey: p.dateKey };
+      if (day.dayId !== p.dayId) return { ok: false, reason: 'invalid-operation-overlay' };
+      if (operation.type === 'DAILY_ENTRY_RECORDED') {
+        if (!stringId(p.entryKey)) return { ok: false, reason: 'invalid-operation-overlay' };
+        if (!day._entryKeys.includes(p.entryKey)) day._entryKeys.push(p.entryKey);
+        day.entriesUsed = day._entryKeys.length; day.attempts = day.entriesUsed;
+      } else if (operation.type === 'DAILY_LEVEL_COMPLETED') {
+        if (!stringId(p.levelId) || ![0, 1].includes(p.levelIndex) || !Number.isSafeInteger(p.elapsedMs) || p.elapsedMs <= 0) {
+          return { ok: false, reason: 'invalid-operation-overlay' };
+        }
+        const before = day.levels[p.levelId];
+        day.levels[p.levelId] = { levelIndex: p.levelIndex, completed: true,
+          bestMs: before && before.bestMs > 0 ? Math.min(before.bestMs, p.elapsedMs) : p.elapsedMs,
+          completedAt: before && before.completedAt !== undefined ? before.completedAt : p.completedAtClient };
+        day._levelIds = p.levelIds.slice();
+        day.completed = p.levelIds.every(id => day.levels[id] && day.levels[id].completed === true);
+      }
+      entries[p.dateKey] = day;
+    }
+    const previous = this.state; this.state = { schemaVersion: SCHEMA_VERSION, entries };
+    if (!this.save()) { this.state = previous; return { ok: false, reason: 'persist-failed' }; }
+    return { ok: true };
+  }
+
+  isBlankCloudCore() { return Object.keys(this.state.entries).length === 0; }
+
   // Reserved boundary for the future ad/share entitlement flow. It is
   // intentionally a no-op in the current release: no caller can increase the
   // daily budget without a separately implemented, idempotent reward service.

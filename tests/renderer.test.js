@@ -160,6 +160,9 @@ function run() {
   assertHitsInsideSafeArea(renderer.hits, platform.metrics);
   assert(renderer.hits.some(hit => hit.id === 'account:back'));
   assert(!renderer.hits.some(hit => hit.id === 'account:authorizeProfile'));
+  platform.context.calls.length = 0;
+  renderer.render({ scene: 'account', accountStatus: 'pending', profileSupported: false }, Date.now());
+  assert.strictEqual(textCalls(platform.context, '等待同步').length, 1);
   renderer.render({ scene: 'account', accountStatus: 'syncing', profileSupported: true, profilePending: true, syncPending: true }, Date.now());
   assert(!renderer.hits.some(hit => hit.id === 'account:retrySync'));
   assert(!renderer.hits.some(hit => hit.id === 'account:authorizeProfile'));

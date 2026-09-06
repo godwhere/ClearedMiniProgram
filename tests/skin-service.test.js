@@ -37,6 +37,21 @@ function run() {
   saveAllowed = true;
   assert.strictEqual(unreliable.select('night'), true);
 
+  const dynamicSettings = { skinId: 'night' };
+  const dynamicProgress = {
+    getSetting(name, fallback) { return dynamicSettings[name] === undefined ? fallback : dynamicSettings[name]; },
+    setSetting(name, value) { dynamicSettings[name] = value; return true; }
+  };
+  let nightOwned = true;
+  const dynamic = new SkinService(dynamicProgress, [{ id: 'night', name: '夜间' }],
+    (kind, id) => kind === 'theme' && (id === 'classic' || (id === 'night' && nightOwned)));
+  assert.strictEqual(dynamic.current().id, 'night');
+  nightOwned = false;
+  assert.strictEqual(dynamic.current().id, 'classic', 'a selected theme cannot remain active after cloud ownership is removed');
+  assert.strictEqual(dynamicSettings.skinId, 'night', 'ownership fallback does not overwrite the local appearance preference');
+  nightOwned = true;
+  assert.strictEqual(dynamic.current().id, 'night', 'the retained preference resumes after ownership is restored');
+
   const loads = [];
   const renderer = new CanvasRenderer({
     context: {},

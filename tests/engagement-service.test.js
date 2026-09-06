@@ -42,6 +42,21 @@ module.exports = async function run() {
   assert.deepStrictEqual((await unlockEngagement.requestRewardUnlock({ rewardId: 'theme:ocean', scene: 'themes' })).newRewards, ['theme:ocean']);
   assert.deepStrictEqual(unlockCalls[0], ['ad', { rewardId: 'theme:ocean', attemptId: 'reward:1' }]);
   assert.deepStrictEqual((await unlockEngagement.requestRewardUnlock({ rewardId: 'theme:festival', scene: 'themes' })).newRewards, ['theme:festival']);
+  let cloudShareRewardId = null;
+  const cloudShare = new EngagementService({
+    rewardUnlocks: Object.assign({}, unlocks, {
+      pending: false,
+      recordShareInitiated() { throw new Error('cloud authority must not grant the share reward locally'); }
+    }),
+    share: { shareReward: async () => ({ initiated: true }) },
+    shareEntitlement: async rewardId => {
+      cloudShareRewardId = rewardId;
+      return { ok: true, reason: 'client-policy-share', newRewards: [rewardId], amountDelta: 0 };
+    }
+  });
+  const cloudShareResult = await cloudShare.requestRewardUnlock({ rewardId: 'theme:festival', scene: 'themes' });
+  assert.strictEqual(cloudShareRewardId, 'theme:festival');
+  assert.deepStrictEqual(cloudShareResult.newRewards, ['theme:festival']);
   unlocks.pending = true;
   await unlockEngagement.requestRewardUnlock({ rewardId: 'theme:spring', scene: 'themes' });
   assert.deepStrictEqual(unlockCalls[2], ['retry']);

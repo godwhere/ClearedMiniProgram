@@ -318,6 +318,40 @@ class RewardUnlockService {
     return { ok: true, amountDelta: -item.unlock.cost, newRewards };
   }
 
+  applyAuthoritativeAssets(input) {
+    const economy = input && input.economy;
+    const entitlements = input && input.entitlements;
+    const hints = input && input.notificationHints || [];
+    if (this._authorityMode !== 'cloud-authoritative') return this.authorityBlocked();
+    if (!this.state || !record(economy) || economy.schemaVersion !== 1 || !safeInteger(economy.balance, false) ||
+        !validBooleanMap(economy.claimedOrdinary, key => levelKeys.has(key)) ||
+        !record(economy.claimedDaily) || !Object.keys(economy.claimedDaily).every(key =>
+          validDateKey(key) && validId(economy.claimedDaily[key])) ||
+        !record(entitlements) || entitlements.schemaVersion !== 1 ||
+        !validBooleanMap(entitlements.ownedRewards, key => !!this.item(key)) ||
+        !Array.isArray(hints) || !hints.every(validRewardId)) return { ok: false, reason: 'invalid-snapshot' };
+    const candidate = clone(this.state);
+    candidate.balance = economy.balance;
+    candidate.claimedOrdinary = clone(economy.claimedOrdinary);
+    candidate.claimedDaily = clone(economy.claimedDaily);
+    candidate.ownedRewards = clone(entitlements.ownedRewards);
+    const owned = rewardId => ['theme:classic', 'effect:none'].includes(rewardId) || candidate.ownedRewards[rewardId] === true;
+    candidate.pendingNotices = candidate.pendingNotices.filter(rewardId => owned(rewardId));
+    hints.forEach(rewardId => {
+      if (!['theme:classic', 'effect:none'].includes(rewardId) && owned(rewardId) &&
+          !this.owned(rewardId) && !candidate.pendingNotices.includes(rewardId)) candidate.pendingNotices.push(rewardId);
+    });
+    if (!this.write(candidate)) return { ok: false, reason: 'persist-failed' };
+    return { ok: true };
+  }
+
+  isBlankCloudCore() {
+    return !!this.state && this.state.balance === 0 && Object.keys(this.state.claimedOrdinary).length === 0 &&
+      Object.keys(this.state.claimedDaily).length === 0 &&
+      Object.keys(this.state.ownedRewards).filter(key => !['theme:classic', 'effect:none'].includes(key)).length === 0 &&
+      Object.keys(this.state.adAttempts).length === 0 && this.state.pendingNotices.length === 0 && !this.pendingExternal;
+  }
+
   globallyUsedAttempt(attemptId) {
     return Object.keys(this.state.adAttempts).some(rewardId => this.state.adAttempts[rewardId].indexOf(attemptId) >= 0);
   }

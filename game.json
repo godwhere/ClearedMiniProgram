@@ -1,6 +1,7 @@
 {
   "deviceOrientation": "portrait",
   "showStatusBar": false,
+  "iOSHighPerformance": true,
   "subpackages": [
     {
       "name": "theme-gem",

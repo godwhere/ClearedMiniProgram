@@ -74,8 +74,15 @@ async function run() {
   assert.strictEqual(fingerprint({ b: 2, a: { z: true, x: null } }), fingerprint({ a: { x: null, z: true }, b: 2 }));
   for (const payload of [NaN, Infinity, { f() {} }, JSON.parse('{"__proto__":{}}')]) assert.throws(() => canonical(payload));
   const circular = {}; circular.self = circular; assert.throws(() => canonical(circular));
-  for (const domain of SyncStore.DOMAINS.filter(item => item !== 'progress')) {
-    assert(reloaded.enqueueOperation({ domain, type: 'future_operation', payload: { value: 1 }, occurredAtClient: 100 }).ok);
+  assert(reloaded.enqueueOperation({ domain: 'progress', type: 'PROGRESS_LAST_PLAYED',
+    payload: { setIndex: 0, levelIndex: 1 }, occurredAtClient: 100 }).ok);
+  const dayId = 'daily-2026-09-03-v1'; const levelIds = [`${dayId}-intro-v1`, `${dayId}-extreme-v1`];
+  assert(reloaded.enqueueOperation({ domain: 'daily', type: 'DAILY_ENTRY_RECORDED',
+    payload: { dateKey: '2026-09-03', dayId, entryKey: 'entry_1', entryLimit: 3, levelIds }, occurredAtClient: 100 }).ok);
+  assert(reloaded.enqueueOperation({ domain: 'entitlements', type: 'CLIENT_POLICY_SHARE_GRANTED',
+    payload: { rewardId: 'theme:festival' }, occurredAtClient: 100 }).ok);
+  for (const domain of ['economy', 'stamina', 'preferences']) {
+    assert.strictEqual(reloaded.enqueueOperation({ domain, type: 'future_operation', payload: { value: 1 }, occurredAtClient: 100 }).ok, false);
   }
   assert.strictEqual(reloaded.enqueueOperation({ domain: 'bad', type: 'future', payload: {}, occurredAtClient: 100 }).ok, false);
 

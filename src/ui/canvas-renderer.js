@@ -1040,7 +1040,7 @@ class CanvasRenderer {
       this.text('我', center, avatarRect.y + avatarSize / 2, Math.min(24, avatarSize / 2));
     }
     this.text(profile ? profile.nickname : '本地玩家', center, panel.y + space * 0.46, 18, { maxWidth: panel.w - 24 });
-    const status = { local: '本地游玩', syncing: '正在同步', synced: '已同步', error: '同步失败',
+    const status = { local: '本地游玩', syncing: '正在同步', pending: '等待同步', synced: '已同步', error: '同步失败',
       'account-mismatch': '账号不一致，已暂停同步' }[model.accountStatus] || '本地游玩';
     this.text(status, center, panel.y + space * 0.65, 15, { maxWidth: panel.w - 24 });
     this.text(model.accountMessage || '头像昵称为可选资料', center, panel.y + space * 0.84, 12, { maxWidth: panel.w - 24, alpha: 0.7 });
@@ -2460,7 +2460,8 @@ class CanvasRenderer {
     this.text(`用时 ${formatTime(result.elapsedMs || 0)}`, width / 2, panelY + 124, 13, { alpha: 0.72 });
     if (result.currencyReward) this.text(result.currencyReward.status === 'granted'
       ? `获得 ${result.currencyReward.amount} 货币`
-      : result.currencyReward.status === 'pending' ? '货币待保存' : '今日奖励已领取',
+      : result.currencyReward.status === 'pending' ? '奖励待同步'
+        : result.currencyReward.status === 'failed' ? '奖励同步失败' : '今日奖励已领取',
     width / 2, panelY + 142, 12, { alpha: 0.72 });
     if (result.currencyReward && result.currencyReward.status === 'pending') {
       this.addHit('reward:retry', { x: width / 2 - 64, y: panelY + 128, w: 128, h: 28 }, true);
@@ -2538,7 +2539,8 @@ class CanvasRenderer {
     this.text(resultText, width / 2, panelY + 124, 13, { alpha: 0.72 });
     if (model.result.currencyReward) this.text(model.result.currencyReward.status === 'granted'
       ? `获得 ${model.result.currencyReward.amount} 货币`
-      : model.result.currencyReward.status === 'pending' ? '货币待保存' : '本关奖励已领取',
+      : model.result.currencyReward.status === 'pending' ? '奖励待同步'
+        : model.result.currencyReward.status === 'failed' ? '奖励同步失败' : '本关奖励已领取',
     width / 2, panelY + 146, 12, { alpha: 0.68 });
     if (model.result.currencyReward && model.result.currencyReward.status === 'pending') {
       this.addHit('reward:retry', { x: width / 2 - 64, y: panelY + 132, w: 128, h: 28 }, true);

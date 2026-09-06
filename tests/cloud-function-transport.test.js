@@ -55,6 +55,12 @@ module.exports = async function run() {
   }
   await thin.request(Object.assign({}, input, { service: 'playerState', action: 'state.read' }));
   assert.strictEqual(adapted.name, 'player-state-api'); assert.strictEqual(adapted.timeout, 20);
+  adapted = undefined;
+  const migration = new Transport(spyPlatform, Object.assign(configured(), { migrationEnabled: true }));
+  assert((await migration.request(Object.assign({}, input,
+    { service: 'playerState', action: 'migration.status', payload: { importId: 'import_test' } }))).ok);
+  assert.strictEqual(adapted.name, 'player-state-api');
+  assert.strictEqual(adapted.data.action, 'migration.status');
 
   for (const change of [{ service: '__proto__' }, { service: 'other' },
     { requestId: 'bad id' }, { protocolVersion: 2 }, { payload: [] }, { operationId: '../bad' },

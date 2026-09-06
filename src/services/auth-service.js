@@ -11,9 +11,10 @@ class AuthService {
     this.syncStore = syncStore;
     this.config = config || {};
     this.mode = this.config.mode || (api.transport ? 'cloud' : 'legacy-http');
-    this.readOnlyPhase = this.mode === 'cloud';
+    this.readOnlyPhase = this.mode === 'cloud' && !(api.transport && api.transport.config &&
+      (api.transport.config.migrationEnabled || api.transport.config.writeEnabled || api.transport.config.economyEnabled));
     this.cloudReady = null;
-    if (this.readOnlyPhase) this.api.cloudSession = () => this.current();
+    if (this.mode === 'cloud') this.api.cloudSession = () => this.current();
     this.status = this.current() ? 'authenticated' : 'anonymous';
     this.inFlight = null;
     this.listeners = [];
@@ -53,7 +54,7 @@ class AuthService {
     }
     if (!['legacy-http', 'cloud'].includes(this.mode)) return Promise.resolve({ ok: false, status: 'offline', reason: 'invalid-identity-mode' });
     const generation = this.generation;
-    if (this.readOnlyPhase) this.cloudReady = null;
+    if (this.mode === 'cloud') this.cloudReady = null;
     // Publish the flight before notifying observers: a listener may itself
     // ask for a session while rendering the new authenticating state.
     this.inFlight = Promise.resolve().then(() => this.mode === 'cloud' ? this.authenticateCloud(generation) : this.authenticate(generation))
@@ -67,8 +68,7 @@ class AuthService {
     const transport = this.api.transport;
     if (!transport || !transport.config || transport.config.identityEnabled !== true) return this.fail('not-configured');
     const env = transport.config.env; const previous = this.sessions.metadata();
-    if (this.syncStore.blocked || this.syncStore.state.authorityMode !== 'legacy-local' ||
-        (previous && previous.mode === 'cloud' && previous.migrationState !== 'none')) return this.fail('local-state-not-ready');
+    if (this.syncStore.blocked) return this.fail('local-state-not-ready');
     const scope = this.syncStore.context();
     const account = this.accountGuard && this.accountGuard.capture();
     const matches = () => generation === this.generation && transport.config.env === env && this.syncStore.matches(scope) &&
@@ -89,16 +89,23 @@ class AuthService {
       // never turn this identity response into a gameplay/account migration.
       this.generation++; this.cloudReady = null; return this.fail('account-mismatch');
     }
+    const retained = local && local.ownerId === data.player.playerId ? local : null;
     const metadata = { schemaVersion: 2, mode: 'cloud', ownerId: data.player.playerId,
-      bindingEpoch: data.player.bindingEpoch, environmentId: env, migrationState: 'none',
-      migrationImportId: null, migrationReceiptId: null };
+      bindingEpoch: data.player.bindingEpoch, environmentId: env,
+      // A new device first persists trusted identity, then state.read and the
+      // authoritative applier persist the completed migration receipt.
+      migrationState: retained ? retained.migrationState : 'none',
+      migrationImportId: retained ? retained.migrationImportId : null,
+      migrationReceiptId: retained ? retained.migrationReceiptId : null };
     // Two durable keys are not atomic. If activation fails the saved identity
     // remains unready; a restart revalidates it before publishing any session.
     if (!this.sessions.set(metadata)) return this.fail(this.sessions.lastError === 'persist-failed' ? 'persist-failed' : 'invalid-response');
     const activated = this.syncStore.activateScope(metadata.ownerId, metadata.bindingEpoch, env, true);
     if (!activated.ok) { this.cloudReady = null; return this.fail(activated.reason); }
     this.cloudReady = { mode: 'cloud', ownerId: metadata.ownerId, bindingEpoch: metadata.bindingEpoch, environmentId: env,
-      readOnlyPhase: true, readPaused: this.syncStore.state.localOwnerId !== null && !this.syncStore.ownsLocalState() };
+      migrationState: data.player.migrationState, hasCloudState: data.player.hasCloudState,
+      completedDomains: data.player.completedDomains.slice(), deferredDomains: data.player.deferredDomains.slice(),
+      readOnlyPhase: this.readOnlyPhase, readPaused: false };
     this.status = 'authenticated'; this.notify();
     return this.success(this.current());
   }
@@ -134,7 +141,7 @@ class AuthService {
 
   success(session) {
     if (session && session.mode === 'cloud') return { ok: true, status: 'authenticated', user: { id: session.ownerId },
-      session: Object.assign({}, session), readOnlyPhase: true, readPaused: session.readPaused };
+      session: Object.assign({}, session), readOnlyPhase: this.readOnlyPhase, readPaused: session.readPaused };
     return { ok: true, status: 'authenticated', user: { id: session.userId }, session: { expiresAt: session.expiresAt } };
   }
   fail(reason) { this.status = reason === 'network' || reason === 'timeout' || reason === 'not-configured' ? 'offline' : 'error'; this.notify(); return { ok: false, status: this.status, reason }; }

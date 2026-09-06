@@ -113,6 +113,17 @@ function run() {
   assert.strictEqual(JSON.stringify({ settings: store.state.settings, stats: store.state.stats, lastPlayed: store.state.lastPlayed }), before);
   assert.deepStrictEqual(Object.keys(store.exportCloudSnapshot()), ['schemaVersion', 'levels']);
   assert.strictEqual(store.mergeCloudSnapshot({ schemaVersion: 9, levels: {} }).ok, false);
+
+  const authoritativePlatform = new MemoryPlatform();
+  const authoritative = new ProgressStore(authoritativePlatform);
+  assert(authoritative.setSetting('soundEnabled', false));
+  assert(authoritative.applyAuthoritativeProgressSnapshot({ schemaVersion: 1,
+    levels: { '0:0': { completed: true } }, lastPlayed: null }, []).ok,
+  'historical completed levels without a recorded best time remain restorable');
+  assert.strictEqual(authoritative.isCompleted(0, 0), true);
+  assert.strictEqual(authoritative.bestTime(0, 0), 0);
+  assert.strictEqual(authoritative.getSetting('soundEnabled'), false);
+
   const retained = store.state; platform.setStorage = () => false;
   assert.strictEqual(store.mergeCloudSnapshot({ schemaVersion: 1, levels: { '0:1': { completed: true } } }).reason, 'persist-failed');
   assert.strictEqual(store.state, retained);

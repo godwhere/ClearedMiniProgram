@@ -180,6 +180,91 @@ function testDailyFailureFlow() {
   assert.strictEqual(storage[storageKey].entries[dateKey].entriesUsed, storedEntriesUsed);
 }
 
+function testDailyAcceptanceDateOverride() {
+  const { platform } = createPlatform();
+  const realNow = new Date('2026-09-04T14:30:00.000Z');
+  const app = new ClearedApp(platform, {
+    clock: () => realNow,
+    dailyTestDateKey: '2026-09-01'
+  });
+  assert.strictEqual(app.clockNow().toISOString(), realNow.toISOString(),
+    'the daily test date must not replace the app or device clock');
+  const resolved = app.resolveDaily();
+  assert.strictEqual(resolved.status, 'available');
+  assert.strictEqual(resolved.dateKey, '2026-09-01');
+  assert.strictEqual(resolved.levels.length, 2);
+  assert.strictEqual(app.enterDaily(), true);
+  assert.strictEqual(app.daily.dateKey, '2026-09-01');
+  app.dispose();
+
+  const invalid = new ClearedApp(createPlatform().platform, {
+    clock: () => realNow,
+    dailyTestDateKey: '2026-02-30'
+  });
+  assert.strictEqual(invalid.resolveDaily().reason, 'no-challenge',
+    'an invalid override is ignored instead of inventing content');
+  invalid.dispose();
+}
+
+function testDailyCompletionKeepsEnteredDateAcrossShanghaiMidnight() {
+  const { platform, storage } = createPlatform();
+  let now = new Date('2026-09-01T15:59:59.999Z');
+  const queuedEntries = [];
+  const queuedCompletions = [];
+  const syncStore = {
+    state: { boundUserId: null },
+    authorityMode() { return 'cloud-authoritative'; },
+    context() {
+      return {
+        ownerId: 'player_A',
+        bindingEpoch: 1,
+        activationSequence: 1,
+        environmentId: 'test-env'
+      };
+    }
+  };
+  const progressSync = {
+    store: syncStore,
+    enqueueDailyEntry(payload) { queuedEntries.push(payload); return { ok: true }; },
+    enqueueDailyCompletion(payload) { queuedCompletions.push(payload); return { ok: true }; }
+  };
+  const app = new ClearedApp(platform, {
+    clock: () => now,
+    progressSync,
+    syncStore
+  });
+
+  assert.strictEqual(app.enterDaily(), true);
+  const enteredDayId = app.daily.dayId;
+  const enteredLevelIds = app.daily.levels.map(level => level.Id);
+  assert.strictEqual(app.daily.dateKey, '2026-09-01');
+  assert.strictEqual(queuedEntries.length, 1);
+  assert.strictEqual(queuedEntries[0].dateKey, '2026-09-01');
+
+  now = new Date('2026-09-01T16:00:00.000Z');
+  assert.strictEqual(app.dailyService.dateKey(now), '2026-09-02');
+  solveCurrentLevel(app);
+  solveCurrentLevel(app);
+
+  assert.strictEqual(app.scene, 'dailyResult');
+  assert.strictEqual(app.daily.result.dateKey, '2026-09-01');
+  assert.strictEqual(app.daily.result.dayId, enteredDayId);
+  assert.deepStrictEqual(app.daily.result.levelIds, enteredLevelIds);
+  assert.strictEqual(queuedCompletions.length, 2);
+  queuedCompletions.forEach((payload, levelIndex) => {
+    assert.strictEqual(payload.dateKey, '2026-09-01');
+    assert.strictEqual(payload.dayId, enteredDayId);
+    assert.strictEqual(payload.levelIndex, levelIndex);
+    assert.deepStrictEqual(payload.levelIds, enteredLevelIds);
+    assert.strictEqual(payload.completedAtClient, now.getTime());
+  });
+  const entries = storage['cleared:minigame:daily:v1'].entries;
+  assert.strictEqual(entries['2026-09-01'].completed, true);
+  assert.strictEqual(entries['2026-09-02'], undefined,
+    'finishing the locked challenge must not consume the new Shanghai date');
+  app.dispose();
+}
+
 async function extraEntryActionAliases() {
   const actions = ['daily:extraEntry', 'daily:revive', 'dailyResult:revive'];
   for (const enabled of [true, false]) for (const scene of ['home', 'dailyResult', 'daily', 'levels', 'account', 'failure']) {
@@ -221,6 +306,8 @@ async function extraEntryActionAliases() {
 
 async function run() {
   await extraEntryActionAliases();
+  testDailyAcceptanceDateOverride();
+  testDailyCompletionKeepsEnteredDateAcrossShanghaiMidnight();
   testDailyFailureFlow();
 
   const { platform, storage } = createPlatform();

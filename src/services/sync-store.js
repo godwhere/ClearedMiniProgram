@@ -2,10 +2,22 @@
 
 const { record, validId, canonical, fingerprint, clone, freeze } = require('./sync-payload.js');
 const STORAGE_KEY = 'cleared:minigame:online:v1';
+const MIGRATION_ARCHIVE_KEY = 'cleared:minigame:migration-archives:v1';
+const MAX_MIGRATION_ARCHIVES = 4;
 const MAX_OPERATIONS = 200;
 const opaqueId = prefix => `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}_${Math.random().toString(36).slice(2)}`;
 const DOMAINS = ['progress', 'daily', 'economy', 'entitlements', 'stamina', 'preferences'];
 const MODES = ['legacy-local', 'migration-freeze', 'cloud-authoritative'];
+const CORE_DOMAINS = ['progress', 'daily', 'economy', 'entitlements'];
+const domainAuthority = mode => DOMAINS.reduce((result, domain) => {
+  result[domain] = CORE_DOMAINS.includes(domain) ? mode : 'legacy-local'; return result;
+}, {});
+const legacyGlobalAuthority = mode => DOMAINS.reduce((result, domain) => {
+  result[domain] = mode; return result;
+}, {});
+const nextCoreAuthority = (mode, current) => DOMAINS.reduce((result, domain) => {
+  result[domain] = CORE_DOMAINS.includes(domain) ? mode : current[domain]; return result;
+}, {});
 const integer = value => Number.isSafeInteger(value) && value >= 0;
 const environment = value => value === undefined ? null : value;
 const validEnvironment = value => value === null || (typeof value === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(value));
@@ -18,13 +30,66 @@ const validEpoch = (ownerId, epoch) => integer(epoch) &&
   (ownerId === null || ownerId.startsWith('legacy-http:') ? epoch === 0 : epoch > 0);
 const revisions = () => DOMAINS.reduce((result, domain) => { result[domain] = 0; return result; }, {});
 const validRevisions = value => record(value) && Object.keys(value).length === DOMAINS.length && DOMAINS.every(key => integer(value[key]));
+const validRecoveryOptions = value => record(value) && Object.keys(value).every(key =>
+  ['adoptLocal', 'migration', 'importId', 'migrationReceiptId', 'expectedOperationIds'].includes(key)) &&
+  (value.adoptLocal === undefined || typeof value.adoptLocal === 'boolean') &&
+  (value.migration === undefined || typeof value.migration === 'boolean') &&
+  (value.importId === undefined || validId(value.importId)) &&
+  (value.migrationReceiptId === undefined || validId(value.migrationReceiptId)) &&
+  (value.expectedOperationIds === undefined || (Array.isArray(value.expectedOperationIds) &&
+    value.expectedOperationIds.every(validId) && new Set(value.expectedOperationIds).size === value.expectedOperationIds.length));
+const validRecovery = value => record(value) && Object.keys(value).length === 3 && value.schemaVersion === 1 &&
+  record(value.response) && validRecoveryOptions(value.options);
+const validApplicationReceipt = (value, pending) => {
+  if (value === null) return true;
+  if (!record(value) || !validId(value.receiptId) || typeof value.fingerprint !== 'string' ||
+      !/^local-fnv1a32:[a-f0-9]{8}:\d+$/.test(value.fingerprint)) return false;
+  const keys = Object.keys(value);
+  if (!pending) return keys.length === 2;
+  return (keys.length === 2 || (keys.length === 3 && validRecovery(value.recovery)));
+};
 const emptyScope = (ownerId, bindingEpoch) => ({ ownerId, bindingEpoch, revisions: revisions(),
   pendingOperations: [], snapshotRequired: false, lastSyncAt: 0, lastError: null, migration: null,
-  pendingApplication: null, lastApplication: null });
+  pendingApplication: null, lastApplication: null, quarantinedOperations: [] });
+
+function normalizeMigrationArchive(saved) {
+  if (saved == null) return { schemaVersion: 1, imports: {} };
+  if (typeof saved === 'string') saved = JSON.parse(saved);
+  if (!record(saved) || Object.keys(saved).length !== 2 || saved.schemaVersion !== 1 || !record(saved.imports) ||
+      Object.keys(saved.imports).length > MAX_MIGRATION_ARCHIVES) return null;
+  const imports = {};
+  for (const importId of Object.keys(saved.imports)) {
+    const item = saved.imports[importId];
+    if (!validId(importId) || !record(item) || Object.keys(item).length !== 2 ||
+        typeof item.snapshotHash !== 'string' || !/^local-fnv1a32:[a-f0-9]{8}:\d+$/.test(item.snapshotHash) ||
+        !record(item.snapshot) || fingerprint(item.snapshot) !== item.snapshotHash) return null;
+    imports[importId] = { snapshotHash: item.snapshotHash, snapshot: clone(item.snapshot) };
+  }
+  return { schemaVersion: 1, imports };
+}
 
 function validProgress(payload) {
   return record(payload) && typeof payload.levelKey === 'string' && /^(0|[1-9]\d*):(0|[1-9]\d*)$/.test(payload.levelKey) &&
     integer(payload.completedAtClient) && (payload.elapsedMs === undefined || (Number.isFinite(payload.elapsedMs) && payload.elapsedMs > 0));
+}
+
+function validStage4Progress(type, payload) {
+  if (type === 'MAIN_LEVEL_COMPLETED') return record(payload) &&
+    typeof payload.levelKey === 'string' && /^(0|[1-9]\d*):(0|[1-9]\d*)$/.test(payload.levelKey) &&
+    Number.isSafeInteger(payload.elapsedMs) && payload.elapsedMs > 0;
+  return type === 'PROGRESS_LAST_PLAYED' && record(payload) &&
+    Number.isSafeInteger(payload.setIndex) && payload.setIndex >= 0 &&
+    Number.isSafeInteger(payload.levelIndex) && payload.levelIndex >= 0;
+}
+
+function validDaily(type, payload) {
+  if (!record(payload) || typeof payload.dateKey !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(payload.dateKey) ||
+      !validId(payload.dayId) || !Array.isArray(payload.levelIds) || payload.levelIds.length !== 2 ||
+      payload.levelIds[0] === payload.levelIds[1] || !payload.levelIds.every(validId)) return false;
+  if (type === 'DAILY_ENTRY_RECORDED') return validId(payload.entryKey) && payload.entryLimit === 3;
+  return type === 'DAILY_LEVEL_COMPLETED' && validId(payload.levelId) && [0, 1].includes(payload.levelIndex) &&
+    payload.levelCount === 2 && payload.levelId === payload.levelIds[payload.levelIndex] &&
+    Number.isSafeInteger(payload.elapsedMs) && payload.elapsedMs > 0 && integer(payload.completedAtClient);
 }
 
 function operation(input, ownerId, bindingEpoch, env = null) {
@@ -33,7 +98,12 @@ function operation(input, ownerId, bindingEpoch, env = null) {
       !record(input.payload) || !integer(input.occurredAtClient) ||
       input.ownerIdAtCreation !== ownerId || environment(input.environmentIdAtCreation) !== env || !validEpoch(ownerId, input.bindingEpochAtCreation) ||
       input.bindingEpochAtCreation > bindingEpoch ||
-      (input.domain === 'progress' && (input.type !== 'level_completed' || !validProgress(input.payload)))) return null;
+      !['progress', 'daily', 'entitlements'].includes(input.domain) ||
+      (input.domain === 'progress' && !((input.type === 'level_completed' && validProgress(input.payload)) ||
+        validStage4Progress(input.type, input.payload))) ||
+      (input.domain === 'daily' && !validDaily(input.type, input.payload)) ||
+      (input.domain === 'entitlements' && (input.type !== 'CLIENT_POLICY_SHARE_GRANTED' ||
+        !record(input.payload) || input.payload.rewardId !== 'theme:festival'))) return null;
   const payload = clone(input.payload);
   if (input.payloadHash !== fingerprint(payload)) return null;
   const result = { operationId: input.operationId, domain: input.domain, type: input.type,
@@ -63,15 +133,29 @@ function upgrade(saved) {
   return { schemaVersion: 2, installId: saved.installId, migrationId: saved.migrationId,
     boundUserId: saved.boundUserId || null, nextOperationSequence: saved.nextOperationSequence,
     activeOwnerId: ownerId, localOwnerId: ownerId, activationSequence: 0,
-    authorityMode: 'legacy-local', scopes: { [scopeKey(ownerId)]: scope },
+    authorityMode: 'legacy-local', domainAuthority: domainAuthority('legacy-local'), scopes: { [scopeKey(ownerId)]: scope },
     // Immutable recovery evidence only, never a sendable queue or live state.
     legacyBackup: clone(saved) };
 }
 
 function normalize(saved) {
+  if (record(saved) && saved.schemaVersion === 2 && !saved.domainAuthority &&
+      ['legacy-local', 'cloud-authoritative'].includes(saved.authorityMode)) {
+    // A historical global cloud-authoritative value cannot be silently
+    // downgraded. It remains fail-closed for deferred domains until a later
+    // product phase supplies their cloud implementations.
+    saved = Object.assign({}, saved, { domainAuthority: saved.authorityMode === 'cloud-authoritative'
+      ? legacyGlobalAuthority('cloud-authoritative') : domainAuthority('legacy-local') });
+  }
   if (!record(saved) || saved.schemaVersion !== 2 || !validId(saved.installId) || !validId(saved.migrationId) ||
       !validOwner(saved.activeOwnerId) || !validOwner(saved.localOwnerId) || !integer(saved.activationSequence) ||
-      !MODES.includes(saved.authorityMode) || !record(saved.scopes) ||
+      !MODES.includes(saved.authorityMode) || !record(saved.domainAuthority) ||
+      Object.keys(saved.domainAuthority).length !== DOMAINS.length ||
+      DOMAINS.some(domain => !MODES.includes(saved.domainAuthority[domain])) ||
+      CORE_DOMAINS.some(domain => saved.domainAuthority[domain] !== saved.authorityMode) ||
+      !((saved.domainAuthority['stamina'] === 'legacy-local' && saved.domainAuthority.preferences === 'legacy-local') ||
+        (saved.authorityMode === 'cloud-authoritative' && saved.domainAuthority['stamina'] === 'cloud-authoritative' &&
+          saved.domainAuthority.preferences === 'cloud-authoritative')) || !record(saved.scopes) ||
       (saved.boundUserId !== null && !validId(saved.boundUserId)) ||
       !validEnvironment(environment(saved.activeEnvironmentId)) || !validEnvironment(environment(saved.localEnvironmentId))) return null;
   const scopes = {}; const ids = new Set();
@@ -83,14 +167,20 @@ function normalize(saved) {
     if (record(scope) && saved.authorityMode === 'legacy-local' && scope.migration === null &&
         !Object.prototype.hasOwnProperty.call(scope, 'pendingApplication') &&
         !Object.prototype.hasOwnProperty.call(scope, 'lastApplication')) {
-      scope = Object.assign({}, scope, { pendingApplication: null, lastApplication: null });
+      scope = Object.assign({}, scope, { pendingApplication: null, lastApplication: null, quarantinedOperations: [] });
+    }
+    if (record(scope) && !Object.prototype.hasOwnProperty.call(scope, 'quarantinedOperations')) {
+      scope = Object.assign({}, scope, { quarantinedOperations: [] });
     }
     const env = scope && environment(scope.environmentId);
     if (!record(scope) || !validOwner(scope.ownerId) || !validEnvironment(env) ||
         (env !== null && !String(scope.ownerId).startsWith('player_')) || key !== scopeKey(scope.ownerId, env) ||
         !validEpoch(scope.ownerId, scope.bindingEpoch) || !validRevisions(scope.revisions) ||
         !Array.isArray(scope.pendingOperations) || !integer(scope.lastSyncAt) ||
-        typeof scope.snapshotRequired !== 'boolean' || (scope.lastError !== null && !validId(scope.lastError))) return null;
+        typeof scope.snapshotRequired !== 'boolean' || (scope.lastError !== null && !validId(scope.lastError)) ||
+        !Array.isArray(scope.quarantinedOperations) || scope.quarantinedOperations.length > 50) return null;
+    if (scope.quarantinedOperations.some(item => !record(item) || Object.keys(item).length !== 3 ||
+        !validId(item.operationId) || !validId(item.code) || !integer(item.quarantinedAt))) return null;
     const pending = [];
     for (const input of scope.pendingOperations) {
       const item = operation(input, scope.ownerId, scope.bindingEpoch, env);
@@ -98,14 +188,24 @@ function normalize(saved) {
       ids.add(item.operationId); pending.push(item);
     }
     const migration = scope.migration;
-    if (migration !== null && (!record(migration) || migration.state !== 'prepared' ||
+    if (migration !== null && (!record(migration) || !['prepared', 'uploading', 'finalized'].includes(migration.state) ||
         !validId(migration.importId) || typeof migration.snapshotHash !== 'string' ||
-        !/^local-fnv1a32:[a-f0-9]{8}:\d+$/.test(migration.snapshotHash) || migration.policyVersion !== 'LEGACY_PRIMARY_SNAPSHOT_V1')) return null;
-    for (const receipt of [scope.pendingApplication, scope.lastApplication]) {
-      if (receipt !== null && (!record(receipt) || Object.keys(receipt).length !== 2 ||
-          !validId(receipt.receiptId) || typeof receipt.fingerprint !== 'string' ||
-          !/^local-fnv1a32:[a-f0-9]{8}:\d+$/.test(receipt.fingerprint))) return null;
-    }
+        !/^local-fnv1a32:[a-f0-9]{8}:\d+$/.test(migration.snapshotHash) || migration.policyVersion !== 'LEGACY_PRIMARY_SNAPSHOT_V1' ||
+        (migration.prepareReceiptId !== undefined && !validId(migration.prepareReceiptId)) ||
+        (migration.role !== undefined && !['PRIMARY', 'SUPPLEMENTAL'].includes(migration.role)) ||
+        (Object.prototype.hasOwnProperty.call(migration, 'sourceOwnerId') !==
+          Object.prototype.hasOwnProperty.call(migration, 'sourceEnvironmentId')) ||
+        (Object.prototype.hasOwnProperty.call(migration, 'sourceOwnerId') &&
+          (!validOwner(migration.sourceOwnerId) || !validEnvironment(environment(migration.sourceEnvironmentId)))) ||
+        (migration.finalizedReceiptId !== undefined && !validId(migration.finalizedReceiptId)) ||
+        (migration.requiredChunks !== undefined && (!Array.isArray(migration.requiredChunks) || !migration.requiredChunks.every(validId))) ||
+        (migration.completedChunks !== undefined && (!Array.isArray(migration.completedChunks) || !migration.completedChunks.every(validId))))) return null;
+    const hasSealed = Object.prototype.hasOwnProperty.call(scope, 'sealed');
+    if (hasSealed && (scope.sealed !== true || !integer(scope.sealedAt) ||
+        !validId(scope.supersededByMigrationReceipt) ||
+        (scope.supersededByImportId !== undefined && !validId(scope.supersededByImportId)))) return null;
+    if (!validApplicationReceipt(scope.pendingApplication, true) ||
+        !validApplicationReceipt(scope.lastApplication, false)) return null;
     if (scope.readOnlyPhase !== undefined && (scope.readOnlyPhase !== true || env === null)) return null;
     if (scope.readOnlySummary !== undefined && (!record(scope.readOnlySummary) || !integer(scope.readOnlySummary.lastReadAt) ||
         !integer(scope.readOnlySummary.serverTimeMs) || !validRevisions(scope.readOnlySummary.revisions) ||
@@ -134,7 +234,7 @@ class SyncStore {
         state = { schemaVersion: 2, installId: opaqueId('ins'), migrationId: opaqueId('mig'),
           boundUserId: null, nextOperationSequence: 1, activeOwnerId: null, localOwnerId: null,
           activationSequence: 0, activeEnvironmentId: null, localEnvironmentId: null,
-          authorityMode: 'legacy-local', scopes: { guest: emptyScope(null, 0) }, legacyBackup: null };
+          authorityMode: 'legacy-local', domainAuthority: domainAuthority('legacy-local'), scopes: { guest: emptyScope(null, 0) }, legacyBackup: null };
       } else state = normalize(saved.schemaVersion === 1 ? upgrade(saved) : saved);
     } catch (error) {}
     this.blocked = !state;
@@ -143,7 +243,21 @@ class SyncStore {
       nextOperationSequence: null, activeOwnerId: null, localOwnerId: null, activationSequence: 0,
       activeEnvironmentId: null, localEnvironmentId: null,
       authorityMode: saved && saved.schemaVersion === 1 ? 'legacy-local' : 'migration-freeze',
+      domainAuthority: domainAuthority(saved && saved.schemaVersion === 1 ? 'legacy-local' : 'migration-freeze'),
       scopes: { guest: emptyScope(null, 0) } };
+    let archive;
+    try {
+      let stored;
+      if (typeof platform.readStorageResult === 'function') {
+        const read = platform.readStorageResult(MIGRATION_ARCHIVE_KEY);
+        if (!read || !read.ok || (read.found !== true && read.found !== false)) throw Error('archive-read-failed');
+        stored = read.found ? read.value : null;
+      } else stored = platform.getStorage(MIGRATION_ARCHIVE_KEY);
+      archive = normalizeMigrationArchive(stored);
+    } catch (error) {}
+    this.archiveBlocked = !archive;
+    this.migrationArchive = archive || { schemaVersion: 1, imports: {} };
+    this.inFlightOperationIds = new Set();
     this.installAliases();
     this.persisted = this.save();
   }
@@ -179,7 +293,9 @@ class SyncStore {
   ownsLocalState() { return !this.blocked && this.state.localOwnerId === this.state.activeOwnerId &&
     environment(this.state.localEnvironmentId) === environment(this.state.activeEnvironmentId); }
   isReadOnlyIdentityScope() { return !this.blocked && this.currentScope().readOnlyPhase === true; }
-  allowsLocalGameplay() { return this.ownsLocalState() || (this.isReadOnlyIdentityScope() && this.state.authorityMode === 'legacy-local'); }
+  authorityMode(domain) { return this.state.domainAuthority[domain || 'progress']; }
+  authorityModes() { return clone(this.state.domainAuthority); }
+  allowsLocalGameplay() { return this.ownsLocalState() || (this.isReadOnlyIdentityScope() && this.authorityMode('progress') === 'legacy-local'); }
   localContext() {
     const scope = this.scopeFor(this.state.localOwnerId, this.state.localEnvironmentId);
     return { ownerId: scope.ownerId, bindingEpoch: scope.bindingEpoch, environmentId: environment(this.state.localEnvironmentId),
@@ -188,6 +304,18 @@ class SyncStore {
   matchesLocal(token) {
     const local = this.localContext();
     return this.allowsLocalGameplay() && token && Object.keys(local).every(key => environment(local[key]) === environment(token[key]));
+  }
+  markOperationsInFlight(operationIds, token) {
+    if (!this.matches(token) || !Array.isArray(operationIds) || !operationIds.length ||
+        operationIds.some(id => !validId(id)) || new Set(operationIds).size !== operationIds.length) return false;
+    const pending = new Set(this.currentScope().pendingOperations.map(item => item.operationId));
+    if (operationIds.some(id => !pending.has(id) || this.inFlightOperationIds.has(id))) return false;
+    operationIds.forEach(id => this.inFlightOperationIds.add(id));
+    return true;
+  }
+  clearOperationsInFlight(operationIds) {
+    if (!Array.isArray(operationIds)) return;
+    operationIds.forEach(id => this.inFlightOperationIds.delete(id));
   }
   onScopeChanged(listener) {
     if (typeof listener !== 'function') return function () {};
@@ -198,6 +326,36 @@ class SyncStore {
   save() {
     if (this.blocked) return false;
     try { return this.platform.setStorage(STORAGE_KEY, clone(this.state)) === true; } catch (error) { return false; }
+  }
+  archiveMigrationSnapshot(importId, snapshotHash, snapshot) {
+    if (this.archiveBlocked || !validId(importId) || typeof snapshotHash !== 'string' ||
+        !/^local-fnv1a32:[a-f0-9]{8}:\d+$/.test(snapshotHash) || !record(snapshot)) {
+      return { ok: false, reason: this.archiveBlocked ? 'storage-blocked' : 'invalid-migration' };
+    }
+    let frozen;
+    try {
+      frozen = clone(snapshot);
+      if (fingerprint(frozen) !== snapshotHash) return { ok: false, reason: 'snapshot-changed' };
+    } catch (error) { return { ok: false, reason: 'invalid-migration' }; }
+    const existing = this.migrationArchive.imports[importId];
+    if (existing) return existing.snapshotHash === snapshotHash && canonical(existing.snapshot) === canonical(frozen)
+      ? { ok: true, alreadyArchived: true } : { ok: false, reason: 'migration-conflict' };
+    if (Object.keys(this.migrationArchive.imports).length >= MAX_MIGRATION_ARCHIVES) {
+      return { ok: false, reason: 'migration-archive-full' };
+    }
+    const candidate = clone(this.migrationArchive);
+    candidate.imports[importId] = { snapshotHash, snapshot: frozen };
+    try {
+      if (this.platform.setStorage(MIGRATION_ARCHIVE_KEY, candidate) !== true) return { ok: false, reason: 'persist-failed' };
+    } catch (error) { return { ok: false, reason: 'persist-failed' }; }
+    this.migrationArchive = candidate;
+    return { ok: true };
+  }
+  migrationSnapshot(importId, snapshotHash) {
+    if (this.archiveBlocked || !validId(importId)) return null;
+    const value = this.migrationArchive.imports[importId];
+    if (!value || value.snapshotHash !== snapshotHash) return null;
+    try { return freeze(clone(value.snapshot)); } catch (error) { return null; }
   }
   commit(candidate) {
     if (this.blocked) return false;
@@ -299,7 +457,15 @@ class SyncStore {
     if (!id) return { ok: false, reason: 'persist-failed' };
     candidateOperation.operationId = id;
     const candidate = clone(this.state);
-    candidate.scopes[scopeKey(token.ownerId, token.environmentId)].pendingOperations.push(candidateOperation);
+    const target = candidate.scopes[scopeKey(token.ownerId, token.environmentId)];
+    if (candidateOperation.domain === 'progress' && candidateOperation.type === 'PROGRESS_LAST_PLAYED') {
+      // Coalesce only unsent local intent and keep the newly allocated ID.
+      // An older in-flight ID may still be ACKed safely by server-side LWW.
+      target.pendingOperations = target.pendingOperations.filter(item =>
+        item.domain !== 'progress' || item.type !== 'PROGRESS_LAST_PLAYED' ||
+          this.inFlightOperationIds.has(item.operationId));
+    }
+    target.pendingOperations.push(candidateOperation);
     if (!this.commit(candidate)) { this.updateScope({ snapshotRequired: true }, token, undefined, local); return { ok: false, reason: 'persist-failed' }; }
     return { ok: true, operationId: id };
   }
@@ -328,6 +494,42 @@ class SyncStore {
         (this.state.authorityMode !== 'legacy-local' && mode === 'legacy-local')) return false;
     if (this.state.authorityMode === mode) return true;
     const candidate = clone(this.state); candidate.authorityMode = mode;
+    candidate.domainAuthority = nextCoreAuthority(mode, candidate.domainAuthority);
+    return this.commit(candidate);
+  }
+  recordServerMigration(input, token) {
+    if (!this.matches(token) || !this.isReadOnlyIdentityScope() || !record(input) ||
+        !validId(input.importId) || !validId(input.prepareReceiptId) ||
+        !['PRIMARY', 'SUPPLEMENTAL'].includes(input.role) || input.policyVersion !== 'LEGACY_PRIMARY_SNAPSHOT_V1' ||
+        typeof input.snapshotHash !== 'string' || !/^local-fnv1a32:[a-f0-9]{8}:\d+$/.test(input.snapshotHash) ||
+        !Array.isArray(input.requiredChunks) || !input.requiredChunks.every(validId) || !record(input.snapshot) ||
+        !Array.isArray(input.completedChunks) || !input.completedChunks.every(validId)) return { ok: false, reason: 'invalid-migration' };
+    const existing = this.currentScope().migration;
+    if (existing) {
+      if (existing.importId !== input.importId || existing.snapshotHash !== input.snapshotHash ||
+          existing.prepareReceiptId !== input.prepareReceiptId) return { ok: false, reason: 'migration-conflict' };
+      const archived = this.archiveMigrationSnapshot(input.importId, input.snapshotHash, input.snapshot);
+      return archived.ok ? { ok: true, migration: existing, alreadyPrepared: true } : archived;
+    }
+    const archived = this.archiveMigrationSnapshot(input.importId, input.snapshotHash, input.snapshot);
+    if (!archived.ok) return archived;
+    if (this.authorityMode('progress') !== 'legacy-local') return { ok: false, reason: 'authority-mismatch' };
+    const candidate = clone(this.state);
+    const migration = { state: 'prepared', importId: input.importId, snapshotHash: input.snapshotHash,
+      policyVersion: input.policyVersion, prepareReceiptId: input.prepareReceiptId, role: input.role,
+      requiredChunks: input.requiredChunks.slice(), completedChunks: input.completedChunks.slice(),
+      sourceOwnerId: candidate.localOwnerId, sourceEnvironmentId: environment(candidate.localEnvironmentId) };
+    candidate.scopes[scopeKey(token.ownerId, token.environmentId)].migration = migration;
+    candidate.authorityMode = 'migration-freeze'; candidate.domainAuthority = domainAuthority('migration-freeze');
+    return this.commit(candidate) ? { ok: true, migration: clone(migration) } : { ok: false, reason: 'persist-failed' };
+  }
+  markMigrationChunks(completedChunks, token) {
+    if (!this.matches(token) || !Array.isArray(completedChunks) || !completedChunks.every(validId)) return false;
+    const scope = this.currentScope();
+    if (!scope.migration || completedChunks.some(id => !scope.migration.requiredChunks.includes(id))) return false;
+    const candidate = clone(this.state); const migration = candidate.scopes[scopeKey(token.ownerId, token.environmentId)].migration;
+    migration.state = 'uploading';
+    migration.completedChunks = Array.from(new Set(migration.completedChunks.concat(completedChunks))).sort();
     return this.commit(candidate);
   }
   prepareMigration(input, token) {
@@ -343,12 +545,13 @@ class SyncStore {
     const candidate = clone(this.state);
     const migration = { state: 'prepared', importId, snapshotHash: input.snapshotHash, policyVersion: input.policyVersion };
     candidate.scopes[scopeKey(token.ownerId, token.environmentId)].migration = migration;
-    candidate.authorityMode = 'migration-freeze';
+    candidate.authorityMode = 'migration-freeze'; candidate.domainAuthority = domainAuthority('migration-freeze');
     return this.commit(candidate) ? { ok: true, migration: clone(migration) } : { ok: false, reason: 'persist-failed' };
   }
 
-  beginApplication(receipt, token) {
-    if (!this.matches(token) || !this.ownsLocalState()) return { ok: false, reason: 'account-mismatch' };
+  beginApplication(receipt, token, options) {
+    const adopting = options && options.adoptLocal === true;
+    if (!this.matches(token) || (!this.ownsLocalState() && !adopting)) return { ok: false, reason: 'account-mismatch' };
     const scope = this.currentScope();
     const prior = scope.pendingApplication || scope.lastApplication;
     if (prior && prior.receiptId === receipt.receiptId) {
@@ -357,16 +560,24 @@ class SyncStore {
     }
     if (scope.pendingApplication) return { ok: false, reason: 'application-pending' };
     if (!validId(receipt.receiptId) || typeof receipt.fingerprint !== 'string') return { ok: false, reason: 'invalid-receipt' };
+    const recovery = options && options.recovery;
+    if (!validRecovery(recovery)) return { ok: false, reason: 'invalid-recovery' };
     const candidate = clone(this.state);
-    candidate.scopes[scopeKey(token.ownerId, token.environmentId)].pendingApplication = clone(receipt);
+    candidate.scopes[scopeKey(token.ownerId, token.environmentId)].pendingApplication = Object.assign(clone(receipt),
+      { recovery: clone(recovery) });
     // Persist the recovery gate BEFORE any domain write. A crash cannot
     // restart in legacy-local and award money from partially applied progress.
     candidate.authorityMode = 'cloud-authoritative';
+    candidate.domainAuthority = nextCoreAuthority('cloud-authoritative', candidate.domainAuthority);
     return this.commit(candidate) ? { ok: true } : { ok: false, reason: 'persist-failed' };
   }
 
-  finishApplication(receipt, nextRevisions, ids, token) {
-    if (!this.matches(token) || !this.ownsLocalState() || !validRevisions(nextRevisions)) return false;
+  finishApplication(receipt, nextRevisions, ids, token, options) {
+    const adopting = options && options.adoptLocal === true;
+    const migrationReceiptId = options && options.migrationReceiptId;
+    const importId = options && options.importId;
+    if (!this.matches(token) || (!this.ownsLocalState() && !adopting) || !validRevisions(nextRevisions)) return false;
+    if (adopting && (!validId(migrationReceiptId) || (importId !== undefined && !validId(importId)))) return false;
     const scope = this.currentScope();
     if (!scope.pendingApplication || scope.pendingApplication.receiptId !== receipt.receiptId ||
         scope.pendingApplication.fingerprint !== receipt.fingerprint ||
@@ -376,7 +587,51 @@ class SyncStore {
     const candidate = clone(this.state);
     candidate.scopes[scopeKey(token.ownerId, token.environmentId)] = Object.assign(scope, { revisions: clone(nextRevisions),
       pendingOperations: scope.pendingOperations.filter(item => !accepted.has(item.operationId)),
-      pendingApplication: null, lastApplication: clone(receipt) });
+      pendingApplication: null, lastApplication: { receiptId: receipt.receiptId, fingerprint: receipt.fingerprint },
+      lastSyncAt: Date.now(), lastError: null });
+    if (adopting) {
+      const sourceKey = scopeKey(candidate.localOwnerId, candidate.localEnvironmentId);
+      const targetKey = scopeKey(token.ownerId, token.environmentId);
+      if (sourceKey !== targetKey) {
+        const source = candidate.scopes[sourceKey];
+        source.sealed = true; source.sealedAt = Date.now();
+        source.supersededByMigrationReceipt = migrationReceiptId;
+        if (importId !== undefined) source.supersededByImportId = importId;
+      }
+      candidate.localOwnerId = token.ownerId; candidate.localEnvironmentId = token.environmentId;
+      const target = candidate.scopes[targetKey];
+      delete target.readOnlyPhase; delete target.readOnlySummary;
+      if (target.migration && (importId === undefined || target.migration.importId === importId)) {
+        target.migration.state = 'finalized'; target.migration.finalizedReceiptId = migrationReceiptId;
+      }
+    }
+    candidate.authorityMode = 'cloud-authoritative';
+    candidate.domainAuthority = nextCoreAuthority('cloud-authoritative', candidate.domainAuthority);
+    return this.commit(candidate);
+  }
+
+  pendingRecovery(token) {
+    if (!this.matches(token)) return null;
+    const pending = this.currentScope().pendingApplication;
+    return pending && validRecovery(pending.recovery) ? clone(pending.recovery) : null;
+  }
+
+  quarantineOperations(results, token) {
+    if (!this.matches(token) || !Array.isArray(results)) return false;
+    const rejected = results.filter(item => record(item) && validId(item.operationId) && item.status === 'REJECTED' && validId(item.code));
+    if (!rejected.length) return true;
+    const scope = this.currentScope(); const rejectedIds = new Set(rejected.map(item => item.operationId));
+    const already = item => scope.quarantinedOperations.some(operation =>
+      operation.operationId === item.operationId && operation.code === item.code);
+    if (rejected.some(item => !scope.pendingOperations.some(operation => operation.operationId === item.operationId) && !already(item))) return false;
+    const fresh = rejected.filter(item => !already(item));
+    if (!fresh.length) return true;
+    const candidate = clone(this.state); const target = candidate.scopes[scopeKey(token.ownerId, token.environmentId)];
+    target.pendingOperations = target.pendingOperations.filter(item => !rejectedIds.has(item.operationId));
+    target.quarantinedOperations = target.quarantinedOperations.concat(fresh.map(item => ({
+      operationId: item.operationId, code: item.code, quarantinedAt: Date.now()
+    }))).slice(-50);
+    target.lastError = 'operation-rejected';
     return this.commit(candidate);
   }
 
@@ -393,7 +648,9 @@ class SyncStore {
 }
 
 SyncStore.STORAGE_KEY = STORAGE_KEY;
+SyncStore.MIGRATION_ARCHIVE_KEY = MIGRATION_ARCHIVE_KEY;
 SyncStore.opaqueId = opaqueId;
 SyncStore.legacyOwnerId = legacyOwnerId;
 SyncStore.DOMAINS = DOMAINS;
+SyncStore.CORE_DOMAINS = CORE_DOMAINS;
 module.exports = SyncStore;
