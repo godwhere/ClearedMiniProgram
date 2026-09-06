@@ -11,6 +11,8 @@ const input = { service: 'identity', action: 'identity.init', requestId: 'req_te
   protocolVersion: 1, payload: { installId: 'ins_test', clientVersion: '1.0.0',
     localBinding: { claimedPlayerId: null, bindingEpoch: 0, environmentId: 'test-fixture' } } };
 const configured = () => Object.assign({}, config, { enabled: true, env: 'test-fixture', identityEnabled: true, readEnabled: true, timeoutMs: 20 });
+const productionConfigured = () => Object.assign({}, configured(),
+  { env: 'production-fixture', testOnly: false, productionOnly: true });
 const envelope = extra => Object.assign({ ok: true, code: 'OK', requestId: input.requestId, data: {} }, extra);
 
 module.exports = async function run() {
@@ -55,6 +57,27 @@ module.exports = async function run() {
   }
   await thin.request(Object.assign({}, input, { service: 'playerState', action: 'state.read' }));
   assert.strictEqual(adapted.name, 'player-state-api'); assert.strictEqual(adapted.timeout, 20);
+
+  const releaseCalls = [];
+  const releasePlatform = { supportsCloud: () => true, initCloud: async () => ({ ok: true }),
+    getMiniProgramEnvironmentVersion: () => 'release',
+    callCloudFunction: async options => { releaseCalls.push(options); return { ok: true, result: envelope() }; } };
+  const releaseTransport = new Transport(releasePlatform, productionConfigured());
+  assert.strictEqual(releaseTransport.isConfigured(), true);
+  assert((await releaseTransport.request(input)).ok);
+  assert.strictEqual(releaseCalls[0].env, 'production-fixture');
+  assert.strictEqual((await new Transport(releasePlatform, configured()).request(input)).error.code, 'not-configured');
+  assert.strictEqual((await new Transport(spyPlatform, productionConfigured()).request(input)).error.code, 'not-configured');
+  const trialCalls = [];
+  const trialPlatform = { supportsCloud: () => true, initCloud: async () => ({ ok: true }),
+    getMiniProgramEnvironmentVersion: () => 'trial',
+    callCloudFunction: async options => { trialCalls.push(options); return { ok: true, result: envelope() }; } };
+  assert((await new Transport(trialPlatform, configured()).request(input)).ok);
+  assert.strictEqual(trialCalls.length, 1);
+  assert.strictEqual((await new Transport(releasePlatform, configured()).request(input)).error.code, 'not-configured');
+  for (const scope of [{ testOnly: false, productionOnly: false }, { testOnly: true, productionOnly: true }]) {
+    assert.strictEqual(new Transport(releasePlatform, Object.assign(productionConfigured(), scope)).isConfigured(), false);
+  }
   adapted = undefined;
   const migration = new Transport(spyPlatform, Object.assign(configured(), { migrationEnabled: true }));
   assert((await migration.request(Object.assign({}, input,

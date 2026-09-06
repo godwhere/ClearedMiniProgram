@@ -242,11 +242,38 @@ class ProgressSyncService {
 
   localCoreBlank() {
     return !!(this.progress && this.progress.isBlankCloudCore && this.progress.isBlankCloudCore() &&
-      this.services.daily && this.services.daily.isBlankCloudCore && this.services.daily.isBlankCloudCore() &&
+      this.localNonProgressBlank());
+  }
+
+  localNonProgressBlank() {
+    return !!(this.services.daily && this.services.daily.isBlankCloudCore && this.services.daily.isBlankCloudCore() &&
       this.services.rewards && this.services.rewards.isBlankCloudCore && this.services.rewards.isBlankCloudCore() &&
       (!this.services.economy || !this.services.economy.hasPendingPurchase ||
         !this.services.economy.hasPendingPurchase(this.auth.current())) &&
       this.store.currentScope().pendingOperations.length === 0);
+  }
+
+  canRestoreUnboundProgress(cloudProgress) {
+    // Entering a level is navigation, not an asset migration. An unbound
+    // device may also restore when every local clear/best is already covered
+    // by the cloud. Never import claims, discard new progress, or rebind an
+    // existing owner/environment through this shortcut. Full migration is
+    // still required for any uncovered progress or pending local operation.
+    // Explicit migration and identity-only test lanes retain their contracts.
+    if (this.auth.readOnlyPhase || this.api.transport.config.migrationEnabled === true ||
+        this.store.state.localOwnerId !== null || this.store.state.localEnvironmentId !== null ||
+        !this.localNonProgressBlank() || !this.progress || !this.progress.exportCloudSnapshot) return false;
+    const guest = this.store.scopeFor(null, null);
+    if (!guest || guest.pendingOperations.length) return false;
+    const local = this.progress.exportCloudSnapshot().levels;
+    const remote = cloudProgress && cloudProgress.levels;
+    return Object.keys(local).every(key => {
+      const value = local[key];
+      const covered = remote && Object.prototype.hasOwnProperty.call(remote, key) && remote[key];
+      return !!covered && (value.completed !== true || covered.completed === true) &&
+        (value.bestMs === undefined || (Number.isFinite(covered.bestMs) && covered.bestMs > 0 &&
+          covered.bestMs <= value.bestMs));
+    });
   }
 
   normalizeReceipt(data, current, value) {
@@ -284,16 +311,27 @@ class ProgressSyncService {
       }
     }
     const read = await this.cloudRequest(ApiClient.OPERATIONS.stateRead, current, scope, account,
-      { knownRevisions: this.store.currentScope().revisions });
+      { knownRevisions: this.store.currentScope().revisions, includeMutationAccess: true });
     if (!this.cloudMatches(current, scope, account)) return this.cloudFailed('account-mismatch', current, scope, account);
     if (!read.ok) return this.cloudFailed(read.error.code, current, scope, account);
     if (!ApiClient.validateStateEnvelope(read.data, current.environmentId) ||
         read.data.player.playerId !== current.ownerId || read.data.player.bindingEpoch !== current.bindingEpoch) {
       return this.cloudFailed('invalid-response', current, scope, account);
     }
+    if (read.data.data.mutationAllowed === false ||
+        (this.api.transport.config.productionOnly === true && read.data.data.mutationAllowed !== true)) {
+      // Older backends remain compatible with internal previews, but a public
+      // client cannot adopt cloud authority without an explicit admission read.
+      // Admission never changes ownership or discards an outbox/frozen import.
+      // Only an untouched local authority can continue local asset settlement.
+      const local = this.store.authorityMode('progress') === 'legacy-local' &&
+        this.store.allowsLocalGameplay() && !this.store.currentScope().migration;
+      this.status = local ? 'local-only' : 'cloud-paused';
+      return { ok: true, status: this.status, readOnlyPhase: true };
+    }
     if (read.data.data.hasCloudState === true) {
       if (!this.store.ownsLocalState()) {
-        if (!this.localCoreBlank()) {
+        if (!this.localCoreBlank() && !this.canRestoreUnboundProgress(read.data.data.changedDomains.progress)) {
           if (this.api.transport.config.migrationEnabled !== true) {
             this.status = 'migration-required'; return { ok: false, reason: 'migration-required' };
           }
@@ -481,8 +519,14 @@ class ProgressSyncService {
       { importId, migrationReceiptId: value.migrationReceiptId });
     if (!applied.ok) return this.cloudFailed(applied.reason, current, scope, account);
     if (this.auth.cloudReady) { this.auth.cloudReady.migrationState = 'complete'; this.auth.cloudReady.hasCloudState = true; }
-    this.status = 'cloud-synced'; return { ok: true, status: this.status, migrated: true,
-      role: value.role, conflicts: value.conflicts.slice(), localSnapshotPreserved: true };
+    // Finish all enabled domains during the first bootstrap, including a blank
+    // player's first save. Reuse the same durable stage-5 operations on retry.
+    const stage5 = this.ensureStage5Bootstrap(value.deferredDomains);
+    if (!stage5.ok) return this.cloudFailed(stage5.reason, current, this.store.context(),
+      this.accountGuard && this.accountGuard.capture());
+    const pushed = await this.pushCloud(current, this.store.context(), this.accountGuard && this.accountGuard.capture());
+    return Object.assign({}, pushed, { migrated: true, role: value.role,
+      conflicts: value.conflicts.slice(), localSnapshotPreserved: true });
   }
 
   async pushCloud(current, scope, account) {

@@ -4,6 +4,9 @@ const path = require('path');
 const vm = require('vm');
 const subpackageConfig = require('../src/config/subpackages.js');
 const skins = require('../src/skins/index.js');
+const dailyConfig = require('../src/config/daily.js');
+const cloudbaseInternal = require('../src/config/cloudbase.internal.js');
+const cloudbaseRelease = require('../src/config/cloudbase.release.js');
 const { isIgnored } = require('../scripts/check-package-budget.js');
 
 function run() {
@@ -16,6 +19,17 @@ function run() {
   // this imported project.
   assert.strictEqual(config.appid, 'wx7fb1a0811192cd97');
   assert.strictEqual(config.setting.compileHotReLoad, false);
+  assert.strictEqual(dailyConfig.debugUnlimitedEntries, false);
+  assert.strictEqual(cloudbaseInternal.enabled, true);
+  assert.strictEqual(cloudbaseInternal.env, 'cloudbase-d9gpluqt21ba89532');
+  assert.strictEqual(cloudbaseInternal.testOnly, true);
+  assert.strictEqual(cloudbaseInternal.productionOnly, false);
+  assert.strictEqual(typeof cloudbaseInternal.migrationEnabled, 'boolean');
+  assert.strictEqual(cloudbaseInternal.economyEnabled, true);
+  assert.strictEqual(cloudbaseRelease.enabled, false);
+  assert.strictEqual(cloudbaseRelease.env, 'cloudbase-d9gpluqt21ba89532');
+  assert.strictEqual(cloudbaseRelease.testOnly, false);
+  assert.strictEqual(cloudbaseRelease.productionOnly, true);
   assert.strictEqual(fs.existsSync(path.join(root, 'game.js')), true);
   assert.strictEqual(gameConfig.deviceOrientation, 'portrait');
   const packages = gameConfig.subpackages;
@@ -51,6 +65,8 @@ function run() {
     assert(!ignored(sheet), 'formal theme sheets must ship in their subpackage');
   });
   assert(!ignored('assets/icons/portal.png'));
+  assert(ignored('src/config/cloudbase.local.js'));
+  assert(!ignored('src/config/cloudbase.internal.js'));
   assert(ignored('assets/skins/animals/drafts/example.png'));
   ['docs/package-splitting.md', '.github/workflows/check.yml', 'AGENTS.md',
     '.gitattributes', '.gitignore'].forEach(file => assert(ignored(file), file));

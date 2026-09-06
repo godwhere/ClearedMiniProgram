@@ -1,7 +1,7 @@
-// Daily Challenge release switches. Keep the debug override explicit so it is
-// easy to turn off before publishing a production package.
+// Daily Challenge release switches. Repeated-entry testing must use an
+// explicit local fixture; checked-in builds always enforce the real limit.
 module.exports = {
   entryLimit: 3,
   timeZone: 'Asia/Shanghai',
-  debugUnlimitedEntries: true
+  debugUnlimitedEntries: false
 };

@@ -14,6 +14,7 @@ module.exports = {
   staminaEnabled: false,
   preferencesEnabled: false,
   testOnly: true,
+  productionOnly: false,
   functions: {
     identity: 'identity-api',
     playerState: 'player-state-api',

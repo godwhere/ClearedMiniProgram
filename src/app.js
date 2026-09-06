@@ -1242,7 +1242,7 @@ class ClearedApp {
           ['syncing', 'cloud-reading', 'migration-preparing', 'migration-uploading', 'migration-applying'].includes(sync.status)
           ? 'syncing'
           : ['synced', 'cloud-synced'].includes(sync.status) ? 'synced'
-            : sync.status === 'cloud-pending' ? 'pending'
+            : ['cloud-pending', 'cloud-paused'].includes(sync.status) ? 'pending'
               : ['error', 'storage-blocked', 'migration-snapshot-missing'].includes(sync.status) ? 'error' : 'local';
       return Object.assign(base, {
         accountStatus: this.auth && this.auth.readOnlyPhase ? 'local' : status,
@@ -2518,6 +2518,8 @@ class ClearedApp {
   }
 
   cloudAccountMessage(result) {
+    if (result && result.status === 'local-only') return '云同步尚未开放，继续本地游玩；存档保留在本机';
+    if (result && result.status === 'cloud-paused') return '云写入暂时关闭，云存档和待同步记录已保留';
     if (!result || result.ok !== true) {
       if (result && result.reason === 'account-mismatch') return '当前账号与本地存档绑定的账号不同';
       if (result && result.reason === 'migration-required') return '检测到本地存档，等待安全迁移';
@@ -2533,7 +2535,9 @@ class ClearedApp {
         ? `补充存档已合并，${result.conflicts.length}项冲突未导入；原本地存档已保留`
         : '补充存档已合并；原本地存档已保留';
     }
-    return '云存档已同步（体力和偏好保留在本机）';
+    return this.authorityMode(null, 'stamina') === 'cloud-authoritative' &&
+      this.authorityMode(null, 'preferences') === 'cloud-authoritative'
+      ? '云存档已同步' : '云存档已同步（体力和偏好保留在本机）';
   }
 
   retryAccountSync() {

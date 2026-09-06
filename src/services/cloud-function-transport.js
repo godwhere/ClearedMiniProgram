@@ -40,10 +40,20 @@ class CloudFunctionTransport {
   }
 
   isConfigured() {
+    const testOnly = this.config.testOnly === true;
+    const productionOnly = this.config.productionOnly === true;
     return this.config.enabled === true && typeof this.config.env === 'string' &&
-      /^[A-Za-z0-9_-]{1,128}$/.test(this.config.env) && this.config.testOnly === true &&
+      /^[A-Za-z0-9_-]{1,128}$/.test(this.config.env) && testOnly !== productionOnly &&
       ['identityEnabled', 'readEnabled', 'writeEnabled', 'migrationEnabled', 'economyEnabled',
         'staminaEnabled', 'preferencesEnabled'].every(key => typeof this.config[key] === 'boolean');
+  }
+
+  runtimeAllowed() {
+    if (!this.platform || typeof this.platform.getMiniProgramEnvironmentVersion !== 'function') return false;
+    const version = this.platform.getMiniProgramEnvironmentVersion();
+    return this.config.testOnly === true
+      ? ['develop', 'trial'].includes(version)
+      : this.config.productionOnly === true && version === 'release';
   }
 
   async request(input) {
@@ -69,8 +79,7 @@ class CloudFunctionTransport {
     try {
       if (!this.platform || typeof this.platform.supportsCloud !== 'function' ||
           !this.platform.supportsCloud()) return failure('not-supported');
-      if (typeof this.platform.getMiniProgramEnvironmentVersion !== 'function' ||
-          !['develop', 'trial'].includes(this.platform.getMiniProgramEnvironmentVersion())) return failure('not-configured');
+      if (!this.runtimeAllowed()) return failure('not-configured');
       // Lazy initialization cannot block local bootstrap. Concurrent requests
       // share initialization; a failed initialization may be retried later.
       if (!this.initialization) {

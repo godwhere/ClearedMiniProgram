@@ -76,7 +76,9 @@ function validateStateEnvelope(data, env) {
       !sameSet(data.data.completedDomains, data.player.completedDomains) ||
       !sameSet(data.data.deferredDomains, data.player.deferredDomains) ||
       !validDomains(data.data.changedDomains)) return false;
-  const keys = Object.keys(data.data);
+  if (Object.prototype.hasOwnProperty.call(data.data, 'mutationAllowed') &&
+      typeof data.data.mutationAllowed !== 'boolean') return false;
+  const keys = Object.keys(data.data).filter(key => key !== 'mutationAllowed');
   if (!data.data.hasCloudState) return keys.length === 5 &&
     ['changedDomains', 'hasCloudState', 'readOnlyPhase', 'completedDomains', 'deferredDomains'].every(key => keys.includes(key)) &&
     data.player.migrationState !== 'complete' &&
@@ -178,7 +180,13 @@ function cloudPayload(action, source) {
   if (action === 'identity.init') return { installId: source.installId, clientVersion: source.clientVersion,
     localBinding: source.localBinding && { claimedPlayerId: source.localBinding.claimedPlayerId,
       bindingEpoch: source.localBinding.bindingEpoch, environmentId: source.localBinding.environmentId } };
-  if (action === 'state.read') return Object.assign(binding, { knownRevisions: clone(source.knownRevisions) });
+  if (action === 'state.read') {
+    if (source.includeMutationAccess !== undefined) {
+      if (typeof source.includeMutationAccess !== 'boolean') return null;
+      binding.includeMutationAccess = source.includeMutationAccess;
+    }
+    return Object.assign(binding, { knownRevisions: clone(source.knownRevisions) });
+  }
   if (action === 'migration.prepare') return Object.assign(binding, { importId: source.importId,
     policyVersion: source.policyVersion, snapshotHash: source.snapshotHash, source: clone(source.source), summary: clone(source.summary) });
   if (action === 'migration.status') return Object.assign(binding, { importId: source.importId });

@@ -2,7 +2,7 @@
 
 > 设计记录：2026-08-31  
 > 需求状态：已确认每日两关、每日进入次数 3 次；本文是实现契约。  
-> 实现状态：每日两关、每日 3 次进入、镂空规则、独立存档和主页入口已接入；棋盘输入、提示与渲染已迁入共享架构，调试入口可无限进入，广告/分享增次、复活和货币仍未实现。
+> 实现状态：每日两关、每日 3 次进入、镂空规则、独立存档和主页入口已接入；棋盘输入、提示与渲染已迁入共享架构。阶段 6 已关闭 checked-in 的无限调试入口；广告/分享增次、复活和货币仍未实现。
 > 运行时：微信小游戏单 Canvas 链路 game.js → src/bootstrap.js → src/app.js → src/ui/canvas-renderer.js
 
 ## 1. 已确认的产品规则
@@ -15,7 +15,7 @@
   - 第 1 关：入门关，**3 列 × 3 行、2 种棋子（2 条线）**，目标是非常简单。
   - 第 2 关：极难关，**8 列 × 10 行**，允许配置镂空格，目标难度接近“羊了个羊”式的高门槛。
 - 每日默认最多进入 **3 次**。一次“进入”代表开始一轮每日挑战，完成第 1 关后进入第 2 关不再扣次数。
-- 调试阶段允许无限次进入，以便反复验证两关流程；该能力必须通过显式 debug 配置开启，不能改变正式模式的默认上限 3。
+- 自动化测试可显式注入无限次进入，以便反复验证两关流程；checked-in 运行配置不得开启，正式模式默认上限为 3。
 - 当前轮次离开后重新进入、结果页重玩，均视为再次进入；次数用尽后不能再开始。
 - 后续可通过广告、分享等方式增加进入次数，并增加“复活”按钮；本阶段只预留扩展接口，不接广告、分享、复活或货币。
 - 第 2 关通关后产生一次每日完成奖励资格。货币名称、数量、余额、兑换、皮肤解锁和其他消费逻辑暂不实现。
@@ -158,7 +158,7 @@ daily.levelIndex 只能是 0 或 1。每日轮次没有关卡列表、普通 nex
 ### 5.3 调试无限进入开关
 
 - App 选项名固定为 `dailyDebugUnlimited`；默认值为 `false`。
-- 当前 `src/config/daily.js` 的开发配置将 `debugUnlimitedEntries` 设为 `true`，由 `src/bootstrap.js` 注入 `dailyDebugUnlimited`，因此微信开发者工具中可反复进入；发布配置必须改回 `false`。
+- `src/config/daily.js` 的 `debugUnlimitedEntries` 已在阶段 6 设为 `false`；需要反复进入时由测试 fixture 显式注入，不通过正式运行配置放开。
 - debug 模式仍可记录 `entriesUsed/attempts`，但 `canEnter()` 不因该计数拒绝进入；不把 `Infinity` 写入 JSON 存档。
 - Renderer 在 debug 模式显示“次数不限”，不显示虚构的剩余数值。
 - debug 开关不增加货币、不触发广告、不改变普通进度，也不作为未来线上用户可控参数。
@@ -574,7 +574,7 @@ onDailyCompleted({
 - `src/ui/canvas-renderer.js` / `src/ui/board/board-renderer.js` / `interaction-map.js`：主页三按钮、普通/每日共用的 3×3/8×10 纯 ViewModel 棋盘、镂空视觉、难度/次数/轮次展示。
 - `src/bootstrap.js` / `src/config/daily.js`：注入每日 manifest、解答、时区和调试开关。
 
-开发入口当前将 `dailyDebugUnlimited` 设为 `true`；发布前必须显式关闭该开关，恢复每日 3 次限制。
+checked-in 入口当前将 `dailyDebugUnlimited` 设为 `false`，所有实际构建执行每日 3 次限制；自动化仍可显式注入无限模式。
 
 当前自动化回归命令为 `node tests/run.js`。示例日期表只覆盖当前开发验证日期；新增正式日期时必须按本契约补齐两个 level、解答和数据校验。
 

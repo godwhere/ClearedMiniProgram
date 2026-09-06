@@ -3,7 +3,7 @@
 工程使用微信小游戏原生 JavaScript + Canvas 2D，不依赖 Cocos、Unity、npm
 或网页运行环境。
 
-CloudBase 阶段 4 的迁移、同步、云经济与真实双设备验收已完成；阶段 5 的体力/偏好已在测试环境完成账号 A 的 iPhone/iPad 双向偏好、跨设备体力去重、冷启动和离线恢复验收。测试环境只允许账号 A 写入，账号 B 不在白名单；仓库默认和发布配置仍全部关闭。阶段 4 记录见 [测试手册](docs/cloudbase-phase-4-test-runbook.md)，当前状态见 [分阶段方案第 25 节](docs/cloudbase-integration-execution-plan.md)。
+CloudBase 阶段 4 的迁移、同步、云经济与真实双设备验收已完成；阶段 5 的体力/偏好已在账号 A 的 iPhone/iPad 完成双向偏好、跨设备体力去重、冷启动和离线恢复验收。管理员已确认复用 `cloudbase-d9gpluqt21ba89532` 作为唯一正式环境，不新建第二套 production 环境。阶段 6 已完成备份、管理员接受的离线恢复模拟、实际门禁回滚、A 内部写入回归及经授权的 B 手机空白建档/重进验收；正式 release 与百分比仍未开放，每日挑战调试无限次数已关闭。阶段 4 记录见 [测试手册](docs/cloudbase-phase-4-test-runbook.md)，当前状态见 [分阶段方案第 26 节](docs/cloudbase-integration-execution-plan.md)。
 
 现有内容：
 
@@ -28,7 +28,7 @@ CloudBase 阶段 4 的迁移、同步、云经济与真实双设备验收已完�
 - 主题入口、2×3 分页主题画廊，以及宝石、动物、水果、甜点、太空、海洋、春天、节日限定、音乐、交通工具十个非经典主题素材。
 - 回廊与消除特效选择场景，内置“无特效”和“逐渐消失”两种选择；运行时已将首页原主题按钮替换为回廊入口。
 - 回廊里的主题页、特效页使用更大的左箭头返回按钮，触摸区域为 56×56，点击返回回廊；
-- “高难关卡”入口与“每日挑战”：每日 2 关（3×3 入门、8×10 极难镂空），正式模式每日默认 3 次进入；开发入口可无限次调试。
+- “高难关卡”入口与“每日挑战”：每日 2 关（3×3 入门、8×10 极难镂空），当前所有 checked-in 构建均执行每日最多 3 次进入；无限次数只允许测试显式注入，不再由运行配置默认开启。
 - 开发者工具运行时全解锁：在微信开发者工具模拟器中可直接进入全部普通关卡，真机与发布包仍按顺序解锁；详见 [`docs/dev-tools.md`](docs/dev-tools.md)。
 
 主题（内部仍称 skin）的画廊、分页、资源协议与代码边界记录在
@@ -70,11 +70,19 @@ CloudBase 阶段 4 的迁移、同步、云经济与真实双设备验收已完�
 3. 工程已写入当前小游戏 AppID；若以后更换账号，只需更新 `project.config.json`。
 4. 导入后点击编译即可。
 
-### CloudBase 测试状态
+### CloudBase 单环境状态
 
-测试环境已完成阶段 5 真机验收：三个 Event 函数和 15 个拒绝客户端直读写的集合已部署。`player-state-api` 只允许账号 A 使用体力/偏好同步，迁移和经济购买关闭；账号 B 不在写白名单。Git 忽略的 develop/trial 阶段 5 开关保持用于该测试环境。
+唯一环境已完成阶段 5 真机验收：三个 Event 函数和 15 个拒绝客户端直读写的集合已部署。阶段 6 当前为后端 `internal`：`identity-api=closed`、`player-state-api=stage5`、`economy-api=economy`，私人白名单仍恰好只有账号 A；账号 B 不可写。客户端正式 release 配置继续全关，所以尚未公开启用云能力。
 
-CloudBase 本机配置只能通过 Git 忽略的 `src/config/cloudbase.local.js` 在 develop/trial 逐项开启；仓库默认和 release 始终全关。账号 A 的阶段 4 数据继续保留，不能清库或降回本地余额权威。阶段 5 已验证 `writeEnabled/staminaEnabled/preferencesEnabled` 的真实设备路径；离线体力冲突采用轻量的服务器结果覆盖策略，不建设复杂补偿系统。本结果不代表生产发布，执行边界见 [`docs/cloudbase-integration-execution-plan.md`](docs/cloudbase-integration-execution-plan.md)。
+CloudBase 本机配置只能通过 Git 忽略的 `src/config/cloudbase.local.js` 在 develop 逐项开启；该文件已从微信上传包精确排除。阶段 6 的预览包改用 checked-in 的 `src/config/cloudbase.internal.js`：微信标记为 trial 时直接选用；二维码预览被标记为 develop 且本机文件已被上传排除时也安全回退到该内部配置。Transport 在 `release` 再次拒绝这份 testOnly 配置。账号 A 的阶段 4/5 数据继续保留，不能清库或降回本地余额权威。离线体力冲突采用轻量的服务器结果覆盖策略，不建设复杂补偿系统。单环境选择不代表正式写入已公开开启，执行边界见 [`docs/cloudbase-integration-execution-plan.md`](docs/cloudbase-integration-execution-plan.md)。
+
+阶段 6 新增 checked-in 的 `src/config/cloudbase.release.js`：只在微信 `release` 运行域读取，环境固定为 `cloudbase-d9gpluqt21ba89532` 且所有开关关闭。发布前运行 `node scripts/check-release-readiness.js --mode closed`，它会同时核对 trial/release 运行域、无限调试、非批准环境、本机 override 入包以及广告位/开关不匹配；当前 closed 预检已通过。管理员已豁免费用告警并接受离线恢复模拟，后端内部档已开启；release 仍等待最后真机验收后再单独调整。
+
+账号 A 回传的真机调试日志已确认：`develop` 正确回退 internal，身份与云读取成功；本地尚未归属、只有普通进度非空，旧判断因此进入 `migration-required`。现已简化恢复条件：非只读且迁移关闭时，未归属设备仅有进入位置、或本地通关/最佳成绩已被云端完整覆盖，可以直接恢复现有云存档；恢复后的继续位置以云端为准。新增进度、更好成绩、每日/资产数据、购买或待同步操作仍受保护，不通过清存档或放开迁移解决。用户已确认修复后账号 A 真机调试及移除探针后的普通预览均显示“已同步”，本次预览同步故障已验收；release 仍全关。证据与验收范围见 [`预览同步验收记录`](docs/cloudbase-preview-diagnostics.md)。
+
+阶段 6 第 3 项已补齐源码：客户端每次同步先读取服务端放行结果；未放行且仍持有本地权威时继续本地游玩，已有云档或冻结迁移则保留绑定/队列并显示待同步。获准新玩家复用一次性迁移建档，并在同次同步补齐体力和偏好。正式包缺少明确放行结果时不接管存档，内部预览兼容旧后端。后端新增稳定百分比与优先排除名单；A 已确认新版客户端普通预览通关至 12/92、4700、体力 7 且重进保持。2026-09-06 随后经授权更新三个后端函数，仍按原内部档只放行 A，部署前后 149 条数据一致，20 类审计无违规；更新后的原生同步待手机回归。未上传或开放 release/百分比，不得清理账号 A 或操作账号 B 来测试新玩家。
+
+最新测试状态（覆盖上文历史范围）：A 原生写入与重进回归通过（12/92、4700、体力7）；B 经授权重置测试档后，手机空白建档及退出重进通过（0/92、0、体力5且已同步）。云端确认只有一次导入、两次体力/偏好补建，无重复发奖。2026-09-07 00:29已完成收口：仅A可写，状态 `stage5`、经济 `economy`，内部 `migrationEnabled:false`，release/百分比仍关闭。线上Active/变量/共享包匹配，158文档与首建档备份一致，A/B数据保留、20类不变量全0。B随后显示待同步属于测试权限收回，不能清档或回退本地资产来修复。内部真机验收已收尾，正式灰度/发布及观察尚未开始。
 
 项目根目录已经包含 `game.js`、`game.json` 和 `project.config.json`，其
 `compileType` 为 `game`，不需要运行构建命令。旧小程序页面仍保留作为迁移参考，

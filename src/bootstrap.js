@@ -29,6 +29,8 @@ const EngagementService = require('./services/engagement-service.js');
 const AdsService = require('./services/ads-service.js');
 const backendConfig = require('./config/backend.js');
 const cloudbaseConfig = require('./config/cloudbase.js');
+const cloudbaseInternalConfig = require('./config/cloudbase.internal.js');
+const cloudbaseReleaseConfig = require('./config/cloudbase.release.js');
 const CloudFunctionTransport = require('./services/cloud-function-transport.js');
 const engagementConfig = require('./config/engagement.js');
 const ProfileService = require('./services/profile-service.js');
@@ -38,18 +40,38 @@ const HintAccessService = require('./services/hint-access-service.js');
 const RewardUnlockService = require('./services/reward-unlock-service.js');
 const rewardConfig = require('./config/rewards.js');
 
-function start() {
-  const platform = new WechatPlatform();
-  let cloudConfig = cloudbaseConfig;
-  const environmentVersion = platform.getMiniProgramEnvironmentVersion();
-  const acceptsLocalTestConfig = ['develop', 'trial'].includes(environmentVersion);
-  if (acceptsLocalTestConfig) {
+function cloudConfigForEnvironment(environmentVersion, loadLocalConfig) {
+  if (environmentVersion === 'release') {
+    // A formal package never reads the ignored test override. The checked-in
+    // release lane remains disabled until Stage 6 production gates are met.
+    return Object.assign({}, cloudbaseConfig, cloudbaseReleaseConfig);
+  }
+  if (environmentVersion === 'trial') {
+    // Uploaded previews cannot contain the ignored developer override. The
+    // checked-in internal lane is trial-only and remains server allowlisted.
+    return Object.assign({}, cloudbaseConfig, cloudbaseInternalConfig);
+  }
+  if (environmentVersion === 'develop') {
     try {
       // Keep a literal path so DevTools' unused-file filter includes it.
-      // Missing/invalid local overrides are caught and keep safe defaults.
-      cloudConfig = Object.assign({}, cloudbaseConfig, require('./config/cloudbase.local.js'));
-    } catch (error) {}
+      // Missing/invalid local overrides are caught below.
+      const local = loadLocalConfig ? loadLocalConfig() : require('./config/cloudbase.local.js');
+      return Object.assign({}, cloudbaseConfig, local);
+    } catch (error) {
+      // A QR preview may report develop even though ignored local files were
+      // removed during upload. In that case use the same server-allowlisted
+      // internal lane as trial; release can never reach this branch.
+      return Object.assign({}, cloudbaseConfig, cloudbaseInternalConfig);
+    }
   }
+  return cloudbaseConfig;
+}
+
+function start() {
+  const platform = new WechatPlatform();
+  const environmentVersion = platform.getMiniProgramEnvironmentVersion();
+  const isDeveloperRuntime = ['develop', 'trial'].includes(environmentVersion);
+  const cloudConfig = cloudConfigForEnvironment(environmentVersion);
   const subpackages = new SubpackageService(platform, subpackageConfig);
   const progress = new ProgressStore(platform);
   const stamina = new StaminaService(platform, staminaConfig);
@@ -110,12 +132,9 @@ function start() {
     // opens the corridor. `home:themes` remains a compatibility action.
     homeMigration: true,
     dailyEntryLimit: dailyConfig.entryLimit,
-    // Development builds intentionally bypass the daily entry budget so the
-    // two challenge levels can be exercised repeatedly. Set to false for a
-    // production package.
     dailyTimeZone: dailyConfig.timeZone,
     dailyDebugUnlimited: dailyConfig.debugUnlimitedEntries === true,
-    dailyTestDateKey: acceptsLocalTestConfig && typeof cloudConfig.dailyTestDateKey === 'string'
+    dailyTestDateKey: isDeveloperRuntime && typeof cloudConfig.dailyTestDateKey === 'string'
       ? cloudConfig.dailyTestDateKey : ''
   });
   preferences.bind({ skins: app.skins, clearEffects: app.clearEffects, audio: app.audio,
@@ -132,4 +151,4 @@ function start() {
   return app;
 }
 
-module.exports = { start };
+module.exports = { cloudConfigForEnvironment, start };

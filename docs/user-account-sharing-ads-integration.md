@@ -2547,7 +2547,7 @@ POST  /v1/events:batch
 
 独立后端需实现 code2Session、AppSecret 管理、内部用户和 session、进度 revision/迁移/operation 去重、资料校验、分享意图与归因防自邀/活动限制、奖励唯一 ledger 及事务、每日 entitlement 查询、事件 ACK 去重、删除用户/撤销 session、合法 HTTPS 域名、监控和限流。当前仓库未创建这些服务器实现或声称其已验证。
 
-真实广告位、隐私后台声明、分享文案审核、体验/生产环境隔离及上传验收尚未执行。保留原有 `daily.debugUnlimitedEntries=true` 开发设置；发布负责人仍需按既有发布要求关闭它。在线能力需按第 26 节顺序启用，当前全部关闭。
+真实广告位、隐私后台声明和分享文案审核尚未执行。阶段 6 已将 `daily.debugUnlimitedEntries` 关闭，并建立 develop 本机配置、trial 内部配置与 release 正式配置的运行域隔离；唯一环境已经批准，trial 只对账号 A 开放，release 配置仍全部关闭。在线能力需按执行方案第 26 节顺序启用。
 
 ### 有意保留的范围
 
