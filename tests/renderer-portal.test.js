@@ -21,7 +21,7 @@ function createMockContext() {
     'drawImage', 'fillText', 'strokeRect'
   ].forEach(method => {
     context[method] = function (...args) {
-      calls.push({ method, args });
+      calls.push({ method, args, strokeStyle: this.strokeStyle });
     };
   });
   return context;
@@ -497,7 +497,10 @@ function run() {
     drawBlockedCell() {},
     text() {},
     renderClearAnimation() { order.push('clear'); },
-    portalOverlay: { draw() { order.push('portal'); } }
+    portalOverlay: { draw(portal, board, layout, gap, now, palette) {
+      order.push('portal');
+      assert.deepStrictEqual(palette, ['#f00'], 'portal frames receive the board palette');
+    } }
   });
   orderedBoard.drawCells = () => { order.push('cells'); };
   orderedBoard.drawHintPath = () => { order.push('hint'); };
@@ -606,6 +609,20 @@ function run() {
   overlay.draw(readyPortal, overlayBoard, overlayLayout, 3, 100);
   const normalPortalRects = overlayImageCalls.map(call => call[1]);
   assert.strictEqual(normalPortalRects.length, 2);
+  [32, 40, 64].forEach(cell => {
+    overlayImageCalls.length = 0;
+    const layout = Object.assign({}, overlayLayout, { cell });
+    overlay.draw(readyPortal, overlayBoard, layout, 3, 100);
+    overlayImageCalls.forEach((call, index) => {
+      const rect = call[1];
+      const cellIndex = [21, 2][index];
+      assert.strictEqual(rect.w, (cell - 6 - 4) * 1.25,
+        'portal images grow by 25% across board sizes');
+      assert.strictEqual(rect.h, rect.w);
+      assert.strictEqual(rect.x + rect.w / 2, (cellIndex % layout.cols + 0.5) * cell);
+      assert.strictEqual(rect.y + rect.h / 2, (Math.floor(cellIndex / layout.cols) + 0.5) * cell);
+    });
+  });
 
   overlayContext.calls.length = 0;
   overlayImageCalls.length = 0;
@@ -618,10 +635,10 @@ function run() {
     expectedExit: null,
     lockedEntry: 21
   });
-  overlay.draw(lockedPortal, overlayBoard, overlayLayout, 3, 100);
+  overlay.draw(lockedPortal, selectedBoard([21]), overlayLayout, 3, 100);
   const lockedPortalRects = overlayImageCalls.map(call => call[1]);
-  assert.strictEqual(ringCalls.length, 1,
-    'PORTAL_LOCKED draws exactly one selected-entry highlight');
+  assert.strictEqual(ringCalls.length, 2,
+    'PORTAL_LOCKED draws the selected-entry highlight and its path frame');
   assert(lockedPortalRects[0].w > normalPortalRects[0].w,
     'the locked entry portal grows while selected');
   assert.strictEqual(lockedPortalRects[1].w, normalPortalRects[1].w,
@@ -635,6 +652,73 @@ function run() {
     'the locked entry receives a filled cyan selection halo');
   assert(overlayContext.calls.some(call => call.method === 'stroke'),
     'the locked entry receives a visible selection outline');
+
+  const pathPalette = ['#a12345', '#12ab34'];
+  function pathFrames(portalState, boardState, time) {
+    overlayContext.calls.length = 0;
+    overlay.draw(portalState, boardState, overlayLayout, 3, time, pathPalette);
+    return overlayContext.calls.filter(call => call.method === 'stroke')
+      .map(call => call.strokeStyle);
+  }
+  function selectedBoard(indices) {
+    return deepFreeze({
+      cells: overlayBoard.cells.map(cell => Object.assign({}, cell, {
+        selected: indices.includes(cell.index)
+      })),
+      selection: { lineIndex: 1 },
+      clearAnimation: null
+    });
+  }
+  assert.deepStrictEqual(pathFrames(readyPortal, overlayBoard, 100), []);
+  assert.deepStrictEqual(pathFrames(lockedPortal, selectedBoard([21]), 100),
+    ['#00e5ff', pathPalette[1]], 'locked entry retains its halo and gains its path color');
+  const waitingPathPortal = Object.assign({}, readyPortal, {
+    phase: 'PORTAL_WAIT', expectedExits: [2]
+  });
+  assert.deepStrictEqual(pathFrames(waitingPathPortal, selectedBoard([21]), 100),
+    [pathPalette[1], '#ffeb3b'], 'candidate exits stay yellow rather than taking path color');
+  assert.deepStrictEqual(pathFrames(readyPortal, selectedBoard([21, 2]), 100),
+    [pathPalette[1], pathPalette[1]], 'entry and chosen exit share the actual path color');
+  assert.deepStrictEqual(pathFrames(readyPortal, selectedBoard([]), 100), [],
+    'rollback or cancellation removes frames without cached visual state');
+  const clearingPathBoard = deepFreeze({
+    cells: overlayBoard.cells.map(cell => Object.assign({}, cell, {
+      owner: [21, 2].includes(cell.index) ? 0 : -1
+    })),
+    clearAnimation: { type: 'fade', cells: [21, 2], startedAt: 100, durationMs: 300 }
+  });
+  assert.deepStrictEqual(pathFrames(readyPortal, clearingPathBoard, 150),
+    [pathPalette[0], pathPalette[0]], 'clearing frames use the completed owner color');
+  assert.deepStrictEqual(pathFrames(readyPortal, clearingPathBoard, 400), [],
+    'frames disappear with the portal icons at the end of clearing');
+  assert.deepStrictEqual(pathFrames(readyPortal, Object.assign({}, clearingPathBoard, {
+    clearAnimation: { type: 'none', cells: [21, 2], startedAt: 100 }
+  }), 100), [], 'no-effect completion leaves no frame');
+
+  function portalRects(phase, boardState, time) {
+    overlayImageCalls.length = 0;
+    overlay.draw(Object.assign({}, readyPortal, { phase, lockedEntry: 21 }),
+      boardState, overlayLayout, 3, time, pathPalette);
+    return overlayImageCalls.map(call => call[1]);
+  }
+  ['PORTAL_LOCKED', 'PORTAL_WAIT', 'PORTAL_CONTINUE', 'DRAWING'].forEach(phase => {
+    const indices = phase === 'PORTAL_LOCKED' || phase === 'PORTAL_WAIT' ? [21] : [21, 2];
+    const low = portalRects(phase, selectedBoard(indices), 0);
+    const high = portalRects(phase, selectedBoard(indices), 80 * Math.PI);
+    low.forEach((rect, index) => {
+      if (indices.includes([21, 2][index])) {
+        assert(high[index].w > rect.w, phase + ': every selected portal keeps breathing');
+        assert.strictEqual(high[index].x + high[index].w / 2, rect.x + rect.w / 2);
+        assert.strictEqual(high[index].y + high[index].h / 2, rect.y + rect.h / 2);
+      } else {
+        assert.deepStrictEqual(high[index], rect, 'unselected candidate icon does not pulse');
+      }
+    });
+  });
+  assert.deepStrictEqual(portalRects('READY', selectedBoard([]), 0),
+    portalRects('READY', selectedBoard([]), 80 * Math.PI), 'cancellation stops icon breathing');
+  assert.deepStrictEqual(portalRects('READY', clearingPathBoard, 100),
+    portalRects('READY', clearingPathBoard, 180), 'completed portals do not keep selection breathing');
 
   // 9. Every mainline title is numeric, regardless of mechanic or metadata name.
   const ordinaryPortalModel = {

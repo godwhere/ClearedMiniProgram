@@ -24,8 +24,8 @@ function run() {
     'the legacy flat solution table contains exactly 58 non-Portal level solutions');
   assert(solutions.ByLevelId && typeof solutions.ByLevelId === 'object',
     'mixed chapter ordinary solutions must expose a stable-ID table');
-  assert.strictEqual(Object.keys(solutions.ByLevelId).length, 16,
-    'the mixed chapter must publish exactly 16 additional ordinary solutions');
+  assert.strictEqual(Object.keys(solutions.ByLevelId).length, 19,
+    'the mixed chapter must publish exactly 19 additional ordinary solutions');
 
   const ordinaryIds = new Set();
   let ordinaryCount = 0;
@@ -83,8 +83,8 @@ function run() {
         `${set.Name}/${game.Name} official solution must win`);
     });
   });
-  assert.strictEqual(ordinaryCount, 74,
-    'the 92-level catalog must contain 74 ordinary and 18 Portal levels');
+  assert.strictEqual(ordinaryCount, 77,
+    'the 97-level catalog must contain 77 ordinary and 20 Portal levels');
   assert.deepStrictEqual(Array.from(ordinaryIds).sort(), Object.keys(solutions.ByLevelId).sort(),
     'the ID-indexed ordinary table must not contain stale or Portal-only entries');
 }

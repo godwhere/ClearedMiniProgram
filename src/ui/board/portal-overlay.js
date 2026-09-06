@@ -90,7 +90,7 @@ class PortalOverlay {
     ctx.restore();
   }
 
-  draw(portal, board, layout, gap, now) {
+  draw(portal, board, layout, gap, now, palette) {
     if (!portal || !Array.isArray(portal.portals) || !portal.portals.length || !layout) return;
     const ctx = this.getContext();
     if (!ctx) return;
@@ -109,6 +109,8 @@ class PortalOverlay {
     const clearingCells = new Set(clearActive && animation && Array.isArray(animation.cells)
       ? animation.cells : []);
     const cells = board && Array.isArray(board.cells) ? board.cells : [];
+    const selection = board && board.selection || {};
+    const colors = Array.isArray(palette) && palette.length ? palette : ['#ffffff'];
 
     portal.portals.forEach(definition => {
       portalCells(definition).forEach(cellIndex => {
@@ -119,6 +121,10 @@ class PortalOverlay {
         const owned = !!(state && Number(state.owner) >= 0);
         const clearingOwned = owned && clearingCells.has(cellIndex);
         if (owned && !clearingOwned) return;
+        const pathLine = clearingOwned ? state.owner
+          : (state && state.selected ? selection.lineIndex : -1);
+        const pathColor = Number.isInteger(pathLine) && pathLine >= 0
+          ? colors[pathLine % colors.length] || '#ffffff' : null;
 
         const col = cellIndex % layout.cols;
         const row = Math.floor(cellIndex / layout.cols);
@@ -126,7 +132,9 @@ class PortalOverlay {
         const y = layout.y + row * layout.cell + gap;
         const size = Math.max(1, layout.cell - gap * 2);
         const lockedSelected = isLocked && cellIndex === lockedEntry;
-        const lockedBreath = lockedSelected
+        const pathSelected = !owned && state && state.selected === true &&
+          Number.isInteger(selection.lineIndex) && selection.lineIndex >= 0;
+        const selectedBreath = pathSelected
           ? 0.5 + Math.sin(now / 160) * 0.5
           : 0;
 
@@ -141,18 +149,19 @@ class PortalOverlay {
           ctx.save();
           this.roundedRect(x - 2, y - 2, size + 4, size + 4, 7);
           ctx.fillStyle = '#00e5ff';
-          ctx.globalAlpha = 0.14 + lockedBreath * 0.12;
+          ctx.globalAlpha = 0.14 + selectedBreath * 0.12;
           ctx.fill();
           ctx.strokeStyle = '#00e5ff';
-          ctx.lineWidth = Math.max(2.5, 3 + lockedBreath * 1.5);
-          ctx.globalAlpha = 0.88 + lockedBreath * 0.12;
+          ctx.lineWidth = Math.max(2.5, 3 + selectedBreath * 1.5);
+          ctx.globalAlpha = 0.88 + selectedBreath * 0.12;
           ctx.stroke();
           ctx.restore();
         }
 
-        const iconScale = lockedSelected ? 1.1 + lockedBreath * 0.06 : 1;
+        const iconScale = pathSelected ? 1.1 + selectedBreath * 0.06 : 1;
         if (image) {
-          const iconSize = Math.max(1, (size - 4) * iconScale);
+          // Compensate for the portal PNG's transparent margin; keep its center fixed.
+          const iconSize = Math.max(1, (size - 4) * 1.25 * iconScale);
           this.drawImageContain(image, {
             x: x + size / 2 - iconSize / 2,
             y: y + size / 2 - iconSize / 2,
@@ -169,7 +178,19 @@ class PortalOverlay {
           );
         }
 
-        if (isWaiting && expectedExits.has(cellIndex)) {
+        // Only actual path cells receive a path-colored frame, never candidate exits.
+        if (pathColor) {
+          ctx.save();
+          ctx.strokeStyle = pathColor;
+          ctx.lineWidth = Math.max(2, size * 0.055);
+          ctx.globalAlpha = 1;
+          const inset = ctx.lineWidth / 2;
+          this.roundedRect(x + inset, y + inset, size - inset * 2, size - inset * 2, 6);
+          ctx.stroke();
+          ctx.restore();
+        }
+
+        if (isWaiting && expectedExits.has(cellIndex) && !pathColor) {
           const breath = 0.5 + Math.sin(now / 160) * 0.5;
           ctx.save();
           ctx.strokeStyle = '#ffeb3b';

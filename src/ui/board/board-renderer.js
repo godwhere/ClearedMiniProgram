@@ -65,7 +65,7 @@ class BoardRenderer {
     if (board.hint && (board.hintUntil === undefined || now < board.hintUntil)) {
       this.drawHintPaths(board.hint, palette, now, layout, portalCells);
     }
-    if (this.portalOverlay) this.portalOverlay.draw(portal, board, layout, gap, now);
+    if (this.portalOverlay) this.portalOverlay.draw(portal, board, layout, gap, now, palette);
     return gap;
   }
 

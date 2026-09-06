@@ -62,7 +62,7 @@ Portal v1 的 `{ Id, A, B }` 固定门对、`PairId` 解答和“两个门格均
 ### 3.1 进入与普通拖动
 
 1. 关卡必须显式声明 `Mechanic: 'portal'`、已支持的 `PortalRulesVersion` 和合法 `Portals`。
-2. 门格只绘制 [`assets/icons/portal.png`](../assets/icons/portal.png) 或安全矢量回退，不叠加主题棋子。
+2. 门格只绘制 [`assets/icons/portal.png`](../assets/icons/portal.png) 或安全矢量回退，不叠加主题棋子。图片以格子中心绘制，在原有绘制尺寸上放大 25% 以补偿素材透明边距；选中呼吸缩放继续叠加，矢量回退尺寸不变。
 3. 棋盘不显示 `P1` 或任何内部网络编号；当前单网络无需配对标签。
 4. 初始 `READY` 与进门前 `DRAWING` 统一显示“路径会通过传送门抵达另一个传送门”；不再读取逐关 `Instructions`。到达入口后切换第二句，出口续接后隐藏。
 5. 玩家只能从普通同色端点起笔；门格不是起笔端点。
@@ -252,8 +252,9 @@ v1 只允许一个固定双向门对，解答可继续使用 `PairId`，且两�
 
 - `BoardRenderer` 固定按“棋盘格 → 清除动画 → 路径提示 → Portal overlay”绘制；
 - `PortalOverlay` 只绘门图、资源回退、LOCKED 入口放大/选中高亮和状态光圈，不绘 `P1` 或其他内部 ID；
+- 已参与当前路径的门格在格内绘制对应路径颜色的细框，入口与实际选中的出口同色，保留门图；颜色与棋盘共用 palette。候选出口仍为黄色提示，LOCKED 青色外圈保留。边框消费 ViewModel 的 selected/selection 和清除期间的 owner，不缓存归属；撤销、取消同步恢复，清除结束时与门图一起消失，无特效时立即消失。
 - `src/ui/portal-instructions.js` 是两句提示的唯一来源；App、初始答案预览与 Renderer 兼容路径均复用它。READY/进门前使用第一句，LOCKED/WAIT 使用第二句，CONTINUE/出口后的 DRAWING 隐藏；
-- 全部主线游玩标题统一显示“当前关卡 / 总关卡”（如 `27 / 92`）；不显示名称或 `Instructions`，计时保持独立；
+- 全部主线游玩标题统一显示“当前关卡 / 总关卡”（如 `27 / 97`）；不显示名称或 `Instructions`，计时保持独立；
 - 选关页只显示连续关卡数字，不在 Portal 关卡数字格上叠加机制徽标；
 - 提示使用轻微呼吸效果，出现和切换时不得改变棋盘布局；
 - Renderer 只消费纯 ViewModel，不自行推断规则或注册独立 Portal hit；
@@ -261,7 +262,7 @@ v1 只允许一个固定双向门对，解答可继续使用 `PairId`，且两�
 
 ## 8. 主线入口与测试内容
 
-当前 18 个 Portal 题由 4 个里程碑教学题和 14 个高阶混合章节题组成，全部通过主线选关进入。
+当前 20 个 Portal 题由 4 个里程碑教学题和 16 个高阶混合章节题组成，全部通过主线选关进入。
 独立试玩内容已退役，旧隐藏入口不再执行。测试直接使用主线题面；Blocked、三门网络和
 v1 兼容继续由不进入小游戏包的测试 fixture 验证，不能为测试恢复生产试玩入口。
 
@@ -274,8 +275,8 @@ v1 兼容继续由不进入小游戏包的测试 fixture 验证，不能为测�
 - `tests/hint-service-portal.test.js`：分段解、多出口搜索、等待态和无解；
 - `tests/app-portal.test.js`：两句提示切换、无 Portal 阶段震动、主线结算与导航、旧试玩入口不再执行；
 - `tests/renderer-portal.test.js`：提示位置/呼吸、棋盘不跳位、纯数字标题、选关页不叠加 Portal 徽标、LOCKED 入口居中放大/选中高亮、无 P1、多出口高亮和资源回退；
-- `tests/portal-publishing.test.js`：18 个主线 Portal 题、无逐关说明与残留试玩解、63–67 内容质量门槛、高成本无门解、三门未用门 fixture、v1 兼容 fixture 和逐段回放；
-- `tests/mixed-chapter.test.js`：68–92 的 16 普通/9 Portal 混排、6–9 色、双门、无凑数短线、完整提示、对称去重、无门分类与一/二色廉价旁路排除；
+- `tests/portal-publishing.test.js`：20 个主线 Portal 题、无逐关说明与残留试玩解、63–67 内容质量门槛、高成本无门解、三门未用门 fixture、v1 兼容 fixture 和逐段回放；
+- `tests/mixed-chapter.test.js`：68–97 的 19 普通/11 Portal 混排、6–9 色、双门、无凑数短线、完整提示、对称去重、无门分类与一/二色廉价旁路排除；93–97 另检查反向/变序回放、逐格完整提示与追加解锁衔接；
 - `node tests/run.js` 必须全量通过，现有普通关行为不得回归。
 - `Portals` 缺省或空数组时，现有无 Portal 普通关卡必须保持原有规则、输入、计时、撤销与完成判定语义；新增普通 Portal 关卡使用独立的 v2 分段解答。
 
@@ -283,7 +284,7 @@ v1 兼容继续由不进入小游戏包的测试 fixture 验证，不能为测�
 
 ## 10. 发布门槛
 
-1. 连续编号 1—92 的普通关（含 18 个主线 Portal 题）和 Portal v1 兼容 fixture 零回归；
+1. 连续编号 1—97 的普通关（含 20 个主线 Portal 题）和 Portal v1 兼容 fixture 零回归；
 2. Portal v2 题面、PortalId 解答和 required coverage 全部通过离线校验；
 3. 真实触摸完成“入口 → 松手 → 任一候选出口 → 普通终点”；
 4. 全部主线 Portal 复用两句提示；进门前为第一句，LOCKED/WAIT 为第二句，出口续接后隐藏，棋盘不跳位；
@@ -291,5 +292,5 @@ v1 兼容继续由不进入小游戏包的测试 fixture 验证，不能为测�
 6. Portal 阶段不震动，完整线路消除震动保留；
 7. 错误选择、撤销、重置、后台和切关不留下 pending；
 8. 未使用 v2 门不阻止通关，已使用入口/出口仍正确记录 owner 和跳跃；
-9. 图片失败不阻断输入，退出等待态后停止为呼吸动画持续重绘；
+9. 图片失败不阻断输入；当前选中路径上的所有门图标持续居中呼吸（包括 WAIT、CONTINUE 和出口后的 DRAWING），图片与矢量回退共用缩放。候选出口不参与此缩放。取消或完成选中路径后停止选中呼吸；重绘复用已有 selection 驱动，不增加计时器。LOCKED 的青色高亮与路径色框规则不变；
 10. README、架构文档和实现状态同步更新。

@@ -7,6 +7,7 @@ const portalSolutions = require('../data/portal-solutions.js');
 const GameRunner = require('../core/game-runner.js');
 const HintService = require('../src/services/hint-service.js');
 const solveWithoutPortals = require('../scripts/solve-no-portal.js');
+const ProgressionService = require('../src/services/progression-service.js');
 
 const SPECS = [
   [68, '错层回廊', 6, null],
@@ -33,7 +34,12 @@ const SPECS = [
   [89, '全盘改线', 7, 'optional'],
   [90, '九色织网', 9, null],
   [91, '终局预演', 8, null],
-  [92, '双门终章', 8, 'required']
+  [92, '双门终章', 8, 'required'],
+  [93, '折巷分流', 8, null],
+  [94, '隔层换岸', 7, 'required'],
+  [95, '内外套接', 8, null],
+  [96, '九色锁扣', 9, null],
+  [97, '双岸合围', 8, 'required']
 ];
 
 const REVIEWED_NO_PORTAL = {
@@ -206,13 +212,49 @@ function run() {
     assert(hint && hint.source === 'solution', `${id} must expose its official hint`);
     assert(completeHint && completeHint.source === 'solution', `${id} full hint must remain available`);
 
+    if (number >= 93) {
+      assert(lengths.every(length => length >= 5 && length <= 14),
+        `${id} appended batch must retain its balanced 5-14 cell routes`);
+      assert.deepStrictEqual(completeHint.paths.map(line =>
+        line.segments ? [].concat(...line.segments) : line.path), answer.map(flattened),
+      `${id} complete hint must preserve every stored segment`);
+      // Gesture replay deliberately reads only Cells: Runner, not the answer's
+      // Exit metadata, must recognize reverse entrance/exit and alternate order.
+      const backwards = answer.slice().reverse().map(line => ({
+        Segments: segmentsOf(line).slice().reverse().map(segment => ({
+          Cells: segment.Cells.slice().reverse()
+        }))
+      }));
+      replay(game, backwards);
+      replay(game, answer.slice(2).concat(answer.slice(0, 2)));
+      if (bypass) {
+        const portalLines = answer.map((line, index) =>
+          line.Segments.some(segment => segment.Exit) ? index : -1).filter(index => index >= 0);
+        assert.deepStrictEqual(portalLines, [number === 94 ? 2 : 4],
+          `${id} must retain one teleport on its reviewed, non-first color`);
+      }
+    }
+
     const layout = canonicalLayout(game);
     assert(!seenLayouts.has(layout), `${id} duplicates ${seenLayouts.get(layout)} under symmetry`);
     seenLayouts.set(layout, id);
   });
-  assert.strictEqual(ordinaryCount, 16);
-  assert.strictEqual(portalCount, 9);
-  assert.strictEqual(catalog.sets[4].Games.slice(30).filter(game => game.Mechanic === 'portal').length, 14);
+  assert.strictEqual(ordinaryCount, 19);
+  assert.strictEqual(portalCount, 11);
+  assert.strictEqual(catalog.sets[4].Games.slice(30).filter(game => game.Mechanic === 'portal').length, 16);
+
+  // Existing level 92 saves unlock the appended batch without renumbering.
+  const completed = new Set(['4:59']);
+  const progression = new ProgressionService({
+    isCompleted: (set, level) => completed.has(`${set}:${level}`)
+  }, catalog.sets);
+  for (let level = 60; level <= 64; level += 1) {
+    assert.deepStrictEqual(progression.nextLevel(4, level - 1), { setIndex: 4, levelIndex: level });
+    assert.strictEqual(progression.isUnlocked(4, level), true);
+    assert.strictEqual(progression.isUnlocked(4, level + 1), false);
+    completed.add(`4:${level}`);
+  }
+  assert.strictEqual(progression.nextLevel(4, 64), null);
 }
 
 module.exports = run;
