@@ -72,11 +72,13 @@ CloudBase 阶段 4 的迁移、同步、云经济与真实双设备验收已完�
 
 ### CloudBase 单环境状态
 
+阶段 6 现按尚未上线游戏的首发流程记录：**6A 内部验证已完成；6B 首发准备、6C 审核上线、6D 上线后观察待执行，阶段 6 整体未完成。** 百分比灰度是可选方案，不是首发必经步骤；首发全量或分批开放都须另行授权。此次仅调整文档，未打开正式云能力，详见 [阶段 6 首发计划](docs/cloudbase-integration-execution-plan.md#阶段-6首次上线准备发布与运维收口)。
+
 唯一环境已完成阶段 5 真机验收：三个 Event 函数和 15 个拒绝客户端直读写的集合已部署。阶段 6 当前为后端 `internal`：`identity-api=closed`、`player-state-api=stage5`、`economy-api=economy`，私人白名单仍恰好只有账号 A；账号 B 不可写。客户端正式 release 配置继续全关，所以尚未公开启用云能力。
 
 CloudBase 本机配置只能通过 Git 忽略的 `src/config/cloudbase.local.js` 在 develop 逐项开启；该文件已从微信上传包精确排除。阶段 6 的预览包改用 checked-in 的 `src/config/cloudbase.internal.js`：微信标记为 trial 时直接选用；二维码预览被标记为 develop 且本机文件已被上传排除时也安全回退到该内部配置。Transport 在 `release` 再次拒绝这份 testOnly 配置。账号 A 的阶段 4/5 数据继续保留，不能清库或降回本地余额权威。离线体力冲突采用轻量的服务器结果覆盖策略，不建设复杂补偿系统。单环境选择不代表正式写入已公开开启，执行边界见 [`docs/cloudbase-integration-execution-plan.md`](docs/cloudbase-integration-execution-plan.md)。
 
-阶段 6 新增 checked-in 的 `src/config/cloudbase.release.js`：只在微信 `release` 运行域读取，环境固定为 `cloudbase-d9gpluqt21ba89532` 且所有开关关闭。发布前运行 `node scripts/check-release-readiness.js --mode closed`，它会同时核对 trial/release 运行域、无限调试、非批准环境、本机 override 入包以及广告位/开关不匹配；当前 closed 预检已通过。管理员已豁免费用告警并接受离线恢复模拟，后端内部档已开启；release 仍等待最后真机验收后再单独调整。
+阶段 6 新增 checked-in 的 `src/config/cloudbase.release.js`：只在微信 `release` 运行域读取，环境固定为 `cloudbase-d9gpluqt21ba89532` 且所有开关关闭。当前保持关闭时运行 `node scripts/check-release-readiness.js --mode closed`，核对 trial/release、无限调试、非批准环境、本机 override 入包及广告位/开关匹配。内部真机验收已完成；首发授权后才按实际范围准备 release 配置，使用 `--mode rollout` 检查公开云开关并完成候选正式包验收。命令名 rollout 也可用于获准的首发全量，不要求逐档灰度；本次不修改配置。
 
 账号 A 回传的真机调试日志已确认：`develop` 正确回退 internal，身份与云读取成功；本地尚未归属、只有普通进度非空，旧判断因此进入 `migration-required`。现已简化恢复条件：非只读且迁移关闭时，未归属设备仅有进入位置、或本地通关/最佳成绩已被云端完整覆盖，可以直接恢复现有云存档；恢复后的继续位置以云端为准。新增进度、更好成绩、每日/资产数据、购买或待同步操作仍受保护，不通过清存档或放开迁移解决。用户已确认修复后账号 A 真机调试及移除探针后的普通预览均显示“已同步”，本次预览同步故障已验收；release 仍全关。证据与验收范围见 [`预览同步验收记录`](docs/cloudbase-preview-diagnostics.md)。
 
