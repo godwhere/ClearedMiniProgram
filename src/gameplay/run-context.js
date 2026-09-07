@@ -9,7 +9,7 @@ function mechanicFor(level) {
   const id = source.Mechanic !== undefined
     ? source.Mechanic
     : source.mechanic;
-  const rulesVersion = source.PortalRulesVersion !== undefined
+  const rulesVersion = id === 'ice' ? source.IceRulesVersion : source.PortalRulesVersion !== undefined
     ? source.PortalRulesVersion
     : source.portalRulesVersion;
   return Object.freeze({
@@ -42,6 +42,20 @@ function createCatalogRunContext(catalog, setIndex, levelIndex) {
   });
 }
 
+function createTrialRunContext(set) {
+  if (!set || !Array.isArray(set.Games) || set.Games.length !== 1 || !set.Id) return null;
+  return freezeContext({
+    source: { kind: 'trial', id: set.Id },
+    progressionScope: 'trial',
+    mechanic: mechanicFor(set.Games[0]),
+    setIndex: null,
+    levelIndex: 0,
+    set,
+    level: set.Games[0]
+  });
+}
+
 module.exports = {
-  createCatalogRunContext
+  createCatalogRunContext,
+  createTrialRunContext
 };

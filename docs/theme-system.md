@@ -149,6 +149,10 @@ slotIndex = pageIndex * PAGE_SIZE + row * COLUMNS + column
 运行时用临时预览配置复用 `drawTile()`，不修改已注册 manifest 或棋盘图片缓存。
 选中、提示、清除淡出等状态不另做图片，由通用 renderer 通过缩放、透明度和叠加处理。
 
+冰封 v1 是玩法 overlay，不是主题：在普通地板之上以 Canvas 绘制薄冰亮边和裂纹，选中时
+保留线路颜色，破冰后露出原主题普通地板。无新增 sprite sheet 槽位、图片或分包；
+规则层只输出是否冰封，主题不能更改层数或覆盖规则。见 [冰封试玩](ice-trial.md)。
+
 资源目录约定（内部兼容命名）：
 
 ```text

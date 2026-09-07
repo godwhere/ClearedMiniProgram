@@ -2,6 +2,8 @@
 
 const OrdinaryHintProvider = require('./hints/ordinary-hint-provider.js');
 const PortalHintProvider = require('./hints/portal-hint-provider.js');
+const IceHintProvider = require('./hints/ice-hint-provider.js');
+const iceTrial = require('../../data/ice-trial.js');
 const portalSolution = require('../../core/portal-solution.js');
 
 let defaultPortalSolutions = null;
@@ -82,6 +84,7 @@ class HintService {
     this.portalSolutions = portals !== undefined ? portals : defaultPortalSolutions;
     this.ordinaryProvider = new OrdinaryHintProvider();
     this.portalProvider = new PortalHintProvider(this.ordinaryProvider);
+    this.iceProvider = new IceHintProvider(this.ordinaryProvider);
   }
 
   solutionFor(setIndex, levelIndex, levelId) {
@@ -107,6 +110,11 @@ class HintService {
   find(source, setIndex, levelIndex) {
     const context = toHintContext(source);
     if (!context || (context.outcome && context.outcome !== 'playing')) return null;
+    if (context.mechanic && context.mechanic.id === 'ice') {
+      // Ice v1 exposes the validated full sequence only, not a one-step BFS
+      // candidate that may conflict with the player's partially cleared floor.
+      return null;
+    }
     if (context.mechanic && context.mechanic.id === 'portal') {
       return this.portalProvider.find(context, this.portalSolutionFor(context.levelId));
     }
@@ -116,6 +124,10 @@ class HintService {
   findComplete(source, setIndex, levelIndex) {
     const context = toHintContext(source);
     if (!context || (context.outcome && context.outcome !== 'playing')) return null;
+    if (context.mechanic && context.mechanic.id === 'ice') {
+      return this.iceProvider.findComplete(context,
+        context.levelId === iceTrial.Games[0].Id ? iceTrial.solution : null);
+    }
     if (context.mechanic && context.mechanic.id === 'portal') {
       return this.portalProvider.findComplete(
         context,

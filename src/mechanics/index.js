@@ -1,8 +1,9 @@
 'use strict';
 
 const portal = require('./portal.js');
+const ice = require('./ice.js');
 
-const definitions = Object.freeze([portal]);
+const definitions = Object.freeze([portal, ice]);
 const byId = Object.freeze(definitions.reduce((result, definition) => {
   if (definition && typeof definition.id === 'string' && definition.id) {
     result[definition.id] = definition;

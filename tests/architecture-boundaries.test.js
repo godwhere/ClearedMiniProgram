@@ -12,7 +12,7 @@ const MUTABLE_RUNNER_FIELDS = [
   'selectedSegments', 'selectedLine', 'owner', 'fixedLine', 'blockedMask',
   'portalByCell', 'portals', 'completed', 'outcome', 'failureReason',
   'remainingPlayableCells', 'portalDefinitions', 'portalPolicy',
-  'portalRulesVersion'
+  'portalRulesVersion', 'iceCells', 'iceEnabled', 'remainingLayers'
 ];
 
 function dependencies(source) {

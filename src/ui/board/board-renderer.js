@@ -1,5 +1,7 @@
 'use strict';
 
+const drawIce = require('./ice-overlay.js');
+
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
 }
@@ -64,6 +66,11 @@ class BoardRenderer {
     this.renderClearAnimation(board.clearAnimation, palette, now, gap, layout, portalCells);
     if (board.hint && (board.hintUntil === undefined || now < board.hintUntil)) {
       this.drawHintPaths(board.hint, palette, now, layout, portalCells);
+      (board.cells || []).filter(cell => cell.frozen).forEach(cell => {
+        drawIce(this.getContext(), layout.x + (cell.index % layout.cols) * layout.cell + gap,
+          layout.y + Math.floor(cell.index / layout.cols) * layout.cell + gap,
+          layout.cell - gap * 2, { selected: true });
+      });
     }
     if (this.portalOverlay) this.portalOverlay.draw(portal, board, layout, gap, now, palette);
     return gap;
@@ -118,6 +125,10 @@ class BoardRenderer {
           scale: activeScale,
           overlay: selected ? { color: skin.colors.selectedCellOverlay, alpha: 1 } : null
         });
+        if (state.frozen) {
+          const inset = size * (1 - activeScale) / 2;
+          drawIce(this.getContext(), x + inset, y + inset, size * activeScale, { alpha: enter, selected });
+        }
 
         const line = lines[fixedLine];
         const lineText = line && (line.Text === undefined ? line.text : line.Text);
@@ -291,6 +302,11 @@ class BoardRenderer {
       const centerX = layout.x + (col + 0.5) * layout.cell;
       const centerY = layout.y + (row + 0.5) * layout.cell;
       if (type === 'fade') {
+        if (Array.isArray(animation.iceBrokenCells) && animation.iceBrokenCells.includes(index)) {
+          drawIce(this.getContext(), centerX - baseSize / 2, centerY - baseSize / 2,
+            baseSize, { alpha, breakProgress: Math.max(0.001, local) });
+          return;
+        }
         this.drawTile(animation.lineIndex,
           centerX - baseSize / 2,
           centerY - baseSize / 2,

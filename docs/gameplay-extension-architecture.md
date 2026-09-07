@@ -403,9 +403,14 @@ Portal provider 只接受只读 `HintContext`：
 BoardRenderer 绘制全部线路后再绘 Portal overlay。预览期间输入在 App 边界隔离，
 重置和回撤 action 同时禁用；计时规则不变，也不调用 Runner 的 `pause()/resume()`。
 
+冰封试玩是此显示期限的独立例外：IceHintProvider 输出分步快照，App 保存手动页码；
+玩家左右滑动或点 `hint:prev`／`hint:next` 翻页，点「隐藏提示」退出，不自动推进或到期。
+翻页只更换纯 ViewModel，不恢复／修改真实 Runner；普通、Portal、每日仍使用原 10 秒预览。
+
 `src/ui/portal-instructions.js` 统一提供两句 Portal 状态文案，初始答案预览也使用初始句；
 逐关 `Instructions` 不再参与 Portal 提示。主线游玩标题统一为数字“当前关卡 / 总关卡”，
-名称仅作为数据元信息保留。独立试玩 opener、隐藏 action、题面、解答和结算分支均已退役。
+名称仅作为数据元信息保留。旧 Portal 独立试玩 opener、隐藏 action、题面、解答和结算分支均已退役。
+后续新增的冰封 5×5 试玩使用单独的 `trial` 来源，不复用这些退役入口，见 [冰封试玩](ice-trial.md)。
 
 普通和每日底部按钮共用 `CanvasRenderer.button()`：灯泡图标与“提示 / 隐藏提示”
 按当前字体实测宽度整体居中，保留 8px 组内间距和 12px 左右安全边；窄屏超宽时等比
@@ -424,6 +429,7 @@ settleDaily(context)
 | --- | --- |
 | `ordinary` | `ProgressStore.recordCompletion()`，更新最佳时间，调用普通广告完成钩子 |
 | `daily` | 调用 DailyProgressStore 的每关/每日结算，不写普通 ProgressStore |
+| `trial` | 仅在 `source.kind: 'trial'` 下返回本次用时，不写进度、最佳时间、体力或奖励 |
 
 `onPathCompleted()` 最终只负责：
 
@@ -432,7 +438,7 @@ settleDaily(context)
 3. 将 won 交给对应完成策略；
 4. 根据策略结果切换场景。
 
-它不按玩法 ID 推断结算域；已删除的试玩作用域不会生成结果或写入进度。
+它不按玩法 ID 推断结算域；冰封试玩在纯内存结果生成后立即返回，不进入普通奖励、分享或云同步。
 
 ### 5.7 Renderer：只消费纯 ViewModel
 
@@ -747,11 +753,12 @@ src/mechanics/index.js         data-only definition 注册与查询
 core/mechanics/index.js        `mechanic@rulesVersion` allowlist
 core/mechanics/portal-v1.js    固定门对、门格必填覆盖策略
 core/mechanics/portal-v2.js    单中性网络、任选出口、门格非必填覆盖策略
+core/mechanics/ice-v1.js       单层冰声明校验；地板需要两条成功线路覆盖
 ```
 
 实现约束：
 
-1. Registry 只返回仓库内已知 data-only 策略；当前只允许 `portal@1` 和 `portal@2`。
+1. Registry 只返回仓库内已知策略；当前允许 `portal@1`、`portal@2` 和 `ice@1`。
 2. v1/v2 策略负责规范化、接受条件、索引和稳定规则参数；`GameRunner` 继续作为唯一状态机权威。
 3. 未知机制或版本必须拒绝或安全降级，不允许执行关卡内容携带的函数或远程脚本。
 4. `src/mechanics/portal.js` 继续作为用户可见入口 manifest，并声明当前版本 2 与 `supportedRulesVersions: [1, 2]`。

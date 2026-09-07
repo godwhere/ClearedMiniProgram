@@ -21,7 +21,8 @@ const accountLayout = require('./ui/account-layout.js');
 const defaultSkins = require('./skins/index.js');
 const defaultMechanics = require('./mechanics/index.js');
 const defaultPortalMechanic = defaultMechanics.get('portal');
-const { createCatalogRunContext } = require('./gameplay/run-context.js');
+const { createCatalogRunContext, createTrialRunContext } = require('./gameplay/run-context.js');
+const iceTrial = require('../data/ice-trial.js');
 const completionPolicies = require('./gameplay/completion-policies.js');
 const BoardInputController = require('./gameplay/board-input-controller.js');
 
@@ -992,7 +993,7 @@ class ClearedApp {
     const timestamp = Number.isFinite(Number(now)) ? Number(now) : Date.now();
     this.showNextRewardNotice(timestamp);
     this.refreshStamina(timestamp);
-    if (this.hintPreview && timestamp >= this.hintPreview.until) {
+    if (this.hintPreview && this.hintPreview.manual !== true && timestamp >= this.hintPreview.until) {
       this.clearHintPreview(false);
       this.dirty = true;
     }
@@ -1040,7 +1041,7 @@ class ClearedApp {
       const start = Number.isFinite(startedAt) ? startedAt : timestamp;
       if (timestamp < start + duration + 80) return true;
     }
-    if (this.hintPreview && timestamp < this.hintPreview.until) return true;
+    if (this.isHintPreviewActive(timestamp)) return true;
     if (this.scene === 'play' && this.runner &&
         this.runner.getSelectionState().lineIndex >= 0) return true;
     if (this.scene === 'daily' && this.daily.runner &&
@@ -1116,6 +1117,9 @@ class ClearedApp {
         selected: selectedCells.has(index),
         portal: portalCells.has(index)
       };
+      if (mechanicState.id === 'ice') {
+        cells[index].frozen = Array.isArray(boardState.remainingLayers) && boardState.remainingLayers[index] === 2;
+      }
     }
 
     const pending = mechanicState.pending;
@@ -1402,6 +1406,7 @@ class ClearedApp {
 
     if (this.scene === 'play' || this.scene === 'result') {
       const context = this.runContext;
+      const trial = !!(context && context.progressionScope === 'trial');
       const set = context && context.set;
       const level = context && context.level;
       const activeLevelIndex = context ? context.levelIndex : this.levelIndex;
@@ -1411,12 +1416,13 @@ class ClearedApp {
       const boardView = this.buildBoardViewModel(this.runner, this.clearAnimation);
       const portalStatus = boardView && boardView.mechanic.portal;
       return Object.assign(base, {
+        trial,
         set,
         level,
         levelIndex: activeLevelIndex,
         ordinaryLevelNumber: ordinaryPosition >= 0 ? ordinaryPosition + 1 : null,
         ordinaryLevelCount: catalog.levels.length,
-        beginnerInstruction: ordinaryPosition >= 0 && ordinaryPosition < 5
+        beginnerInstruction: trial ? '冰封格需要两次连线\n第一次破冰，第二次消除地板' : ordinaryPosition >= 0 && ordinaryPosition < 5
           ? (ordinaryPosition === 0 ? '连接两个相同的色块或物体' : '别漏掉空白格，全部消除才能通关哦') : null,
         board: boardView && boardView.board,
         mechanic: boardView ? boardView.mechanic : { portal: null },
@@ -1424,11 +1430,12 @@ class ClearedApp {
         canUndo: !!(boardView && boardView.canUndo),
         levelEnteredAt: this.levelEnteredAt,
         clearAnimation: this.clearAnimation,
-        hintAvailable: !!boardView && !boardView.terminal && hintEnabled,
+        hintAvailable: !!boardView && !boardView.terminal && (trial || hintEnabled),
+        hintLabel: trial ? '提示' : base.hintLabel,
         result: this.result,
-        staminaRefund: context ? this.stamina.quickClearRefundState(`${context.setIndex}:${activeLevelIndex}`) : null,
+        staminaRefund: context && !trial ? this.stamina.quickClearRefundState(`${context.setIndex}:${activeLevelIndex}`) : null,
         resultVisibleAt: this.resultVisibleAt,
-        hasNext: !!(context && this.progression.nextLevel(context.setIndex, activeLevelIndex)),
+        hasNext: !!(context && !trial && this.progression.nextLevel(context.setIndex, activeLevelIndex)),
         portals: portalStatus ? portalStatus.portals : [],
         portalStatus,
         expectedExit: portalStatus ? portalStatus.expectedExit : null,
@@ -1479,7 +1486,12 @@ class ClearedApp {
       return;
     }
 
-    if (this.isHintPreviewActive()) return;
+    if (this.isHintPreviewActive()) {
+      if (this.hintPreview.manual) {
+        this.pointer = { mode: 'hint-preview', id: point.id, start: point, last: point, hit: null };
+      }
+      return;
+    }
 
     if ((this.scene === 'play' && this.runner) ||
         (this.scene === 'daily' && this.daily.runner)) {
@@ -1545,6 +1557,12 @@ class ClearedApp {
     const end = point || active.last;
     const dx = end.x - active.start.x;
     const dy = end.y - active.start.y;
+    if (active.mode === 'hint-preview') {
+      if (Math.abs(dx) > 52 && Math.abs(dx) > Math.abs(dy) * 1.2) {
+        this.changeHintPreviewStep(dx < 0 ? 1 : -1);
+      }
+      return;
+    }
     if (this.scene === 'levels' && Math.abs(dx) > 52 && Math.abs(dx) > Math.abs(dy) * 1.2) {
       this.changeLevelPage(dx < 0 ? 1 : -1);
       return;
@@ -1586,6 +1604,9 @@ class ClearedApp {
     const now = Date.now();
     const runner = this.activeRunner();
     if (!runner) return;
+    const state = runner.getViewState();
+    const iceBrokenCells = state.mechanic.id === 'ice'
+      ? (cells || []).filter(index => state.board.remainingLayers[index] === 1) : [];
     this.hint = null;
     this.hintUntil = 0;
     this.hintPreview = null;
@@ -1603,6 +1624,7 @@ class ClearedApp {
       // prevents a later undo/new selection or effect change from mutating an
       // animation already being drawn.
       cells: Array.isArray(cells) ? cells.slice() : [],
+      iceBrokenCells,
       segments: Array.isArray(segments)
         ? segments.map(segment => Array.isArray(segment) ? segment.slice() : [])
         : null,
@@ -1665,6 +1687,12 @@ class ClearedApp {
     this.result = completion;
     this.resultVisibleAt = now + this.skins.current().animation.resultDelayMs;
     this.scene = 'result';
+    // Trial settlement ends here: no best-time save, stamina refund, reward,
+    // share preparation, engagement, or cloud write can follow this boundary.
+    if (this.runContext.progressionScope === 'trial') {
+      this.invalidate();
+      return;
+    }
     const cloudStaminaRefund = runner === this.runner && this.runContext.progressionScope === 'ordinary' &&
       this.authorityMode(this.stamina, 'stamina') === 'cloud-authoritative';
     if (runner === this.runner && this.runContext.progressionScope === 'ordinary' && !cloudStaminaRefund) {
@@ -2043,6 +2071,9 @@ class ClearedApp {
     }
     if (action === 'daily:revive' || action === 'dailyResult:revive') action = 'daily:extraEntry';
     const previewActive = this.isHintPreviewActive();
+    if (action === 'hint:prev' || action === 'hint:next') {
+      return this.changeHintPreviewStep(action === 'hint:next' ? 1 : -1);
+    }
     if (previewActive && (action === 'play:reset' || action === 'play:undo' ||
         action === 'daily:reset' || action === 'daily:undo')) return false;
     if (previewActive && action !== 'play:hint' && action !== 'daily:hint' &&
@@ -2098,6 +2129,8 @@ class ClearedApp {
       }).catch(function () {});
     } else if (action === 'home:dailyChallenge' || action === 'home:daily') {
       this.enterDaily();
+    } else if (action === 'home:iceTrial' && this.scene === 'home') {
+      this.openIceTrial();
     } else if (action === 'home:start') {
       const target = this.progress.resumeTarget(catalog.sets);
       this.openLevel(target.setIndex, target.levelIndex);
@@ -2246,7 +2279,7 @@ class ClearedApp {
         this.resetCurrentDailyLevel();
       }
     } else if (action === 'play:back' || action === 'result:levels') {
-      this.scene = 'levels';
+      this.scene = this.runContext && this.runContext.progressionScope === 'trial' ? 'home' : 'levels';
       this.runner = null;
       this.runContext = null;
       this.boardInput.setRunner(null);
@@ -2261,7 +2294,9 @@ class ClearedApp {
     } else if (action === 'play:hint') {
       this.requestHint();
     } else if (action === 'result:replay') {
-      if (this.runContext) {
+      if (this.runContext && this.runContext.progressionScope === 'trial') {
+        this.resetCurrentLevel();
+      } else if (this.runContext) {
         this.openLevel(this.runContext.setIndex, this.runContext.levelIndex);
       }
     } else if (action === 'failure:retry') {
@@ -2269,7 +2304,7 @@ class ClearedApp {
         this.resetCurrentLevel();
       }
     } else if (action === 'result:next') {
-      if (this.runContext) {
+      if (this.runContext && this.runContext.progressionScope !== 'trial') {
         const target = this.progression.nextLevel(
           this.runContext.setIndex,
           this.runContext.levelIndex
@@ -2321,6 +2356,8 @@ class ClearedApp {
   }
 
   shareContext() {
+    if (this.runContext && this.runContext.progressionScope === 'trial' &&
+        (this.scene === 'play' || this.scene === 'result')) return { scene: 'home', completed: false };
     if (this.scene === 'result' && this.result && this.result.outcome !== OUTCOME.FAILED) {
       return { scene: 'ordinary_result', levelKey: `${this.setIndex}:${this.levelIndex}`,
         elapsedMs: this.result.elapsedMs, completed: true };
@@ -2340,7 +2377,7 @@ class ClearedApp {
 
   hintContext() {
     let levelKey = null;
-    if (this.scene === 'play' && this.runContext) {
+    if (this.scene === 'play' && this.runContext && this.runContext.progressionScope === 'ordinary') {
       levelKey = HintAccessService.levelKey({ source: 'catalog',
         setIndex: this.runContext.setIndex, levelIndex: this.runContext.levelIndex });
     } else if (this.scene === 'daily' && this.daily.runner && this.daily.challenge) {
@@ -2426,6 +2463,7 @@ class ClearedApp {
   }
 
   requestHint() {
+    if (this.scene === 'play' && this.runContext && this.runContext.progressionScope === 'trial') return this.showHint();
     const runner = this.activeRunner();
     if (!runner || this.runnerTerminal(runner) || !['play', 'daily'].includes(this.scene)) return false;
     if (this.isHintPreviewActive()) return this.scene === 'daily' ? this.showDailyHint() : this.showHint();
@@ -3251,6 +3289,17 @@ class ClearedApp {
     return true;
   }
 
+  openIceTrial() {
+    const context = createTrialRunContext(iceTrial);
+    const runner = context && this.createOrdinaryRunner(context);
+    if (!runner || runner.getMechanicState().id !== 'ice') return false;
+    this.clearHintRequest();
+    this.runContext = context;
+    this.runner = runner;
+    this.homeStaminaExpanded = false;
+    return this.resetCurrentLevel();
+  }
+
   openLevel(setIndex, levelIndex) {
     if (this.blockCoreWriteDuringMigration('progress')) return false;
     const context = createCatalogRunContext(catalog, setIndex, levelIndex);
@@ -3353,7 +3402,18 @@ class ClearedApp {
 
   isHintPreviewActive(now) {
     const timestamp = Number.isFinite(Number(now)) ? Number(now) : Date.now();
-    return !!(this.hintPreview && timestamp < this.hintPreview.until);
+    return !!(this.hintPreview && (this.hintPreview.manual === true || timestamp < this.hintPreview.until));
+  }
+
+  changeHintPreviewStep(delta) {
+    const preview = this.hintPreview;
+    if (this.scene !== 'play' || !preview || !preview.manual || !Array.isArray(preview.frames) ||
+        (delta !== -1 && delta !== 1)) return false;
+    const index = clamp(preview.index + delta, 0, preview.frames.length - 1);
+    if (index === preview.index) return false;
+    preview.index = index;
+    this.invalidate();
+    return true;
   }
 
   clearHintPreview(shouldInvalidate) {
@@ -3396,6 +3456,21 @@ class ClearedApp {
       portal.expectedExit = null;
       portal.lockedEntry = null;
       portal.instruction = portalInstructions.INITIAL;
+    }
+    if (Array.isArray(hint.steps) && hint.steps.length === lines.length) {
+      const frames = hint.steps.map((step, index) => Object.assign({}, viewModel, {
+        hintStepLabel: `第 ${index + 1}/${hint.steps.length} 步：${step.breaksIce ? '经过冰封格，先破冰'
+          : step.clearsIce ? '再次经过，消除地板' : '连接同色端点'}`,
+        board: Object.assign({}, viewModel.board, {
+          cells: viewModel.board.cells.map(cell => Object.assign({}, cell, {
+            owner: step.remainingLayers[cell.index] === 0 ? 0 : -1,
+            frozen: step.remainingLayers[cell.index] === 2
+          })),
+          hintUntil: undefined,
+          hint: { paths: [cloneData(step.path)], source: 'solution' }
+        })
+      }));
+      return { manual: true, index: 0, frames, viewModel: frames[0] };
     }
     return { until, viewModel };
   }
@@ -3440,7 +3515,7 @@ class ClearedApp {
       return false;
     }
     this.hint = hint;
-    this.hintUntil = until;
+    this.hintUntil = preview.manual ? 0 : until;
     this.hintPreview = preview;
     this.audio.playSfx('complete');
     this.invalidate();

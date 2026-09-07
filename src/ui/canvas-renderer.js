@@ -838,7 +838,7 @@ class CanvasRenderer {
     // the logo upward (and only then scale it down) so its caption
     // never collides with the button stack.
     let logoSize = Math.min(width * 0.58, height * 0.32, 260);
-    const logoBottomLimit = firstY - 18;
+    const logoBottomLimit = firstY - 102;
     const usableTop = safeTop + 12;
     let logoY = safeTop + (safeBottom - safeTop) * 0.38;
     const minLogoY = usableTop + logoSize / 2;
@@ -873,6 +873,8 @@ class CanvasRenderer {
     // from safeBottom so it remains above gesture areas on devices with a
     // home indicator.
     const buttonX = (width - buttonWidth) / 2;
+    this.button('home:iceTrial', { x: buttonX, y: firstY - 82, w: buttonWidth, h: 44 },
+      '冰封试玩 · 5×5', { fontSize: 17 }, model.pressedId);
     const columnWidth = (buttonWidth - buttonGap) / 2;
     const dailyEntryKnown = model && (model.dailyDebugUnlimited === true ||
       (model.dailyEntriesRemaining !== undefined && model.dailyEntryLimit !== undefined));
@@ -2009,7 +2011,11 @@ class CanvasRenderer {
   renderBoardViewModel(model, level, now) {
     const preview = model && model.hintPreview;
     const previewUntil = preview && Number(preview.until);
-    if (preview && preview.viewModel && Number(now) < previewUntil) {
+    if (preview && preview.viewModel && (preview.manual === true || Number(now) < previewUntil)) {
+      if (Array.isArray(preview.frames) && preview.frames.length) {
+        const index = clamp(Number(preview.index) || 0, 0, preview.frames.length - 1);
+        return preview.frames[index];
+      }
       return preview.viewModel;
     }
     if (model && model.board) return model;
@@ -2027,17 +2033,20 @@ class CanvasRenderer {
     const phase = (timestamp % PLAY_PROMPT_CYCLE_MS) / PLAY_PROMPT_CYCLE_MS;
     const breath = 0.5 + Math.sin(phase * Math.PI * 2) * 0.5;
     const baseSize = clamp(this.platform.metrics.width * 0.041, 14, 16);
-    this.text(
-      instruction,
+    // At most two short lines in the existing 32px band; ordinary/Portal
+    // single-line copy keeps its exact original centre and size.
+    const lines = instruction.split('\n').slice(0, 2);
+    lines.forEach((line, index) => this.text(
+      line,
       rect.x + rect.w / 2,
-      rect.y + rect.h / 2,
+      rect.y + rect.h / 2 + (index - (lines.length - 1) / 2) * 16,
       baseSize * (0.985 + breath * 0.03),
       {
         weight: 400,
         alpha: 0.72 + breath * 0.22,
         maxWidth: rect.w
       }
-    );
+    ));
   }
 
   drawPlay(model, now) {
@@ -2077,7 +2086,7 @@ class CanvasRenderer {
     this.iconButton('play:back', { x: 8, y: controlTop, w: 44, h: 44 }, 'back', true, model.pressedId);
     this.iconButton('play:sound', { x: soundX, y: controlTop, w: controlSize, h: 44 },
       model.soundEnabled ? 'sound' : 'mute', true, model.pressedId);
-    const hintPreviewActive = !!(model.hintPreview && now < model.hintPreview.until);
+    const hintPreviewActive = !!(model.hintPreview && (model.hintPreview.manual === true || now < model.hintPreview.until));
     this.iconButton('play:reset', { x: resetX, y: controlTop, w: controlSize, h: 44 }, 'reset', model.scene !== 'result' && !hintPreviewActive, model.pressedId);
 
     const ordinaryNumber = Number(model.ordinaryLevelNumber);
@@ -2087,7 +2096,7 @@ class CanvasRenderer {
     const numberedTitle = hasOrdinaryNumber
       ? `${ordinaryNumber} / ${ordinaryCount}`
       : `${model.levelIndex + 1} / ${(model.set.Games || []).length}`;
-    this.text(numberedTitle, width / 2, topUi + 27, 24, {
+    this.text(model.trial ? '冰封试玩' : numberedTitle, width / 2, topUi + 27, model.trial ? 18 : 24, {
       weight: 300,
       maxWidth: width - 220
     });
@@ -2135,7 +2144,7 @@ class CanvasRenderer {
         animateBlocked: true
       });
     }
-    if (showActions) this.drawPlayActions(model, actionTop, now);
+    if (showActions) this.drawPlayActions(Object.assign({}, model, { hintStepLabel: renderModel && renderModel.hintStepLabel }), actionTop, now);
 
     if (model.scene === 'result') this.drawResult(model, now);
   }
@@ -2149,7 +2158,8 @@ class CanvasRenderer {
     const buttonWidth = (width - margin * 2 - gap) / 2;
     const rectY = actionTop + 12;
     const rectH = 50;
-    const hintPreviewActive = !!(model.hintPreview && now < model.hintPreview.until);
+    const hintPreviewActive = !!(model.hintPreview && (model.hintPreview.manual === true || now < model.hintPreview.until));
+    const manualPreview = hintPreviewActive && model.hintPreview.manual === true;
     this.button('play:hint', { x: margin, y: rectY, w: buttonWidth, h: rectH },
       hintPreviewActive ? '隐藏提示' : (model.hintLabel || '提示'), {
       fontSize: 17,
@@ -2158,7 +2168,17 @@ class CanvasRenderer {
       fill: skin.colors.primaryButton,
       stroke: skin.colors.primaryButtonStroke
     }, model.pressedId);
-    this.button('play:undo', {
+    if (manualPreview) {
+      const preview = model.hintPreview;
+      const x = margin + buttonWidth + gap;
+      this.iconButton('hint:prev', { x, y: rectY + 3, w: 44, h: 44 },
+        'back', preview.index > 0, model.pressedId);
+      this.iconButton('hint:next', { x: x + buttonWidth - 44, y: rectY + 3, w: 44, h: 44 },
+        'next', preview.index < preview.frames.length - 1, model.pressedId);
+      this.text(`${preview.index + 1}/${preview.frames.length}`, x + buttonWidth / 2, rectY + rectH / 2,
+        12, { maxWidth: buttonWidth - 88 });
+      this.text('左右滑动切换步骤', width / 2, rectY + rectH + 8, 10, { alpha: 0.62 });
+    } else this.button('play:undo', {
       x: margin + buttonWidth + gap,
       y: rectY,
       w: buttonWidth,
@@ -2171,7 +2191,8 @@ class CanvasRenderer {
       stroke: skin.colors.primaryButtonStroke
     }, model.pressedId);
     if (hintPreviewActive) {
-      this.text('完整通关路径', width / 2, actionTop - 19, 12, { alpha: 0.76 });
+      this.text(model.hintStepLabel || '完整通关路径', width / 2, actionTop - (model.hintStepLabel ? 7 : 19), 12,
+        { alpha: 0.76, maxWidth: width - 24 });
     }
   }
 
@@ -2415,7 +2436,7 @@ class CanvasRenderer {
 
     const backAction = daily ? 'dailyResult:home' : 'result:levels';
     const retryAction = daily ? 'dailyFailure:retry' : 'failure:retry';
-    const backLabel = daily ? '返回主页' : '返回选关';
+    const backLabel = daily || model.trial ? '返回主页' : '返回选关';
     const retryLabel = daily ? '重试本关' : '重新开始';
     const buttonGap = 10;
     const buttonWidth = Math.min(142, (width - 48 - buttonGap) / 2);
@@ -2533,9 +2554,10 @@ class CanvasRenderer {
     const panel = this.drawResultPanel(sharing ? 300 : 246);
     const panelY = panel.y;
     this.drawIcon('check', width / 2, panelY + 47, 40);
-    this.text(model.result.newBest ? '新纪录' : '完成',
+    this.text(model.trial ? '试玩完成' : model.result.newBest ? '新纪录' : '完成',
       width / 2, panelY + 92, 27, { weight: 300 });
-    const resultText = `本次 ${formatTime(model.result.elapsedMs)} · 最佳 ${formatTime(model.result.bestMs)}`;
+    const resultText = model.trial ? `用时 ${formatTime(model.result.elapsedMs)} · 不计入主线进度`
+      : `本次 ${formatTime(model.result.elapsedMs)} · 最佳 ${formatTime(model.result.bestMs)}`;
     this.text(resultText, width / 2, panelY + 124, 13, { alpha: 0.72 });
     if (model.result.currencyReward) this.text(model.result.currencyReward.status === 'granted'
       ? `获得 ${model.result.currencyReward.amount} 货币`
@@ -2547,14 +2569,15 @@ class CanvasRenderer {
     }
 
     const gap = 10;
-    const buttonWidth = Math.min(104, (width - 48 - gap * 2) / 3);
-    const totalWidth = buttonWidth * 3 + gap * 2;
+    const buttonCount = model.trial ? 2 : 3;
+    const buttonWidth = Math.min(model.trial ? 142 : 104, (width - 48 - gap * (buttonCount - 1)) / buttonCount);
+    const totalWidth = buttonWidth * buttonCount + gap * (buttonCount - 1);
     const x = (width - totalWidth) / 2;
     const y = panelY + panel.h - (sharing ? 118 : 72);
     this.button('result:levels', { x, y, w: buttonWidth, h: 46 },
-      '选关', { fontSize: 15 }, model.pressedId);
+      model.trial ? '返回主页' : '选关', { fontSize: 15 }, model.pressedId);
     this.button('result:replay', { x: x + buttonWidth + gap, y, w: buttonWidth, h: 46 }, '重玩', { fontSize: 15 }, model.pressedId);
-    this.button('result:next', { x: x + (buttonWidth + gap) * 2, y, w: buttonWidth, h: 46 },
+    if (!model.trial) this.button('result:next', { x: x + (buttonWidth + gap) * 2, y, w: buttonWidth, h: 46 },
       model.hasNext ? '下一关' : '关卡列表', { fontSize: 15 }, model.pressedId);
     if (sharing) this.button('result:share', { x, y: y + 52, w: totalWidth, h: 44 },
       '分享成绩', { fontSize: 16, enabled: !model.sharePending }, model.pressedId);

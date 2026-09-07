@@ -124,7 +124,7 @@ class GameRunner {
         : (this.level.Portals === undefined ? this.level.portals : this.level.Portals));
     const mechanic = portalSchema.rawMechanic(this.level);
     const rulesVersion = portalSchema.rawRulesVersion(this.level);
-    const portalPolicy = mechanicPolicies.resolve(mechanic, rulesVersion);
+    const portalPolicy = mechanic === 'portal' ? mechanicPolicies.resolve(mechanic, rulesVersion) : null;
     // Portal fields on legacy, malformed, or future-version levels must not
     // silently change movement semantics. Strict diagnostics remain the
     // authoring validator's responsibility; runtime falls back to ordinary
@@ -140,6 +140,9 @@ class GameRunner {
     this.portalPolicy = this.portalDefinitions.length ? portalPolicy : null;
     this.portalRulesVersion = this.portalPolicy ? this.portalPolicy.rulesVersion : null;
     this.portalEnabled = this.portalDefinitions.length > 0;
+    const icePolicy = mechanic === 'ice' ? mechanicPolicies.resolve(mechanic, this.level.IceRulesVersion) : null;
+    this.iceCells = icePolicy ? icePolicy.normalize(this.level, this.blockedMask) : [];
+    this.iceEnabled = this.iceCells.length > 0;
     this.reset();
   }
 
@@ -175,6 +178,7 @@ class GameRunner {
     });
 
     this.configurePortalIndex();
+    this.rebuildOwners();
     this.startedAt = Date.now();
     this.pausedAt = 0;
     this.finishedAt = 0;
@@ -304,7 +308,7 @@ class GameRunner {
   }
 
   getBoardState() {
-    return {
+    const state = {
       width: Number(this.level.Width) || 0,
       height: Number(this.level.Height) || 0,
       lines: cloneLines(this.level.Lines),
@@ -313,6 +317,8 @@ class GameRunner {
       owner: this.owner.slice(),
       fixedLine: this.fixedLine.slice()
     };
+    if (this.iceEnabled) state.remainingLayers = this.remainingLayers.slice();
+    return state;
   }
 
   getSelectionState() {
@@ -325,6 +331,11 @@ class GameRunner {
   }
 
   getMechanicState() {
+    if (this.iceEnabled) return {
+      id: 'ice',
+      rulesVersion: 1,
+      cells: this.iceCells.map(index => ({ index, remainingLayers: this.remainingLayers[index] }))
+    };
     const pending = this.portalPending ? {
       lineIndex: this.portalPending.lineIndex,
       pairId: this.portalPending.pairId || null,
@@ -503,12 +514,18 @@ class GameRunner {
     this.owner = new Array(total).fill(-1);
     this.completedCells = {};
     this.completed = this.completedPaths.map(Boolean);
+    // Derive layers from committed paths, not pointer visits. Undo/redraw and
+    // lifecycle restore therefore restore ice without a second snapshot log.
+    this.remainingLayers = this.blockedMask.map(blocked => blocked ? 0 : 1);
+    this.iceCells.forEach(index => { this.remainingLayers[index] = 2; });
 
     this.completedPaths.forEach((path, lineIndex) => {
       if (!path) return;
-      path.forEach(cellIndex => {
+      new Set(path).forEach(cellIndex => {
         if (cellIndex < 0 || cellIndex >= total) return;
         if (this.blockedMask[cellIndex]) return;
+        this.remainingLayers[cellIndex] = Math.max(0, this.remainingLayers[cellIndex] - 1);
+        if (this.remainingLayers[cellIndex] > 0) return;
         this.owner[cellIndex] = lineIndex;
         this.completedCells[cellIndex] = lineIndex;
       });

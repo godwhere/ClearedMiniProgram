@@ -21,7 +21,7 @@ function isCompleted(context, lineIndex) {
 }
 
 class OrdinaryHintProvider {
-  findComplete(context, storedPaths) {
+  findComplete(context, storedPaths, requiredVisits) {
     if (!context || (context.outcome && context.outcome !== 'playing')) return null;
     if (!Array.isArray(storedPaths)) return null;
     const lines = linesOf(context);
@@ -32,12 +32,16 @@ class OrdinaryHintProvider {
     const height = Number(board.height);
     const total = width * height;
     const fixedLine = Array.isArray(board.fixedLine) ? board.fixedLine : [];
-    const used = new Set();
+    if (!Number.isInteger(total) || total <= 0 ||
+        (requiredVisits && (!Array.isArray(requiredVisits) || requiredVisits.length !== total ||
+          requiredVisits.some(count => !Number.isInteger(count) || count < 0 || count > 2)))) return null;
+    const visits = new Array(total).fill(0);
     const paths = [];
 
     for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
       const line = lines[lineIndex];
       const path = storedPaths[lineIndex];
+      const lineCells = new Set();
       if (!Array.isArray(path) || path.length < 2 ||
           path[0] !== endpoint(line, 'Start', 'start') ||
           path[path.length - 1] !== endpoint(line, 'End', 'end')) return null;
@@ -45,7 +49,8 @@ class OrdinaryHintProvider {
       for (let order = 0; order < path.length; order++) {
         if (!Object.prototype.hasOwnProperty.call(path, order)) return null;
         const cell = path[order];
-        if (!this.isPlayable(context, cell) || used.has(cell)) return null;
+        const required = requiredVisits ? requiredVisits[cell] : 1;
+        if (!this.isPlayable(context, cell) || lineCells.has(cell) || visits[cell] >= required) return null;
         const cellFixedLine = Number.isInteger(fixedLine[cell]) ? fixedLine[cell] : -1;
         if (cellFixedLine >= 0 && cellFixedLine !== lineIndex) return null;
         if (order > 0) {
@@ -54,16 +59,17 @@ class OrdinaryHintProvider {
             Math.abs(Math.floor(previous / width) - Math.floor(cell / width)) === 1;
           if (!adjacent) return null;
         }
-        used.add(cell);
+        visits[cell]++;
+        lineCells.add(cell);
       }
       paths.push({ lineIndex, path: path.slice(), source: 'solution' });
     }
 
-    let playableCount = 0;
     for (let index = 0; index < total; index++) {
-      if (this.isPlayable(context, index)) playableCount++;
+      const required = this.isPlayable(context, index) ? (requiredVisits ? requiredVisits[index] : 1) : 0;
+      if (visits[index] !== required) return null;
     }
-    return used.size === playableCount ? { paths, source: 'solution' } : null;
+    return { paths, source: 'solution' };
   }
 
   find(context, storedPaths) {

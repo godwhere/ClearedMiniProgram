@@ -26,6 +26,9 @@ function settle(context, services) {
   if (!context) return null;
   if (context.progressionScope === 'ordinary') return settleOrdinary(context, services);
   if (context.progressionScope === 'daily') return settleDaily(context, services);
+  if (context.progressionScope === 'trial' && context.source && context.source.kind === 'trial') {
+    return { outcome: 'won', elapsedMs: Math.max(1, Number(services && services.elapsedMs) || 0) };
+  }
   return null;
 }
 
