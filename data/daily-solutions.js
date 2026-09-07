@@ -40,6 +40,19 @@ const extremePaths = [
   ]
 ];
 
+const courtyardPaths = [
+  [0, 8, 16, 17, 9, 1, 2, 3],
+  [4, 12, 11, 10, 18, 19, 20],
+  [21, 13, 5, 6, 7, 15, 14, 22, 23],
+  [24, 25, 26, 34, 33, 32, 40],
+  [41, 42, 50, 49, 48],
+  [29, 37, 45, 53, 54, 55, 47],
+  [46, 38, 30, 31, 39],
+  [56, 64, 72, 73, 65, 57, 58],
+  [59, 60, 68, 67, 66, 74, 75, 76],
+  [77, 69, 61, 62, 63, 71, 70, 78, 79]
+];
+
 // Compatibility solutions for the deprecated flat Challenges entries, which
 // still contain the original three-line 8×10 shape. Canonical Days use the
 // more granular ten-line extreme puzzle above.
@@ -69,6 +82,8 @@ module.exports = {
     'daily-2026-08-31-v1-extreme-v1': extremePaths,
     'daily-2026-09-01-v1-intro-v1': introPaths,
     'daily-2026-09-01-v1-extreme-v1': extremePaths,
+    'daily-2026-09-07-v1-intro-v1': introPaths,
+    'daily-2026-09-07-v1-extreme-v1': courtyardPaths,
 
     // Legacy aliases for hosts that still resolve the old one-level
     // Challenges entries. They intentionally point at the 8x10 solution.

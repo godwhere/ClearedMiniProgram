@@ -189,6 +189,10 @@ function run() {
     platform.metrics.width = width;
     platform.context.calls.length = 0;
     renderer.render({ scene: 'home', completedCount: 23, totalLevels: 92 }, Date.now());
+    const title = textCalls(platform.context, '清空每一格');
+    assert.strictEqual(title.length, 1, 'home displays the Chinese title');
+    assert.strictEqual(title[0].args[1], width / 2, 'home title remains centered');
+    assert.strictEqual(textCalls(platform.context, 'CLEARED!').length, 0, 'home no longer displays the old title');
     const start = renderer.hits.find(hit => hit.id === 'home:start').rect;
     const label = textCalls(platform.context, '继续游戏')[0].args;
     const progress = textCalls(platform.context, '23/92');

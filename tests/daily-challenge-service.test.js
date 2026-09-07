@@ -62,9 +62,27 @@ function run() {
   assert.strictEqual(new DailyChallengeService(manifest).resolve(new Date('2030-01-01')).reason,
     'no-challenge');
 
+  const currentService = new DailyChallengeService(manifest, { solutions });
+  for (const time of ['2026-09-06T16:00:00.000Z', '2026-09-07T15:59:59.999Z']) {
+    const current = currentService.resolve(new Date(time));
+    assert.strictEqual(current.status, 'available', 'the new day resolves throughout Shanghai September 7');
+    assert.strictEqual(current.dayId, 'daily-2026-09-07-v1');
+    assert.strictEqual(current.entryLimit, 3);
+    assert.deepStrictEqual(current.levels.map(level => level.Id),
+      ['daily-2026-09-07-v1-intro-v1', 'daily-2026-09-07-v1-extreme-v1']);
+    assert.deepStrictEqual(current.levels[1].Blocked, [27, 28, 35, 36, 43, 44, 51, 52]);
+    current.levels.forEach(level => {
+      assert.strictEqual(currentService.validateSolution(level, solutions.ByChallengeId[level.Id]).ok, true);
+      assert.strictEqual(level.Mechanic, undefined);
+      assert.strictEqual(level.IceCells, undefined);
+    });
+    assert.notDeepStrictEqual(current.levels[1].Lines, manifest.Days[0].Levels[1].Lines,
+      'the new second board is not just an old date alias');
+  }
+
   const duplicate = clone(manifest);
   duplicate.Days.push(clone(duplicate.Days[0]));
-  duplicate.Days[2].Id = 'daily-duplicate-id';
+  duplicate.Days[duplicate.Days.length - 1].Id = 'daily-duplicate-id';
   const duplicateResult = new DailyChallengeService(duplicate).resolve(
     new Date('2026-08-31T00:00:00Z')
   );

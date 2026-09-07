@@ -866,7 +866,7 @@ class CanvasRenderer {
       this.drawFallbackLogo(width / 2, logoY, logoSize * 0.72);
     }
 
-    this.text('CLEARED!', width / 2, logoY + logoSize * 0.63, 21, { weight: 300, alpha: 0.78 });
+    this.text('清空每一格', width / 2, logoY + logoSize * 0.63, 21, { weight: 300, alpha: 0.78 });
 
     const buttonWidth = Math.min(width - 56, 360);
     // Keep the bottom inset while stacking both rows. The stack is derived

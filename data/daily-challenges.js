@@ -52,13 +52,31 @@ const extremeLevel = (dateKey, dayId) => ({
     '#f44336', '#ff9800', '#8bc34a', '#009688', '#9c27b0']
 });
 
-const day = dateKey => {
+// 2026-09-07: a central courtyard leaves 72 playable cells around eight holes.
+// Keep the standard day/level IDs so existing daily cloud contracts still apply.
+const courtyardLevel = (dateKey, dayId) => Object.assign(extremeLevel(dateKey, dayId), {
+  Blocked: [27, 28, 35, 36, 43, 44, 51, 52],
+  Lines: [
+    { Start: 0, End: 3 },
+    { Start: 4, End: 20 },
+    { Start: 21, End: 23 },
+    { Start: 24, End: 40 },
+    { Start: 41, End: 48 },
+    { Start: 29, End: 47 },
+    { Start: 46, End: 39 },
+    { Start: 56, End: 58 },
+    { Start: 59, End: 76 },
+    { Start: 77, End: 79 }
+  ]
+});
+
+const day = (dateKey, hardLevel = extremeLevel) => {
   const dayId = `daily-${dateKey}-v1`;
   return {
     Id: dayId,
     DateKey: dateKey,
     EntryLimit: 3,
-    Levels: [introLevel(dateKey, dayId), extremeLevel(dateKey, dayId)]
+    Levels: [introLevel(dateKey, dayId), hardLevel(dateKey, dayId)]
   };
 };
 
@@ -88,7 +106,8 @@ module.exports = {
   EntryLimit: 3,
   Days: [
     day('2026-08-31'),
-    day('2026-09-01')
+    day('2026-09-01'),
+    day('2026-09-07', courtyardLevel)
   ],
   Challenges: [
     legacyChallenge('2026-08-31'),

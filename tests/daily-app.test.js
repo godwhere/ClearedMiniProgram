@@ -304,7 +304,37 @@ async function extraEntryActionAliases() {
   }
 }
 
+function testSeptember7Challenge() {
+  const { platform, storage } = createPlatform();
+  const app = new ClearedApp(platform, { clock: () => new Date('2026-09-07T07:00:00.000Z') });
+  const ordinary = JSON.stringify(app.progress.state);
+  app.tick(Date.now());
+  assert.strictEqual(app.buildModel().dailyEntryAvailable, true);
+  assert.strictEqual(app.renderer.hits.some(hit => hit.id === 'home:dailyChallenge'), true);
+  app.performAction('home:dailyChallenge');
+  assert.strictEqual(app.scene, 'daily');
+  assert.strictEqual(app.daily.levelIndex, 0);
+  assert.strictEqual(app.daily.entriesUsed, 1);
+  solveCurrentLevel(app);
+  assert.strictEqual(app.daily.levelIndex, 1);
+  assert.strictEqual(app.daily.challengeId, 'daily-2026-09-07-v1-extreme-v1');
+  assert.strictEqual(app.daily.entriesUsed, 1, 'advancing to the screenshot board costs no extra entry');
+  app.tick(Date.now() + 2000);
+  assert.strictEqual(app.renderer.boardLayout.cols, 8);
+  assert.strictEqual(app.renderer.boardLayout.rows, 10);
+  app.daily.challenge.Blocked.forEach(index => assert.strictEqual(app.daily.runner.isPlayableCell(index), false));
+  solveCurrentLevel(app);
+  assert.strictEqual(app.scene, 'dailyResult', 'all new paths win through the real pointer and completion flow');
+  assert.strictEqual(app.daily.result.levelResults.length, 2);
+  assert(app.daily.result.levelResults.every(level => level.completed));
+  assert.strictEqual(storage['cleared:minigame:daily:v1'].entries['2026-09-07'].entriesUsed, 1);
+  assert.strictEqual(storage['cleared:minigame:daily:v1'].entries['2026-09-07'].completed, true);
+  assert.strictEqual(JSON.stringify(app.progress.state), ordinary, 'daily content never changes ordinary progress');
+  app.dispose();
+}
+
 async function run() {
+  testSeptember7Challenge();
   await extraEntryActionAliases();
   testDailyAcceptanceDateOverride();
   testDailyCompletionKeepsEnteredDateAcrossShanghaiMidnight();
