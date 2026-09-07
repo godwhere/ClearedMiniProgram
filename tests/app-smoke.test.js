@@ -8,6 +8,9 @@ const { createCatalogRunContext } = require('../src/gameplay/run-context.js');
 const solutions = require('../data/solutions.js');
 const portalSolutions = require('../data/portal-solutions.js');
 const portalInstructions = require('../src/ui/portal-instructions.js');
+const ProgressStore = require('../src/services/progress-store.js');
+const RewardUnlockService = require('../src/services/reward-unlock-service.js');
+const rewardConfig = require('../src/config/rewards.js');
 
 function fakeContext() {
   const context = {};
@@ -155,6 +158,7 @@ async function run() {
   assert(app.result, 'an optional ad failure cannot strand a won board without a result');
   assert.strictEqual(app.runner.isGameOver, true);
   assert.strictEqual(app.progress.completedCount(), 1);
+  assert(app.buildModel().clearFeedback, 'the last completed gesture also triggers visual shake');
 
   app.tick(Date.now() + 2000);
   assert(app.renderer.hits.some(hit => hit.id === 'result:next'));
@@ -215,6 +219,7 @@ async function run() {
     app.onPathCompleted(lineIndex, [start, end]);
   };
   completeLine(0, 1, 0);
+  assert(app.buildModel().clearFeedback, 'non-final clears trigger visual shake');
 
   let completionCalls = 0;
   let adCalls = 0;
@@ -511,6 +516,7 @@ async function run() {
   });
   dailyPreviewApp.boardInput.setRunner(dailyPreviewApp.daily.runner);
   dailyPreviewApp.scene = 'daily';
+  assert.strictEqual(dailyPreviewApp.buildModel().firstClearRewardAmount, rewardConfig.currency.dailyFirstComplete);
   const dailyStateBefore = runnerGameplayState(dailyPreviewApp.daily.runner);
   assert.strictEqual(dailyPreviewApp.showDailyHint(), true);
   assert.deepStrictEqual(dailyPreviewApp.hint.paths[0].path, [0, 3, 4, 5, 2]);
@@ -564,6 +570,64 @@ async function run() {
   });
   free.openLevel(0, 0); free.performAction('play:hint');
   assert(free.hintPreview, 'the explicit free rollback policy is still immediate');
+
+  const failedSaveApi = createWxMock();
+  const failedSavePlatform = new WechatPlatform(failedSaveApi);
+  const failedSaveApp = new ClearedApp(failedSavePlatform, {
+    solutionCatalog: solutions, stamina: createUnlimitedStaminaFixture()
+  });
+  failedSaveApp.authorityMode = () => 'local-backup';
+  const write = failedSaveApi.setStorageSync.bind(failedSaveApi);
+  failedSaveApi.setStorageSync = (key, value) => {
+    if (key === ProgressStore.STORAGE_KEY) throw Error('storage unavailable');
+    write(key, value);
+  };
+  assert(failedSaveApp.openLevel(0, 0));
+  failedSaveApp.runner.touchStart(0);
+  [1, 2, 3, 4].forEach(cell => failedSaveApp.runner.touchMove(cell));
+  failedSaveApp.runner.touchEnd(4);
+  failedSaveApp.onPathCompleted(0, [0, 1, 2, 3, 4]);
+  assert.strictEqual(failedSaveApp.result.currencyReward.status, 'local-save-failed');
+  assert.strictEqual(failedSaveApp.result.currencyReward.failureSource, 'local-save');
+  assert.strictEqual(failedSaveApp.buildModel().settlementMode, 'local-backup');
+  assert.strictEqual(failedSaveApp.buildModel().firstClearRewardAmount, rewardConfig.currency.ordinaryFirstClear);
+
+  const failedWalletApi = createWxMock();
+  failedWalletApi.getStorageInfoSync = () => ({ keys: Object.keys(failedWalletApi.storage) });
+  const failedWalletApp = new ClearedApp(new WechatPlatform(failedWalletApi), {
+    solutionCatalog: solutions, stamina: createUnlimitedStaminaFixture()
+  });
+  failedWalletApp.authorityMode = () => 'local-backup';
+  failedWalletApp.rewardUnlocks.setAuthorityMode('local-backup');
+  const walletWrite = failedWalletApi.setStorageSync.bind(failedWalletApi);
+  failedWalletApi.setStorageSync = (key, value) => {
+    if (key === RewardUnlockService.STORAGE_KEY) throw Error('storage unavailable');
+    walletWrite(key, value);
+  };
+  assert(failedWalletApp.openLevel(0, 0));
+  failedWalletApp.runner.touchStart(0);
+  [1, 2, 3, 4].forEach(cell => failedWalletApp.runner.touchMove(cell));
+  failedWalletApp.runner.touchEnd(4);
+  failedWalletApp.onPathCompleted(0, [0, 1, 2, 3, 4]);
+  assert.strictEqual(failedWalletApp.result.currencyReward.status, 'local-save-failed');
+  assert.strictEqual(failedWalletApp.result.currencyReward.failureSource, 'reward-reconcile');
+  assert.strictEqual(failedWalletApp.rewardUnlocks.view().balance, 0);
+  for (let attempt = 0; attempt < 2; attempt++) {
+    assert.strictEqual(failedWalletApp.performAction('reward:retry'), false);
+    assert.strictEqual(failedWalletApp.result.currencyReward.status, 'local-save-failed',
+      'repeated local wallet save failures must not become cloud synchronization waits');
+    assert.strictEqual(failedWalletApp.result.currencyReward.failureSource, 'reward-reconcile');
+    assert.strictEqual(failedWalletApp.rewardUnlocks.view().balance, 0);
+  }
+  failedWalletApi.setStorageSync = walletWrite;
+  assert.strictEqual(failedWalletApp.performAction('reward:retry'), true);
+  assert.strictEqual(failedWalletApp.result.currencyReward.status, 'granted');
+  assert.strictEqual(failedWalletApp.result.currencyReward.amount, rewardConfig.currency.ordinaryFirstClear);
+  assert.strictEqual(new RewardUnlockService(failedWalletApp.platform, rewardConfig).view().balance,
+    rewardConfig.currency.ordinaryFirstClear, 'successful retry persists the reward');
+  assert.strictEqual(failedWalletApp.performAction('reward:retry'), true);
+  assert.strictEqual(failedWalletApp.rewardUnlocks.view().balance, rewardConfig.currency.ordinaryFirstClear,
+    'another retry cannot grant the same first-clear reward twice');
 
 }
 

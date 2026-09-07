@@ -1,4 +1,7 @@
 const tests = [
+  ['local backup settlement', require('./local-backup-settlement.test.js')],
+  ['cloud backup cadence and stale acknowledgements', require('./cloud-backup-service.test.js')],
+  ['cloud backup restore and conflicts', require('./cloud-backup-restore.test.js')],
   ['cloud identity client persistence and races', require('./cloud-identity-client.test.js')],
   ['cloud environment scopes', require('./cloud-environment-scope.test.js')],
   ['cloud read-only state isolation', require('./cloud-readonly-state.test.js')],

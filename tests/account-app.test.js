@@ -95,6 +95,16 @@ module.exports = async function run() {
   cloudStatus = 'migration-snapshot-missing'; assert.strictEqual(cloud.buildModel().accountStatus, 'error');
   cloud.dispose();
 
+  const backupAccount = new ClearedApp(new WechatPlatform(fakeApi()), {
+    auth: { state: () => 'authenticated', readOnlyPhase: true },
+    progressSync: { state: () => ({ status: 'backed-up' }) },
+    cloudBackup: { enabled: () => true, state: () => ({ status: 'backed-up', dirty: false }) }
+  });
+  backupAccount.performAction('home:account');
+  assert.strictEqual(backupAccount.buildModel().accountStatus, 'synced',
+    'the dedicated backup mode is not mislabeled as the old identity-only lane');
+  backupAccount.dispose();
+
   const cloudRetry = new ClearedApp(new WechatPlatform(fakeApi()), {
     auth: { mode: 'cloud', readOnlyPhase: false, state: () => 'authenticated',
       ensureSession: async () => ({ ok: true }), current: () => ({ mode: 'cloud', ownerId: 'player_A',

@@ -144,7 +144,51 @@ function testHomeAvatar() {
   assert(!context.calls.some(call => call.method === 'drawImage' && call.args[0] === image), 'cleared profile data invalidates pending avatar loads');
 }
 
+function testClearFeedback() {
+  let offset = 0;
+  const stack = [];
+  const clears = [];
+  const context = fakeContext();
+  context.save = () => { stack.push(offset); };
+  context.restore = () => { offset = stack.pop(); };
+  context.translate = x => { offset += x; };
+  context.clearRect = () => { clears.push(offset); };
+  const platform = {
+    context,
+    metrics: { width: 390, height: 844, safeTop: 44, safeBottom: 810 },
+    createImage(source, callback) { callback(null, { source }); return {}; }
+  };
+  const renderer = new CanvasRenderer(platform, { current: () => classic });
+  const positions = [];
+  renderer.renderScene = () => {
+    renderer.begin('#fff');
+    positions.push(offset);
+    renderer.addHit('play:reset', { x: 20, y: 50, w: 44, h: 44 }, true);
+  };
+  const feedback = { startedAt: 1000, durationMs: 180 };
+  for (const width of [320, 390, 430]) {
+    platform.metrics.width = width;
+    for (const scene of ['play', 'result', 'daily', 'dailyResult']) {
+      renderer.render({ scene, clearFeedback: feedback }, 1000);
+      const initial = positions[positions.length - 1];
+      assert(initial > 0 && initial <= 3, 'clear feedback is visible and bounded in logical pixels');
+      renderer.render({ scene, clearFeedback: feedback }, 1030);
+      assert(positions[positions.length - 1] < 0, 'feedback changes direction');
+      renderer.render({ scene, clearFeedback: feedback }, 1150);
+      assert(Math.abs(positions[positions.length - 1]) < initial, 'feedback decays');
+      renderer.render({ scene, clearFeedback: feedback }, 1180);
+      assert.strictEqual(positions[positions.length - 1], 0, 'feedback finishes at the original position');
+      assert.strictEqual(renderer.hitTest(42, 72), 'play:reset', 'touch geometry stays stable');
+      assert.strictEqual(offset, 0, 'canvas transforms do not leak across frames');
+    }
+  }
+  renderer.render({ scene: 'home', clearFeedback: feedback }, 1000);
+  assert.strictEqual(positions[positions.length - 1], 0, 'feedback never shakes another scene');
+  assert(clears.every(value => value === 0), 'the full viewport is cleared without shifted edge trails');
+}
+
 function run() {
+  testClearFeedback();
   testHomeAvatar();
   const platform = {
     context: fakeContext(),
@@ -299,6 +343,68 @@ function run() {
     hasNext: false
   }, renderState(runner)), Date.now());
   assert(renderer.hits.some(hit => hit.id === 'result:replay'));
+
+  platform.context.calls.length = 0;
+  renderer.render(Object.assign({
+    scene: 'result', set, level: set.Games[0], levelIndex: 0,
+    levelEnteredAt: 0, pressedId: null, resultVisibleAt: 0, settlementMode: 'local-backup',
+    result: { newBest: true, elapsedMs: 1200, bestMs: 1200, persisted: false,
+      currencyReward: { status: 'local-save-failed', failureSource: 'local-save', amount: 0 } }, hasNext: false
+  }, renderState(runner)), Date.now());
+  assert.strictEqual(textCalls(platform.context, '本地保存未成功，点击重试').length, 1);
+  assert(renderer.hits.some(hit => hit.id === 'reward:retry'));
+
+  platform.context.calls.length = 0;
+  renderer.render(Object.assign({
+    scene: 'dailyResult', challenge: set.Games[0], dailyLevelIndex: 1, dailyLevelCount: 2,
+    dailyDateKey: '2026-09-07', dailyResultVisibleAt: 0, resultVisibleAt: 0,
+    dailyEntriesRemaining: 1, dailyEntryLimit: 3, settlementMode: 'local-backup',
+    result: { elapsedMs: 2200, persisted: false,
+      currencyReward: { status: 'local-save-failed', failureSource: 'local-save', amount: 0 } }
+  }, renderState(runner)), Date.now());
+  assert.strictEqual(textCalls(platform.context, '本地保存未成功，点击重试').length, 1);
+  assert(renderer.hits.some(hit => hit.id === 'reward:retry'));
+
+  platform.context.calls.length = 0;
+  renderer.render(Object.assign({
+    scene: 'result', set, level: set.Games[0], levelIndex: 0,
+    levelEnteredAt: 0, pressedId: null, resultVisibleAt: 0, settlementMode: 'cloud-authoritative',
+    firstClearRewardAmount: 100,
+    result: { newBest: true, elapsedMs: 1200, bestMs: 1200,
+      currencyReward: { status: 'pending', amount: 0 } }, hasNext: false
+  }, renderState(runner)), Date.now());
+  assert.strictEqual(textCalls(platform.context, '首通奖励 100 货币').length, 1,
+    'cloud settlement shows the reward amount without asking the player to synchronize it');
+  assert.strictEqual(textCalls(platform.context, '奖励待同步').length, 0);
+  assert.strictEqual(textCalls(platform.context, '获得 100 货币').length, 0,
+    'a displayed first-clear amount is not a claim that the wallet has already been credited');
+  assert.strictEqual(renderer.hits.some(hit => hit.id === 'reward:retry'), false);
+  assert.strictEqual(textCalls(platform.context, '本地保存未成功，点击重试').length, 0);
+
+  for (const scene of ['result', 'dailyResult']) {
+    const amount = scene === 'dailyResult' ? 500 : 100;
+    const claimed = scene === 'dailyResult' ? '今日奖励已领取' : '本关奖励已领取';
+    for (const [status, persisted, expected, retry] of [
+      ['pending', true, `首通奖励 ${amount} 货币`, false],
+      ['granted', true, `获得 ${amount} 货币`, false],
+      ['already-claimed', true, claimed, false],
+      ['pending', false, '本地保存未成功，点击重试', true],
+      ['failed', true, '奖励未到账', false]
+    ]) {
+      platform.context.calls.length = 0;
+      renderer.render(Object.assign({ scene, set, level: set.Games[0], challenge: set.Games[0], levelIndex: 0,
+        levelEnteredAt: 0, pressedId: null, resultVisibleAt: 0, dailyResultVisibleAt: 0,
+        dailyLevelIndex: 1, dailyLevelCount: 2, dailyEntriesRemaining: 1, dailyEntryLimit: 3,
+        settlementMode: 'cloud-authoritative', firstClearRewardAmount: amount, hasNext: false,
+        result: { elapsedMs: 1200, bestMs: 1200, persisted,
+          currencyReward: { status, amount: status === 'granted' ? amount : 0 } }
+      }, renderState(runner)), Date.now());
+      assert.strictEqual(textCalls(platform.context, expected).length, 1, `${scene}: ${status}, persisted=${persisted}`);
+      assert.strictEqual(textCalls(platform.context, '奖励待同步').length, 0);
+      assert.strictEqual(textCalls(platform.context, '奖励同步失败').length, 0);
+      assert.strictEqual(renderer.hits.some(hit => hit.id === 'reward:retry'), retry);
+    }
+  }
 
   const failureVisibleAt = 5000;
   const failureResult = {

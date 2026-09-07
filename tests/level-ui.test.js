@@ -124,6 +124,39 @@ function difficultyBars() {
   }
 }
 
+function earlyLevelDifficultyBars() {
+  for (const width of [280, 320, 390]) {
+    const f = fixture(width, 568);
+    f.app.performAction('home:levels');
+    const bars = [];
+    const context = f.renderer.ctx;
+    const fillRect = context.fillRect;
+    context.fillRect = (x, y, w, h) => {
+      if (h === 2 && w <= 2.5) bars.push({ x, y, alpha: context.globalAlpha });
+      fillRect.call(context, x, y, w, h);
+    };
+    const seen = new Set();
+    for (const page of [0, 1]) {
+      f.app.levelPageIndex = page;
+      const model = f.app.buildModel();
+      bars.length = 0;
+      f.render(model);
+      assert.strictEqual(bars.length, model.levelItems.length * 5, 'real first/second pages must include every rating');
+      model.levelItems.forEach((item, i) => {
+        if (item.displayNumber > 32) return;
+        seen.add(item.displayNumber);
+        assert.strictEqual(item.difficulty, catalog.levels[item.displayNumber - 1].game.Difficulty);
+        assert(Number.isInteger(item.difficulty) && item.difficulty >= 1 && item.difficulty <= 5);
+        bars.slice(i * 5, i * 5 + 5).forEach((bar, index) => {
+          assert.strictEqual(bar.alpha, (index < item.difficulty ? 0.85 : 0.18) * (item.unlocked ? 1 : 0.5));
+        });
+      });
+    }
+    assert.strictEqual(seen.size, 32, 'all 32 early levels are checked without injecting fake grades');
+    f.app.dispose();
+  }
+}
+
 function galleryBackButtons() {
   for (const width of [280, 320, 390]) {
     const f = fixture(width, 568);
@@ -179,6 +212,17 @@ function beginnerInstructions() {
         assert(label.options.maxWidth <= rect.w);
         const button = f.renderer.hits.find(hit => hit.id === 'play:hint').rect;
         assert(board.y + board.rows * board.cell < button.y);
+        for (const outcome of ['won', 'failed']) {
+          for (const resultVisibleAt of [0, Date.now() + 5000]) {
+            f.render(Object.assign({}, model, { scene: 'result',
+              result: { outcome, elapsedMs: 1000, remainingCells: 1 }, resultVisibleAt }));
+            assert.strictEqual(f.prompts.length, 0, 'result scenes hide tutorial copy, including before the panel appears');
+            assert(!f.texts.some(text => text.value === expected), 'tutorial text is not drawn behind the result panel');
+            if (outcome === 'failed') {
+              assert.deepStrictEqual(f.renderer.getBoardLayout(), board, 'hiding copy retains the prompt band and failed-board geometry');
+            }
+          }
+        }
       }
       f.open(5); f.render();
       assert.strictEqual(f.app.buildModel().beginnerInstruction, null);
@@ -186,6 +230,9 @@ function beginnerInstructions() {
       f.open(6); f.render();
       assert.strictEqual(f.app.buildModel().beginnerInstruction, null);
       assert.strictEqual(f.prompts[0].value, portalInstructions.INITIAL, 'later Portal guidance remains intact');
+      f.render(Object.assign({}, f.app.buildModel(), { scene: 'result',
+        result: { outcome: 'won', elapsedMs: 1000 }, resultVisibleAt: 0 }));
+      assert.strictEqual(f.prompts.length, 0, 'Portal guidance is also hidden after completion');
       f.open(25); f.render();
       assert.strictEqual(f.prompts.length, 0, 'a later catalog page does not restart the tutorial');
       f.open(0); f.render();
@@ -207,6 +254,7 @@ function beginnerInstructions() {
 module.exports = function run() {
   bestTimes();
   difficultyBars();
+  earlyLevelDifficultyBars();
   galleryBackButtons();
   beginnerInstructions();
 };

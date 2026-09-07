@@ -23,6 +23,8 @@ const AuthService = require('./services/auth-service.js');
 const ProgressSyncService = require('./services/progress-sync-service.js');
 const AuthoritativeStateApplier = require('./services/authoritative-state-applier.js');
 const PreferencesService = require('./services/preferences-service.js');
+const BackupSnapshot = require('./services/backup-snapshot.js');
+const CloudBackupService = require('./services/cloud-backup-service.js');
 const EconomyService = require('./services/economy-service.js');
 const BehaviorService = require('./services/behavior-service.js');
 const EngagementService = require('./services/engagement-service.js');
@@ -72,6 +74,7 @@ function start() {
   const environmentVersion = platform.getMiniProgramEnvironmentVersion();
   const isDeveloperRuntime = ['develop', 'trial'].includes(environmentVersion);
   const cloudConfig = cloudConfigForEnvironment(environmentVersion);
+  const initialArchive = BackupSnapshot.localArchiveState(platform);
   const subpackages = new SubpackageService(platform, subpackageConfig);
   const progress = new ProgressStore(platform);
   const stamina = new StaminaService(platform, staminaConfig);
@@ -89,9 +92,14 @@ function start() {
   const profile = new ProfileService(platform, api, auth, engagementConfig.profile, behavior);
   const authoritativeApplier = new AuthoritativeStateApplier({ progress, daily: dailyStore,
     rewards: rewardUnlocks, stamina, preferences, syncStore, sessions }, null);
+  const backupSnapshots = new BackupSnapshot({ progress, daily: dailyStore, rewards: rewardUnlocks, stamina, preferences });
+  const cloudBackup = new CloudBackupService(api, auth, syncStore, backupSnapshots, authoritativeApplier, cloudConfig,
+    { initialArchive });
   const economy = new EconomyService(platform, api, auth, syncStore, rewardUnlocks, authoritativeApplier);
-  const progressSync = new ProgressSyncService(api, progress, syncStore, auth, engagementConfig.progressSync, behavior,
-    { daily: dailyStore, rewards: rewardUnlocks, stamina, preferences, sessions, economy, applier: authoritativeApplier });
+  const progressSync = new ProgressSyncService(api, progress, syncStore, auth,
+    Object.assign({}, engagementConfig.progressSync, { localBackupEnabled: cloudConfig.localBackupEnabled === true }), behavior,
+    { daily: dailyStore, rewards: rewardUnlocks, stamina, preferences, sessions, economy,
+      applier: authoritativeApplier, backup: cloudBackup });
   const ads = new AdsService(platform, adConfig, { nextAttemptId: () => syncStore.nextId('adatt_') });
   const rewards = new RewardService(platform, api, auth, syncStore,
     { enabled: engagementConfig.rewards.dailyExtraEntryEnabled === true || engagementConfig.share.rewardsEnabled === true }, behavior);
@@ -116,7 +124,7 @@ function start() {
       platform.isDevTools() === true
   });
   const app = new ClearedApp(platform, {
-    stamina, preferences, rewardUnlocks, syncStore, economy, authoritativeApplier,
+    stamina, preferences, rewardUnlocks, syncStore, economy, authoritativeApplier, cloudBackup,
     progress, dailyStore, auth, progressSync, behavior, ads, engagement, profile, share, rewards, hintAccess,
     subpackages,
     skins,
@@ -140,6 +148,7 @@ function start() {
   preferences.bind({ skins: app.skins, clearEffects: app.clearEffects, audio: app.audio,
     canUse: (kind, itemId) => app.rewardUnlocks.canUse(kind, itemId) });
   authoritativeApplier.accountGuard = app.accountGuard;
+  cloudBackup.accountGuard = app.accountGuard;
   economy.accountGuard = app.accountGuard;
   progressSync.prepareMigrationSnapshot = () => app.prepareLegacyMigration();
   app.start();

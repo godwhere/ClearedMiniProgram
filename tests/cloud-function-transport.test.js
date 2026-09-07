@@ -4,6 +4,7 @@ const assert = require('assert');
 const WechatPlatform = require('../src/platform/wechat.js');
 const Transport = require('../src/services/cloud-function-transport.js');
 const ApiClient = require('../src/services/api-client.js');
+const BackupSnapshot = require('../src/services/backup-snapshot.js');
 const config = require('../src/config/cloudbase.js');
 const { fakeApi } = require('./account-bootstrap.test.js');
 
@@ -84,6 +85,16 @@ module.exports = async function run() {
     { service: 'playerState', action: 'migration.status', payload: { importId: 'import_test' } }))).ok);
   assert.strictEqual(adapted.name, 'player-state-api');
   assert.strictEqual(adapted.data.action, 'migration.status');
+
+  adapted = undefined;
+  const backupTransport = new Transport(spyPlatform, Object.assign(configured(), { localBackupEnabled: true }));
+  const nearLimit = { value: 'x'.repeat(BackupSnapshot.REQUEST_LIMIT - 90) };
+  assert(BackupSnapshot.utf8Bytes(nearLimit) < BackupSnapshot.REQUEST_LIMIT);
+  assert(BackupSnapshot.utf8Bytes({ action: 'backup.commit', requestId: 'req_backup_limit',
+    protocolVersion: 1, payload: nearLimit }) > BackupSnapshot.REQUEST_LIMIT);
+  assert.strictEqual((await backupTransport.request({ service: 'playerState', action: 'backup.commit',
+    requestId: 'req_backup_limit', protocolVersion: 1, payload: nearLimit })).error.code, 'invalid-request');
+  assert.strictEqual(adapted, undefined, 'the request budget includes the cloud-function envelope');
 
   for (const change of [{ service: '__proto__' }, { service: 'other' },
     { requestId: 'bad id' }, { protocolVersion: 2 }, { payload: [] }, { operationId: '../bad' },

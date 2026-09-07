@@ -101,6 +101,31 @@ function contentAndRating() {
   assert.throws(() => evaluate(Object.assign({}, simple, { IceCells: [] }), rows), /ordinary\/Portal/);
 }
 
+function earlyLevelRating() {
+  const early = catalog.levels.slice(0, 32);
+  assert.deepStrictEqual(histogram(early.map(entry => entry.game)), [8, 16, 8, 0, 0]);
+  early.forEach(entry => {
+    const game = entry.game;
+    const answer = game.Mechanic === 'portal' ? portal.ByLevelId[game.Id] :
+      normal.ByLevelId[game.Id] || normal.sets[entry.setIndex][entry.levelIndex];
+    const rating = evaluate(game, answer);
+    assert.strictEqual(rating.grade, game.Difficulty, `${key(entry)}: early published grade drift`);
+    const last = game.Width * game.Height - 1;
+    const rotated = Object.assign({}, game, {
+      Lines: game.Lines.slice().reverse().map(line => ({ Start: last - line.End, End: last - line.Start })),
+      Portals: (game.Portals || []).map(network => ({ Cells: network.Cells.map(cell => last - cell) }))
+    });
+    const rotatedAnswer = answer.slice().reverse().map(line => ({ Segments: segments(line).slice().reverse()
+      .map(path => ({ Cells: path.slice().reverse().map(cell => last - cell) })) }));
+    assert.strictEqual(evaluate(rotated, rotatedAnswer).score, rating.score, 'small and rectangular boards stay orientation invariant');
+  });
+  const training = { Width: 5, Height: 1, Lines: [{ Start: 0, End: 4 }] };
+  assert.strictEqual(evaluate(training, [[0, 1, 2, 3, 4]]).score, 0);
+  for (const dimensions of [{ Width: 0 }, { Width: 5.5 }, { Width: 8, Height: 10 }]) {
+    assert.throws(() => evaluate(Object.assign({}, training, dimensions), [[0, 1, 2, 3, 4]]), /ordinary\/Portal/);
+  }
+}
+
 function sequence() {
   assert.strictEqual(catalog.orderValid, true);
   assert.strictEqual(catalog.orderVersion, 1);
@@ -181,4 +206,4 @@ function oldSave() {
   }
 }
 
-module.exports = function run() { contentAndRating(); sequence(); oldSave(); };
+module.exports = function run() { contentAndRating(); earlyLevelRating(); sequence(); oldSave(); };

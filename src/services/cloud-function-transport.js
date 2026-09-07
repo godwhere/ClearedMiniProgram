@@ -1,6 +1,7 @@
 'use strict';
 
 const { failure } = require('./api-client.js');
+const BackupSnapshot = require('./backup-snapshot.js');
 const record = value => !!value && typeof value === 'object' && !Array.isArray(value);
 const validId = value => typeof value === 'string' && /^[A-Za-z0-9_:-]{1,200}$/.test(value) &&
   !['__proto__', 'constructor', 'prototype'].includes(value);
@@ -28,7 +29,8 @@ function localize(value, depth, budget) {
 }
 const ACTIONS = Object.freeze({
   identity: ['identity.init'],
-  playerState: ['state.read', 'migration.prepare', 'migration.status', 'migration.commitChunk', 'migration.finalize', 'sync.push'],
+  playerState: ['state.read', 'migration.prepare', 'migration.status', 'migration.commitChunk', 'migration.finalize', 'sync.push',
+    'backup.read', 'backup.commit'],
   economy: ['economy.purchase']
 });
 
@@ -45,7 +47,7 @@ class CloudFunctionTransport {
     return this.config.enabled === true && typeof this.config.env === 'string' &&
       /^[A-Za-z0-9_-]{1,128}$/.test(this.config.env) && testOnly !== productionOnly &&
       ['identityEnabled', 'readEnabled', 'writeEnabled', 'migrationEnabled', 'economyEnabled',
-        'staminaEnabled', 'preferencesEnabled'].every(key => typeof this.config[key] === 'boolean');
+        'staminaEnabled', 'preferencesEnabled', 'localBackupEnabled'].every(key => typeof this.config[key] === 'boolean');
   }
 
   runtimeAllowed() {
@@ -59,10 +61,12 @@ class CloudFunctionTransport {
   async request(input) {
     if (!this.isConfigured()) return failure('not-configured');
     const opts = input || {};
-    const gate = opts.action === 'identity.init' ? 'identityEnabled' : opts.action === 'state.read' ? 'readEnabled'
+    const gate = opts.action === 'identity.init' ? 'identityEnabled' : ['state.read', 'backup.read'].includes(opts.action) ? 'readEnabled'
       : opts.action && opts.action.startsWith('migration.') ? 'migrationEnabled'
-        : opts.action === 'sync.push' ? 'writeEnabled' : opts.action === 'economy.purchase' ? 'economyEnabled' : null;
+        : opts.action === 'backup.commit' ? 'localBackupEnabled'
+          : opts.action === 'sync.push' ? 'writeEnabled' : opts.action === 'economy.purchase' ? 'economyEnabled' : null;
     if (!gate || this.config[gate] !== true) return failure('not-configured');
+    if (opts.action === 'backup.read' && this.config.localBackupEnabled !== true) return failure('not-configured');
     const actions = Object.prototype.hasOwnProperty.call(ACTIONS, opts.service) && ACTIONS[opts.service];
     const name = this.config.functions[opts.service];
     const timeout = opts.timeoutMs === undefined ? this.config.timeoutMs : opts.timeoutMs;
@@ -71,11 +75,14 @@ class CloudFunctionTransport {
         opts.protocolVersion !== 1 || !record(opts.payload) ||
         !Number.isSafeInteger(timeout) || timeout <= 0 || timeout > 60000 ||
         (opts.operationId != null && !validId(opts.operationId)) ||
-        (opts.idempotencyKey != null && !validId(opts.idempotencyKey))) return failure('invalid-request');
+        (opts.idempotencyKey != null && !validId(opts.idempotencyKey)) ||
+        BackupSnapshot.utf8Bytes(opts.payload) > BackupSnapshot.REQUEST_LIMIT) return failure('invalid-request');
     const data = { action: opts.action, requestId: opts.requestId,
       protocolVersion: opts.protocolVersion, payload: opts.payload };
     if (opts.operationId != null) data.operationId = opts.operationId;
     if (opts.idempotencyKey != null) data.idempotencyKey = opts.idempotencyKey;
+    if (['backup.read', 'backup.commit'].includes(opts.action) &&
+        BackupSnapshot.utf8Bytes(data) > BackupSnapshot.REQUEST_LIMIT) return failure('invalid-request');
     try {
       if (!this.platform || typeof this.platform.supportsCloud !== 'function' ||
           !this.platform.supportsCloud()) return failure('not-supported');

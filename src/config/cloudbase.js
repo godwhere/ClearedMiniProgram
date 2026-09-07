@@ -13,6 +13,7 @@ module.exports = {
   economyEnabled: false,
   staminaEnabled: false,
   preferencesEnabled: false,
+  localBackupEnabled: false,
   testOnly: true,
   productionOnly: false,
   functions: {

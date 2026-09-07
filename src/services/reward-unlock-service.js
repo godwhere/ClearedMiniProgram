@@ -141,7 +141,7 @@ class RewardUnlockService {
 
   authorityMode() { return this._authorityMode; }
   setAuthorityMode(mode) {
-    if (!['legacy-local', 'migration-freeze', 'cloud-authoritative'].includes(mode) ||
+    if (!['legacy-local', 'migration-freeze', 'cloud-authoritative', 'local-backup'].includes(mode) ||
         (this._authorityMode !== 'legacy-local' && mode === 'legacy-local')) return false;
     this._authorityMode = mode;
     return true;
@@ -154,6 +154,41 @@ class RewardUnlockService {
     if (!normalizeState(this.state)) return { ok: false, reason: 'invalid-storage' };
     return { ok: true, economy: { balance: this.state.balance, claimedOrdinary: clone(this.state.claimedOrdinary),
       claimedDaily: clone(this.state.claimedDaily) }, entitlements: { ownedRewards: clone(this.state.ownedRewards) } };
+  }
+  exportBackupSnapshot() {
+    const read = this.readResult();
+    if (!read || read.ok !== true || (read.found !== true && read.found !== false)) {
+      return { ok: false, reason: 'storage-read-failed' };
+    }
+    let persisted = read.found ? read.value : emptyState();
+    if (typeof persisted === 'string') {
+      try { persisted = JSON.parse(persisted); } catch (error) { return { ok: false, reason: 'invalid-storage' }; }
+    }
+    const state = normalizeState(persisted);
+    if (!state) return { ok: false, reason: 'invalid-storage' };
+    return { ok: true,
+      economy: { schemaVersion: 1, balance: state.balance,
+        claimedOrdinary: clone(state.claimedOrdinary), claimedDaily: clone(state.claimedDaily) },
+      entitlements: { schemaVersion: 1, ownedRewards: clone(state.ownedRewards),
+        adAttempts: clone(state.adAttempts) } };
+  }
+  applyBackupSnapshot(input) {
+    const economy = input && input.economy; const entitlements = input && input.entitlements;
+    if (this._authorityMode !== 'local-backup' || !this.state || !record(economy) || economy.schemaVersion !== 1 ||
+        !safeInteger(economy.balance, false) || !validBooleanMap(economy.claimedOrdinary, key => levelKeys.has(key)) ||
+        !record(economy.claimedDaily) || !Object.keys(economy.claimedDaily).every(key => validDateKey(key) && validId(economy.claimedDaily[key])) ||
+        !record(entitlements) || entitlements.schemaVersion !== 1 ||
+        !validBooleanMap(entitlements.ownedRewards, key => !!this.item(key)) || !record(entitlements.adAttempts)) {
+      return { ok: false, reason: 'invalid-snapshot' };
+    }
+    const candidate = clone(this.state);
+    candidate.balance = economy.balance; candidate.claimedOrdinary = clone(economy.claimedOrdinary);
+    candidate.claimedDaily = clone(economy.claimedDaily); candidate.ownedRewards = clone(entitlements.ownedRewards);
+    candidate.adAttempts = clone(entitlements.adAttempts);
+    const normalized = normalizeState(candidate);
+    if (!normalized) return { ok: false, reason: 'invalid-snapshot' };
+    normalized.pendingNotices = candidate.pendingNotices.filter(id => normalized.ownedRewards[id] === true);
+    return this.write(normalized) ? { ok: true } : { ok: false, reason: 'persist-failed' };
   }
 
   readResult() {
@@ -257,7 +292,7 @@ class RewardUnlockService {
   }
 
   reconcile(input) {
-    if (this._authorityMode !== 'legacy-local') return this.authorityBlocked();
+    if (!['legacy-local', 'local-backup'].includes(this._authorityMode)) return this.authorityBlocked();
     if (!this.state) return { ok: false, reason: this.loadError, amountDelta: 0, newRewards: [] };
     const ordinary = input && input.ordinary;
     const daily = input && input.daily;
@@ -304,7 +339,7 @@ class RewardUnlockService {
   }
 
   purchase(rewardId) {
-    if (this._authorityMode !== 'legacy-local') return this.authorityBlocked();
+    if (!['legacy-local', 'local-backup'].includes(this._authorityMode)) return this.authorityBlocked();
     if (!this.state) return { ok: false, reason: this.loadError, amountDelta: 0, newRewards: [] };
     const item = this.item(rewardId);
     if (!item || item.unlock.type !== 'currency') return { ok: false, reason: 'invalid-reward', amountDelta: 0, newRewards: [] };
@@ -357,7 +392,7 @@ class RewardUnlockService {
   }
 
   recordAdCompletion(input, fromRetry) {
-    if (this._authorityMode !== 'legacy-local') return this.authorityBlocked();
+    if (!['legacy-local', 'local-backup'].includes(this._authorityMode)) return this.authorityBlocked();
     if (this.pendingExternal && !fromRetry) return { ok: false, reason: 'pending-save', amountDelta: 0, newRewards: [] };
     if (!this.state) return { ok: false, reason: this.loadError, amountDelta: 0, newRewards: [] };
     const rewardId = input && input.rewardId;
@@ -381,7 +416,7 @@ class RewardUnlockService {
   }
 
   recordShareInitiated(input, fromRetry) {
-    if (this._authorityMode !== 'legacy-local') return this.authorityBlocked();
+    if (!['legacy-local', 'local-backup'].includes(this._authorityMode)) return this.authorityBlocked();
     if (this.pendingExternal && !fromRetry) return { ok: false, reason: 'pending-save', amountDelta: 0, newRewards: [] };
     const rewardId = input && input.rewardId;
     const item = this.item(rewardId);

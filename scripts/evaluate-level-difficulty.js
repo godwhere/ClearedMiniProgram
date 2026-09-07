@@ -1,26 +1,29 @@
 'use strict';
 
 // Offline design estimate, not a player-performance model. Only the current
-// 8x8 ordinary/Portal contract is supported; ice remains an isolated trial.
+// mainline ordinary/Portal boards up to 8x8 are supported; ice stays a trial.
 const clamp = value => Math.max(0, Math.min(1, value));
 const round = value => Math.round(value * 100) / 100;
 
 function evaluate(level, answer) {
-  if (!level || level.Width !== 8 || level.Height !== 8 || !Array.isArray(answer) ||
+  if (!level || !Number.isInteger(level.Width) || level.Width < 1 || level.Width > 8 ||
+      !Number.isInteger(level.Height) || level.Height < 1 || level.Height > 8 ||
+      !Array.isArray(level.Lines) || !level.Lines.length || !Array.isArray(answer) ||
       answer.length !== level.Lines.length || (level.Mechanic && level.Mechanic !== 'portal') ||
-      level.IceCells !== undefined) throw new Error('Difficulty v1 requires an 8x8 ordinary/Portal answer');
+      level.IceCells !== undefined) throw new Error('Difficulty v1 requires a mainline ordinary/Portal answer up to 8x8');
+  const width = level.Width, area = width * level.Height;
   const groups = answer.map(line => Array.isArray(line) ? [line] : line.Segments.map(segment => segment.Cells));
   const endpoints = new Set(level.Lines.flatMap(line => [line.Start, line.End]));
   const doors = new Set((level.Portals || []).flatMap(network => network.Cells || [network.A, network.B]));
   const blocked = new Set(level.Blocked || []);
-  const owner = new Array(64).fill(-1);
+  const owner = new Array(area).fill(-1);
   groups.forEach((segments, color) => segments.flat().forEach(cell => { owner[cell] = color; }));
   function adjacent(cell) {
-    return [cell - 8, cell - 1, cell + 1, cell + 8].filter(next => next >= 0 && next < 64 &&
-      Math.abs(cell % 8 - next % 8) + Math.abs((cell >> 3) - (next >> 3)) === 1);
+    return [cell - width, cell - 1, cell + 1, cell + width].filter(next => next >= 0 && next < area &&
+      Math.abs(cell % width - next % width) + Math.abs(Math.floor(cell / width) - Math.floor(next / width)) === 1);
   }
   function distances(start, allowed) {
-    const distance = new Array(64).fill(Infinity);
+    const distance = new Array(area).fill(Infinity);
     distance[start] = 0;
     const queue = [start];
     for (let i = 0; i < queue.length; i += 1) {
@@ -92,12 +95,11 @@ if (require.main === module) {
   const portal = require('../data/portal-solutions.js');
   const rows = catalog.levels.map((entry, index) => {
     const level = entry.game;
-    if (level.Width !== 8 || level.Height !== 8) return null;
     const answer = level.Mechanic === 'portal' ? portal.ByLevelId[level.Id] :
       normal.ByLevelId[level.Id] || normal.sets[entry.setIndex][entry.levelIndex];
     return { number: index + 1, key: `${entry.setIndex}:${entry.levelIndex}`, id: level.Id || null,
       name: level.Name, published: level.Difficulty || null, ...evaluate(level, answer) };
-  }).filter(Boolean);
+  });
   if (process.argv.includes('--markdown')) {
     console.log('| 显示号 | 稳定坐标 | 名称 | 设计难度 | 分数 | 色/门 | 起手候选 | 绕行比 | 每线竞争色 |');
     console.log('| ---: | --- | --- | ---: | ---: | --- | ---: | ---: | ---: |');

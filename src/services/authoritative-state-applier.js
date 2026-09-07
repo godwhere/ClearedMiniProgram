@@ -2,6 +2,7 @@
 
 const { record, validId, clone, fingerprint } = require('./sync-payload.js');
 const SyncStore = require('./sync-store.js');
+const BackupSnapshot = require('./backup-snapshot.js');
 const DOMAINS = SyncStore.DOMAINS;
 
 class AuthoritativeStateApplier {
@@ -35,7 +36,52 @@ class AuthoritativeStateApplier {
       ? { ok: false, reason: 'application-pending' }
       : { ok: true, resumed: false });
     return this.applySyncReceipt(recovery.response, token, recovery.options).then(result =>
-      Object.assign({}, result, { resumed: result.ok === true }));
+      Object.assign({}, result, { resumed: result.ok === true,
+        // Only fully applied receipts may settle process-local UI observers.
+        results: result.ok === true ? clone(recovery.response.results || []) : [] }));
+  }
+
+  resumeBackupRestore(token) {
+    const scopeToken = this.scopeToken(token);
+    if (!scopeToken || !this.services.syncStore.matches(scopeToken) ||
+        (this.accountGuard && !this.accountGuard.matches(token))) {
+      return Promise.resolve({ ok: false, reason: 'account-mismatch' });
+    }
+    const pending = this.services.syncStore.pendingBackupRestore(scopeToken);
+    return pending ? this.applyBackupRestore(pending, token).then(result =>
+      Object.assign({}, result, { resumed: result.ok === true })) : Promise.resolve({ ok: true, resumed: false });
+  }
+
+  async applyBackupRestore(input, token) {
+    const store = this.services.syncStore; const scopeToken = this.scopeToken(token);
+    const current = () => !!scopeToken && store.matches(scopeToken) && store.authorityMode('progress') === 'local-backup' &&
+      store.ownsLocalState() && (!this.accountGuard || this.accountGuard.matches(token));
+    if (!current()) return { ok: false, reason: 'account-mismatch' };
+    let task;
+    try { task = clone(input); } catch (error) { return { ok: false, reason: 'invalid-snapshot' }; }
+    const valid = task && BackupSnapshot.validate(task.snapshot);
+    if (!task || task.schemaVersion !== 1 || !valid || !valid.ok || task.snapshotHash !== valid.snapshotHash ||
+        !Number.isSafeInteger(task.cloudVersion) || task.cloudVersion < 1 ||
+        !Number.isSafeInteger(task.localVersionAtConfirmation) || task.localVersionAtConfirmation < 0 ||
+        !validId(task.restoreId)) return { ok: false, reason: 'invalid-snapshot' };
+    const begun = store.beginBackupRestore(task, scopeToken);
+    if (!begun.ok) return begun;
+    const domains = task.snapshot.domains;
+    const steps = [
+      ['progress', () => this.services.progress.applyBackupSnapshot(domains.progress)],
+      ['daily', () => this.services.daily.applyBackupSnapshot(domains.daily)],
+      ['economy', () => this.services.rewards.applyBackupSnapshot({ economy: domains.economy, entitlements: domains.entitlements })],
+      ['stamina', () => this.services.stamina.applyBackupSnapshot(domains.stamina)],
+      ['preferences', () => this.services.preferences.applyBackupSnapshot(domains.preferences)]
+    ];
+    for (const [domain, apply] of steps) {
+      if (!current()) return { ok: false, reason: 'account-mismatch' };
+      let result;
+      try { result = apply(); } catch (error) { result = null; }
+      if (!result || result.ok !== true) return { ok: false, reason: result && result.reason || 'persist-failed', domain };
+    }
+    if (!current() || !store.finishBackupRestore(task, scopeToken)) return { ok: false, reason: 'persist-failed' };
+    return { ok: true, restored: true, cloudVersion: task.cloudVersion };
   }
 
   async applySyncReceipt(input, token, options) {

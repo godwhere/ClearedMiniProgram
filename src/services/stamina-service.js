@@ -46,7 +46,7 @@ class StaminaService {
 
   authorityMode() { return this._authorityMode; }
   setAuthorityMode(mode) {
-    if (!['legacy-local', 'migration-freeze', 'cloud-authoritative'].includes(mode) ||
+    if (!['legacy-local', 'migration-freeze', 'cloud-authoritative', 'local-backup'].includes(mode) ||
         (this._authorityMode !== 'legacy-local' && mode === 'legacy-local')) return false;
     this._authorityMode = mode;
     return true;
@@ -75,6 +75,27 @@ class StaminaService {
     }
     const snapshot = this.validateAuthoritativeSnapshot(value);
     return snapshot ? { ok: true, snapshot } : { ok: false, reason: 'invalid-snapshot' };
+  }
+
+  exportBackupSnapshot() {
+    if (!this.platform || typeof this.platform.readStorageResult !== 'function') {
+      return { ok: false, reason: 'storage-read-failed' };
+    }
+    let read;
+    try { read = this.platform.readStorageResult(STORAGE_KEY); } catch (error) {}
+    if (!read || read.ok !== true || (read.found !== true && read.found !== false)) {
+      return { ok: false, reason: 'storage-read-failed' };
+    }
+    let value = read.found ? read.value : { schemaVersion: 1, balance: this.config.initialBalance,
+      nextRecoveryAt: null, unlockedLevels: [], refundedLevels: [] };
+    if (typeof value === 'string') {
+      try { value = JSON.parse(value); } catch (error) { return { ok: false, reason: 'invalid-storage' }; }
+    }
+    if (record(value) && value.schemaVersion === 1 && value.refundedLevels === undefined) {
+      value = Object.assign({}, value, { refundedLevels: [] });
+    }
+    const snapshot = this.validateAuthoritativeSnapshot(value);
+    return snapshot ? { ok: true, snapshot } : { ok: false, reason: 'invalid-storage' };
   }
 
   applyAuthoritativeSnapshot(value, pendingOperations) {
@@ -106,6 +127,15 @@ class StaminaService {
         if (candidate.balance >= this.config.naturalCap) candidate.nextRecoveryAt = null;
       }
     }
+    if (!this.persist(candidate)) return { ok: false, reason: 'persist-failed' };
+    this._state = candidate; this._pending = false; this._pendingRefunds.clear();
+    return { ok: true };
+  }
+
+  applyBackupSnapshot(value) {
+    if (this._authorityMode !== 'local-backup') return { ok: false, reason: 'authority-mismatch' };
+    const candidate = this.validateAuthoritativeSnapshot(value);
+    if (!candidate) return { ok: false, reason: 'invalid-snapshot' };
     if (!this.persist(candidate)) return { ok: false, reason: 'persist-failed' };
     this._state = candidate; this._pending = false; this._pendingRefunds.clear();
     return { ok: true };
@@ -163,7 +193,7 @@ class StaminaService {
   }
 
   settle(now) {
-    if (this._authorityMode !== 'legacy-local') {
+    if (!['legacy-local', 'local-backup'].includes(this._authorityMode)) {
       if (!this._state) {
         const exported = this.exportAuthoritativeSnapshot();
         if (exported.ok) this._state = exported.snapshot;
@@ -250,7 +280,7 @@ class StaminaService {
   }
 
   restoreUnlockedLevels(levelKeys, now) {
-    if (this._authorityMode !== 'legacy-local') return false;
+    if (!['legacy-local', 'local-backup'].includes(this._authorityMode)) return false;
     const changed = this.settle(this.time(now));
     const unlockedLevels = normalizeUnlocks(this._state.unlockedLevels.concat(normalizeUnlocks(levelKeys)));
     const added = unlockedLevels.length !== this._state.unlockedLevels.length;
@@ -272,7 +302,7 @@ class StaminaService {
       if (changed) this._pending = !this.persist(this._state);
       return { ok: true, spent: 0, before, after: before, snapshot: this.view(timestamp) };
     }
-    if (this._authorityMode !== 'legacy-local') return { ok: false, reason: this._authorityMode, snapshot: this.view(timestamp) };
+    if (!['legacy-local', 'local-backup'].includes(this._authorityMode)) return { ok: false, reason: this._authorityMode, snapshot: this.view(timestamp) };
     const { ordinaryUnlockCost, naturalCap, recoveryIntervalMs } = this.config;
     if (before < ordinaryUnlockCost) {
       if (changed) this._pending = !this.persist(this._state);
@@ -294,7 +324,7 @@ class StaminaService {
   }
 
   flush(now) {
-    if (this._authorityMode !== 'legacy-local') return true;
+    if (!['legacy-local', 'local-backup'].includes(this._authorityMode)) return true;
     this.settle(this.time(now));
     const refundKeys = this._state.unlockedLevels.filter(key =>
       this._pendingRefunds.has(key) && !this._state.refundedLevels.includes(key));
@@ -316,7 +346,7 @@ class StaminaService {
   refundQuickClear(levelKey, elapsedMs, now) {
     const timestamp = this.time(now);
     const snapshot = this.snapshot(timestamp);
-    if (this._authorityMode !== 'legacy-local') return { ok: true, reason: this._authorityMode, refunded: 0, snapshot };
+    if (!['legacy-local', 'local-backup'].includes(this._authorityMode)) return { ok: true, reason: this._authorityMode, refunded: 0, snapshot };
     if (!validLevelKey(levelKey) || !Number.isFinite(elapsedMs) || elapsedMs < 0) {
       return { ok: false, reason: 'invalid-completion', refunded: 0, snapshot };
     }
@@ -343,4 +373,5 @@ class StaminaService {
   }
 }
 
+StaminaService.STORAGE_KEY = STORAGE_KEY;
 module.exports = StaminaService;

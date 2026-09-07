@@ -158,16 +158,32 @@ function run() {
   assert.strictEqual(persistedNone.currentEffectId(), 'none',
     'selecting no effect survives a fresh app instance');
 
-  // No effect creates no transient snapshot or 80ms clear tail on an ordinary
-  // board. Ignore the unrelated board-enter animation for this boundary test.
+  // No effect creates no path snapshot, but keeps the independent short screen
+  // feedback. Ignore the unrelated board-enter animation for this boundary test.
   assert.strictEqual(persistedNone.openLevel(0, 0), true);
   persistedNone.levelEnteredAt = 0;
   const noneCompletedAt = Date.now();
   persistedNone.onPathCompleted(0, [0, 1, 2]);
   assert.strictEqual(persistedNone.clearAnimation, null);
   assert.strictEqual(persistedNone.buildModel().board.clearAnimation, null);
-  assert.strictEqual(persistedNone.isAnimating(noneCompletedAt + 1), false,
-    'no-effect completion does not keep the render loop alive for a clear tail');
+  const feedback = persistedNone.buildModel().clearFeedback;
+  assert.strictEqual(feedback.durationMs, 180);
+  assert.strictEqual(feedback.runner, undefined, 'renderer receives only a plain feedback snapshot');
+  assert.strictEqual(persistedNone.isAnimating(feedback.startedAt + 90), true,
+    'no-effect completion keeps screen feedback animating');
+  assert.strictEqual(persistedNone.isAnimating(feedback.startedAt + 181), false,
+    'screen feedback stops after its bounded duration');
+  persistedNone.tick(feedback.startedAt + 90);
+  let feedbackFrames = 0;
+  const renderFeedback = persistedNone.renderer.render.bind(persistedNone.renderer);
+  persistedNone.renderer.render = (...args) => { feedbackFrames++; return renderFeedback(...args); };
+  persistedNone.tick(feedback.startedAt + 181);
+  assert.strictEqual(feedbackFrames, 1, 'expiration draws a final unshifted frame');
+  persistedNone.resetCurrentLevel();
+  assert.strictEqual(persistedNone.buildModel().clearFeedback, null, 'reset clears screen feedback');
+  persistedNone.onPathCompleted(0, [0, 1, 2]);
+  persistedNone.onHide();
+  assert.strictEqual(persistedNone.buildModel().clearFeedback, null, 'backgrounding clears screen feedback');
 
   // A preview callback that arrives after leaving the page is ignored.
   const deferredCallbacks = {};

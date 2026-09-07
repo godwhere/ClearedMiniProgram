@@ -330,6 +330,7 @@ class ClearedApp {
     if (this.syncStore && this.rewardUnlocks.setAuthorityMode) this.rewardUnlocks.setAuthorityMode(this.syncStore.authorityMode('economy'));
     this.economy = opts.economy || null;
     this.authoritativeApplier = opts.authoritativeApplier || null;
+    this.cloudBackup = opts.cloudBackup || null;
     // Reconcile saved facts before restoring a selected appearance. No UI is
     // accessed until the renderer, pointer and scene state have been created.
     this.recoverRewardUnlocks();
@@ -398,6 +399,7 @@ class ClearedApp {
     this.pointer = null;
     this.pressedId = null;
     this.clearAnimation = null;
+    this.clearFeedback = null;
     this.result = null;
     this.resultVisibleAt = 0;
     this.levelEnteredAt = 0;
@@ -478,9 +480,10 @@ class ClearedApp {
   }
 
   blockCoreWriteDuringMigration(domain) {
-    if (this.authorityMode(null, domain) !== 'migration-freeze') return false;
+    const restorePending = this.syncStore && this.syncStore.currentScope && this.syncStore.currentScope().pendingBackupRestore;
+    if (this.authorityMode(null, domain) !== 'migration-freeze' && !restorePending) return false;
     if (this.scene !== 'account') this.openAccount();
-    this.accountMessage = '正在迁移本地存档，完成前不能开始新关卡或领取资产';
+    this.accountMessage = restorePending ? '云备份恢复尚未完整保存，完成前不能继续游玩' : '正在迁移本地存档，完成前不能开始新关卡或领取资产';
     this.invalidate();
     return true;
   }
@@ -862,7 +865,7 @@ class ClearedApp {
       : Math.max(0, numbers.entryLimit - used));
     const normalized = Object.assign({ ok: true, persisted: true, entriesUsed: used, entriesRemaining: remaining },
       dailyObject(result) ? result : {}, { unlimited });
-    if (this.progressSync && this.authorityMode(null, 'daily') === 'cloud-authoritative') {
+    if (this.progressSync && ['cloud-authoritative', 'local-backup'].includes(this.authorityMode(null, 'daily'))) {
       normalized.cloudQueued = this.progressSync.enqueueDailyEntry({ dateKey: resolution.dateKey, dayId,
         entryKey: idempotencyKey, entryLimit: numbers.entryLimit, levelIds });
     }
@@ -1026,6 +1029,10 @@ class ClearedApp {
     const timestamp = Number.isFinite(Number(now)) ? Number(now) : Date.now();
     const skin = this.skins.current();
     const dailyScene = this.scene === 'daily' || this.scene === 'dailyResult';
+    const feedback = this.clearFeedback;
+    if ((this.scene === 'play' || this.scene === 'result' || dailyScene) &&
+        feedback && feedback.runner === this.activeRunner() &&
+        timestamp < feedback.startedAt + feedback.durationMs) return true;
     const enteredAt = this.activeEnteredAt();
     if ((this.scene === 'play' || this.scene === 'result' || dailyScene) &&
         timestamp < enteredAt + skin.animation.boardEnterMs + 140) return true;
@@ -1204,6 +1211,8 @@ class ClearedApp {
     const hintEnabled = this.isHintPreviewActive() || (!this.hintRequest && !['busy', 'unavailable'].includes(hintState.action));
     const base = {
       scene: this.scene,
+      clearFeedback: this.clearFeedback && this.clearFeedback.runner === this.activeRunner()
+        ? { startedAt: this.clearFeedback.startedAt, durationMs: this.clearFeedback.durationMs } : null,
       currency: this.rewardUnlocks.view(),
       rewardDialog: this.rewardDialog ? cloneData(this.rewardDialog) : null,
       stamina: Object.assign({}, this.staminaSnapshot),
@@ -1238,6 +1247,7 @@ class ClearedApp {
       dailyEntriesRemaining: this.dailyDebugUnlimited ? null : homeDailyEntry.entriesRemaining,
       dailyDebugUnlimited: this.dailyDebugUnlimited,
       homeMigration: this.homeMigration,
+      settlementMode: this.authorityMode(null, 'economy'),
       // Expose the active visual selection as data only. The renderer never
       // mutates this value; `performAction('effect:<id>')` owns persistence.
       currentEffectId: this.currentEffectId()
@@ -1245,21 +1255,26 @@ class ClearedApp {
 
     if (this.scene === 'account') {
       const sync = this.progressSync ? this.progressSync.state() : { status: 'idle' };
+      const backup = this.cloudBackup ? this.cloudBackup.state() : null;
       const auth = this.auth ? this.auth.state() : 'anonymous';
       const status = sync.status === 'account-mismatch' ? 'account-mismatch'
         : this.accountSyncPending || auth === 'authenticating' ||
           ['syncing', 'cloud-reading', 'migration-preparing', 'migration-uploading', 'migration-applying'].includes(sync.status)
           ? 'syncing'
-          : ['synced', 'cloud-synced'].includes(sync.status) ? 'synced'
-            : ['cloud-pending', 'cloud-paused'].includes(sync.status) ? 'pending'
-              : ['error', 'storage-blocked', 'migration-snapshot-missing'].includes(sync.status) ? 'error' : 'local';
+          : ['synced', 'cloud-synced', 'backed-up'].includes(sync.status) ? 'synced'
+            : ['cloud-pending', 'cloud-paused', 'backup-pending', 'backup-conflict', 'restore-confirmation'].includes(sync.status) ? 'pending'
+              : ['error', 'storage-blocked', 'migration-snapshot-missing', 'restore-pending'].includes(sync.status) ? 'error' : 'local';
       return Object.assign(base, {
-        accountStatus: this.auth && this.auth.readOnlyPhase ? 'local' : status,
-        accountMessage: this.accountMessage || (this.auth && this.auth.readOnlyPhase
+        accountStatus: this.auth && this.auth.readOnlyPhase && !(this.cloudBackup && this.cloudBackup.enabled()) ? 'local' : status,
+        accountMessage: this.accountMessage || (this.auth && this.auth.readOnlyPhase && !(this.cloudBackup && this.cloudBackup.enabled())
           ? sync.status === 'cloud-readonly' ? '云身份／只读测试，本地存档未上传' : '云身份测试未连接，仍使用本地存档' : ''),
         profileSupported: !!(this.profile && this.profile.isSupported()),
         profilePending: this.accountProfilePending,
-        syncPending: !!this.accountSyncPending
+        syncPending: !!this.accountSyncPending,
+        backupMode: !!(this.cloudBackup && this.cloudBackup.enabled()),
+        backupDirty: !!(backup && backup.dirty),
+        backupConfirmRestore: !!(backup && backup.confirmRestore),
+        backupConfirmCommit: !!(backup && backup.confirmBackup)
       });
     }
 
@@ -1297,6 +1312,7 @@ class ClearedApp {
         clearAnimation: activeDaily.clearAnimation,
         hintAvailable: !!boardView && !boardView.terminal && hintEnabled,
         result: activeDaily.result,
+        firstClearRewardAmount: rewardConfig.currency.dailyFirstComplete,
         resultVisibleAt: activeDaily.resultVisibleAt,
         runStartedAt: activeDaily.runStartedAt,
         elapsedBeforeLevel: activeDaily.elapsedBeforeLevel,
@@ -1440,6 +1456,7 @@ class ClearedApp {
         hintAvailable: !!boardView && !boardView.terminal && (trial || hintEnabled),
         hintLabel: trial ? '提示' : base.hintLabel,
         result: this.result,
+        firstClearRewardAmount: rewardConfig.currency.ordinaryFirstClear,
         staminaRefund: context && !trial ? this.stamina.quickClearRefundState(`${context.setIndex}:${activeLevelIndex}`) : null,
         resultVisibleAt: this.resultVisibleAt,
         hasNext: !!(context && !trial && this.progression.nextLevel(context.setIndex, activeLevelIndex)),
@@ -1611,6 +1628,9 @@ class ClearedApp {
     const now = Date.now();
     const runner = this.activeRunner();
     if (!runner) return;
+    // Screen feedback is independent of the selected path-disappearance effect.
+    // Keep a single 180ms pulse; rapid clears restart it instead of stacking.
+    this.clearFeedback = { runner, startedAt: now, durationMs: 180 };
     const state = runner.getViewState();
     const iceBrokenCells = state.mechanic.id === 'ice'
       ? (cells || []).filter(index => state.board.remainingLayers[index] === 1) : [];
@@ -1719,10 +1739,15 @@ class ClearedApp {
     try { completion.persisted = this.progress.save() === true; } catch (error) { completion.persisted = false; }
     const rewardResult = completion.persisted ? this.recoverRewardUnlocks() : { ok: false };
     const source = `ordinary:${this.runContext.setIndex}:${this.runContext.levelIndex}`;
+    const settlementMode = this.authorityMode(null, 'economy');
     completion.currencyReward = {
-      status: !rewardResult.ok ? 'pending' : (rewardResult.sources || []).includes(source) ? 'granted' : 'already-claimed',
+      status: !rewardResult.ok && settlementMode === 'local-backup' ? 'local-save-failed'
+        : !rewardResult.ok ? 'pending' : (rewardResult.sources || []).includes(source) ? 'granted' : 'already-claimed',
       amount: rewardResult.ok && (rewardResult.sources || []).includes(source) ? rewardConfig.currency.ordinaryFirstClear : 0
     };
+    if (settlementMode === 'local-backup' && !rewardResult.ok) {
+      completion.currencyReward.failureSource = completion.persisted ? 'reward-reconcile' : 'local-save';
+    }
     let completionQueued = false;
     if (completion.persisted && this.progressSync) {
       const account = this.captureAccountContext();
@@ -1817,7 +1842,8 @@ class ClearedApp {
     }
     if (!this.dailyResultAllowed(completion)) return null;
     const normalized = Object.assign({ ok: true, elapsedMs, levelId, levelIndex }, dailyObject(completion) ? completion : {});
-    if (normalized.persisted === true && this.progressSync && this.authorityMode(null, 'daily') === 'cloud-authoritative') {
+    if (normalized.persisted === true && this.progressSync &&
+        ['cloud-authoritative', 'local-backup'].includes(this.authorityMode(null, 'daily'))) {
       normalized.cloudQueued = this.progressSync.enqueueDailyCompletion({ dateKey: daily.dateKey, dayId: daily.dayId,
         levelId, levelIndex, levelCount: daily.levels.length, levelIds: payload.levelIds,
         elapsedMs: Math.max(1, Math.round(elapsedMs)), completedAtClient: completedAt }, observer);
@@ -1930,10 +1956,15 @@ class ClearedApp {
     this.scene = 'dailyResult';
     const rewardResult = completion.persisted === true ? this.recoverRewardUnlocks() : { ok: false };
     const source = `daily:${daily.dateKey}`;
+    const settlementMode = this.authorityMode(null, 'economy');
     daily.result.currencyReward = {
-      status: !rewardResult.ok ? 'pending' : (rewardResult.sources || []).includes(source) ? 'granted' : 'already-claimed',
+      status: !rewardResult.ok && settlementMode === 'local-backup' ? 'local-save-failed'
+        : !rewardResult.ok ? 'pending' : (rewardResult.sources || []).includes(source) ? 'granted' : 'already-claimed',
       amount: rewardResult.ok && (rewardResult.sources || []).includes(source) ? rewardConfig.currency.dailyFirstComplete : 0
     };
+    if (settlementMode === 'local-backup' && !rewardResult.ok) {
+      daily.result.currencyReward.failureSource = completion.persisted === true ? 'reward-reconcile' : 'local-save';
+    }
     dailyResultTarget = daily.result;
     if (deferredCloudSettlement) this.applyCloudCurrencyResult(dailyResultTarget, account, deferredCloudSettlement);
     if (this.share) this.share.prepareContext(this.shareContext());
@@ -1992,6 +2023,7 @@ class ClearedApp {
 
   resetCurrentLevel() {
     if (!this.runner) return false;
+    this.clearFeedback = null;
     this.clearHintRequest();
     this.runner.reset();
     this.boardInput.setRunner(this.runner);
@@ -2014,6 +2046,7 @@ class ClearedApp {
   resetCurrentDailyLevel() {
     const daily = this.daily;
     if (!daily || !daily.runner) return false;
+    this.clearFeedback = null;
     this.clearHintRequest();
     daily.runner.reset();
     this.boardInput.setRunner(daily.runner);
@@ -2052,7 +2085,7 @@ class ClearedApp {
         return true;
       }
       if (this.scene === 'result' && this.result && this.result.currencyReward &&
-          this.result.currencyReward.status === 'pending') {
+          ['pending', 'local-save-failed'].includes(this.result.currencyReward.status)) {
         let persisted = false;
         try { persisted = this.progress.save() === true; } catch (error) {}
         this.result.persisted = persisted;
@@ -2060,6 +2093,11 @@ class ClearedApp {
           this.invalidate();
           return false;
         }
+        const localSettlement = this.authorityMode(null, 'economy') === 'local-backup';
+        this.result.currencyReward.status = localSettlement ? 'local-save-failed' : 'pending';
+        if (localSettlement) {
+          this.result.currencyReward.failureSource = 'reward-reconcile';
+        } else delete this.result.currencyReward.failureSource;
       }
       const result = this.recoverRewardUnlocks();
       this.invalidate();
@@ -2102,6 +2140,7 @@ class ClearedApp {
     if (action === 'home:sound' || action === 'play:sound' || action === 'themes:sound' ||
         action === 'daily:sound' || action === 'dailyResult:sound' ||
         action === 'corridor:sound' || action === 'effects:sound') {
+      if (this.blockCoreWriteDuringMigration('preferences')) return false;
       const enabled = this.audio.toggle();
       if (this.progressSync && this.preferences) {
         try { this.progressSync.enqueuePreference('soundEnabled', enabled); } catch (error) {}
@@ -2118,6 +2157,10 @@ class ClearedApp {
     } else if (action === 'home:account' && this.scene === 'home') {
       this.openAccount();
     } else if (action === 'account:back' && this.scene === 'account') {
+      const backup = this.cloudBackup && this.cloudBackup.state();
+      if (backup && (backup.confirmRestore || backup.confirmBackup)) {
+        this.cloudBackup.cancelConfirmation(); this.accountMessage = ''; this.invalidate(); return true;
+      }
       this.scene = 'home';
     } else if (action === 'account:authorizeProfile' && this.scene === 'account') {
       // The visible native button handles the actual user gesture. A Canvas
@@ -2125,6 +2168,12 @@ class ClearedApp {
       this.mountAccountProfile();
     } else if (action === 'account:retrySync' && this.scene === 'account') {
       this.retryAccountSync();
+    } else if (action === 'account:restoreBackup' && this.scene === 'account') {
+      this.runAccountBackupAction('restore');
+    } else if (action === 'account:confirmRestore' && this.scene === 'account') {
+      this.runAccountBackupAction('confirmRestore');
+    } else if (action === 'account:confirmBackup' && this.scene === 'account') {
+      this.runAccountBackupAction('confirmBackup');
     } else if (action === 'account:privacy' && this.scene === 'account') {
       const generation = this.accountSceneGeneration;
       const account = this.captureAccountContext();
@@ -2262,7 +2311,10 @@ class ClearedApp {
       }
     } else if (action === 'daily:undo') {
       if (this.daily.runner && this.scene === 'daily') {
-        if (this.daily.runner.undo()) this.daily.clearAnimation = null;
+        if (this.daily.runner.undo()) {
+          this.daily.clearAnimation = null;
+          this.clearFeedback = null;
+        }
         this.hint = null;
         this.hintUntil = 0;
         this.hintPreview = null;
@@ -2294,7 +2346,10 @@ class ClearedApp {
       if (!this.runner) return;
       this.resetCurrentLevel();
     } else if (action === 'play:undo') {
-      if (this.runner && this.runner.undo()) this.clearAnimation = null;
+      if (this.runner && this.runner.undo()) {
+        this.clearAnimation = null;
+        this.clearFeedback = null;
+      }
       this.hint = null;
       this.hintUntil = 0;
       this.hintPreview = null;
@@ -2567,6 +2622,16 @@ class ClearedApp {
   }
 
   cloudAccountMessage(result) {
+    if (this.cloudBackup && this.cloudBackup.enabled()) {
+      const state = this.cloudBackup.state();
+      if (state.confirmBackup) return '云端已有更新存档；请选择恢复，或确认用本机覆盖';
+      if (state.confirmRestore) return '发现云备份；确认后将替换本机存档';
+      if (state.status === 'backed-up') return '本地保存成功，云备份已是最新';
+      if (state.status === 'backup-pending') return '本地保存成功，云备份待更新';
+      if (state.status === 'restore-pending') return '恢复尚未完整保存，稍后将继续';
+      if (result && result.ok !== true) return '云备份未完成，本地存档保持可用';
+      return '本地保存成功；云端仅用于备份恢复';
+    }
     if (result && result.status === 'local-only') return '云同步尚未开放，继续本地游玩；存档保留在本机';
     if (result && result.status === 'cloud-paused') return '云写入暂时关闭，云存档和待同步记录已保留';
     if (!result || result.ok !== true) {
@@ -2601,6 +2666,30 @@ class ClearedApp {
         : result.ok ? '同步完成' : result.reason === 'account-mismatch'
           ? '当前账号与本地存档绑定的账号不同' : '当前使用本地存档，可稍后重试';
       this.invalidate();
+    });
+    return true;
+  }
+
+  runAccountBackupAction(action) {
+    if (!this.cloudBackup || this.accountSyncPending || this.scene !== 'account') return false;
+    const token = { generation: this.accountSceneGeneration, account: this.captureAccountContext() };
+    this.accountSyncPending = token; this.invalidate();
+    const task = action === 'restore' ? this.cloudBackup.requestRestore()
+      : action === 'confirmRestore' ? this.cloudBackup.confirmRestore() : this.cloudBackup.confirmBackup();
+    Promise.resolve(task).then(result => {
+      if (!this.isCurrentAccount(token.account) || this.accountSyncPending !== token || this.scene !== 'account' || this.hidden) return;
+      this.accountSyncPending = null;
+      if (result.ok && result.found) this.accountMessage = '发现云备份；确认后将替换进度、资产、体力和设置';
+      else if (result.ok && result.restored) this.accountMessage = '云备份已恢复到本机';
+      else if (result.ok && result.found === false) this.accountMessage = '云端还没有备份';
+      else if (result.reason === 'restore-confirmation-stale') this.accountMessage = '等待期间本地存档已变化，请重新读取后确认';
+      else if (result.reason === 'backup-version-conflict') this.accountMessage = '云端已有更新存档；可恢复云备份，或确认用本机覆盖';
+      else this.accountMessage = '操作未完成，本地存档保持不变，可稍后重试';
+      this.invalidate();
+    }).catch(() => {
+      if (this.isCurrentAccount(token.account) && this.accountSyncPending === token) {
+        this.accountSyncPending = null; this.accountMessage = '网络不可用，本地存档保持不变'; this.invalidate();
+      }
     });
     return true;
   }
@@ -2799,6 +2888,7 @@ class ClearedApp {
   }
 
   setClearEffect(effectId) {
+    if (this.blockCoreWriteDuringMigration('preferences')) return false;
     if (!this.clearEffects || typeof this.clearEffects.select !== 'function' ||
         !this.rewardUnlocks.canUse('effect', effectId)) return false;
     let selected = false;
@@ -2830,8 +2920,11 @@ class ClearedApp {
   }
 
   recoverRewardUnlocks() {
+    if (this.syncStore && this.syncStore.currentScope && this.syncStore.currentScope().pendingBackupRestore) {
+      return { ok: false, reason: 'restore-pending', amountDelta: 0, newRewards: [], sources: [] };
+    }
     const mode = this.authorityMode(this.rewardUnlocks, 'economy');
-    if (mode !== 'legacy-local') return { ok: false, reason: mode, amountDelta: 0, newRewards: [], sources: [] };
+    if (!['legacy-local', 'local-backup'].includes(mode)) return { ok: false, reason: mode, amountDelta: 0, newRewards: [], sources: [] };
     if (!this.rewardUnlocks) return { ok: false, reason: 'not-configured', amountDelta: 0, newRewards: [] };
     if (!this.rewardUnlocks.view().available) {
       const loaded = this.rewardUnlocks.retryLoad();
@@ -2844,9 +2937,13 @@ class ClearedApp {
     if (!ordinary.ok || !daily.ok) return { ok: false, reason: 'source-read-failed', amountDelta: 0, newRewards: [] };
     const result = this.rewardUnlocks.reconcile({ ordinary, daily });
     if (result.ok) {
+      if (mode === 'local-backup' && (result.amountDelta > 0 || result.newRewards.length) && this.progressSync) {
+        this.progressSync.localChanged();
+      }
       // No new grant means "already claimed" only when the persisted
       // snapshot actually contains this result's completed source.
-      if (this.result && this.result.currencyReward && this.result.currencyReward.status === 'pending' && this.runContext) {
+      if (this.result && this.result.currencyReward &&
+          ['pending', 'local-save-failed'].includes(this.result.currencyReward.status) && this.runContext) {
         const source = `ordinary:${this.runContext.setIndex}:${this.runContext.levelIndex}`;
         const levelKey = `${this.runContext.setIndex}:${this.runContext.levelIndex}`;
         if (ordinary.levelKeys.includes(levelKey)) {
@@ -2855,7 +2952,8 @@ class ClearedApp {
             amount: granted ? rewardConfig.currency.ordinaryFirstClear : 0 };
         }
       }
-      if (this.daily && this.daily.result && this.daily.result.currencyReward && this.daily.result.currencyReward.status === 'pending') {
+      if (this.daily && this.daily.result && this.daily.result.currencyReward &&
+          ['pending', 'local-save-failed'].includes(this.daily.result.currencyReward.status)) {
         const savedDay = daily.days.some(day => day.dateKey === this.daily.dateKey);
         if (savedDay) {
           const granted = (result.sources || []).includes(`daily:${this.daily.dateKey}`);
@@ -2938,6 +3036,7 @@ class ClearedApp {
 
   requestRewardUnlock(retry) {
     if (this.accountGuard && !this.accountGuard.matches(this.captureAccountContext())) return false;
+    if (this.blockCoreWriteDuringMigration('economy')) return false;
     const dialog = this.rewardDialog;
     if (!dialog || dialog.state === 'working' || dialog.state === 'loading') return false;
     const rewardId = dialog.rewardId;
@@ -2968,7 +3067,7 @@ class ClearedApp {
           return result.ok && !pendingRewards() ? this.economy.purchase(rewardId)
             : { ok: false, reason: 'network-required', newRewards: [] };
         }) : this.economy.purchase(rewardId);
-      } else task = mode === 'legacy-local' ? this.rewardUnlocks.purchase(rewardId)
+      } else task = ['legacy-local', 'local-backup'].includes(mode) ? this.rewardUnlocks.purchase(rewardId)
         : { ok: false, reason: mode, newRewards: [] };
     }
     else if (this.engagement && this.engagement.requestRewardUnlock) {
@@ -2978,6 +3077,8 @@ class ClearedApp {
       if (!this.isCurrentAccount(account)) return { ok: false, reason: 'stale-account-context', amountDelta: 0, newRewards: [] };
       if (this.disposed || generation !== this.rewardRequestGeneration || !this.rewardDialog ||
           this.rewardDialog.rewardId !== rewardId) return result;
+      if (result && result.ok && result.alreadyApplied !== true &&
+          this.authorityMode(this.rewardUnlocks, 'economy') === 'local-backup' && this.progressSync) this.progressSync.localChanged();
       if (result && result.ok && result.newRewards && result.newRewards.length) {
         this.openRewardDialog(result.newRewards[0], 'unlocked');
       } else if (result && result.ok && this.rewardUnlocks.canUse(status.kind, status.itemId)) {
@@ -3064,6 +3165,7 @@ class ClearedApp {
   }
 
   setSkin(skinId) {
+    if (this.blockCoreWriteDuringMigration('preferences')) return false;
     if (typeof skinId !== 'string' || !this.skins.get(skinId) || !this.rewardUnlocks.canUse('theme', skinId)) return false;
     const requestId = ++this.skinLoadRequestId;
     const name = this.subpackages && this.subpackages.packageForTheme(skinId);
@@ -3590,6 +3692,7 @@ class ClearedApp {
 
   onHide() {
     if (this.disposed) return;
+    this.clearFeedback = null;
     this.homeStaminaExpanded = false;
     if (this.stamina.flush(this.clockNow().getTime()) && this.staminaFeedback &&
         this.staminaFeedback.reason === 'refund-persist-failed') this.clearStaminaFeedback();

@@ -16,6 +16,8 @@ const OPERATIONS = Object.freeze({
   migrationCommitChunk: Object.freeze({ service: 'playerState', action: 'migration.commitChunk' }),
   migrationFinalize: Object.freeze({ service: 'playerState', action: 'migration.finalize' }),
   syncPush: Object.freeze({ service: 'playerState', action: 'sync.push' }),
+  backupRead: Object.freeze({ service: 'playerState', action: 'backup.read' }),
+  backupCommit: Object.freeze({ service: 'playerState', action: 'backup.commit' }),
   economyPurchase: Object.freeze({ service: 'economy', action: 'economy.purchase' })
 });
 const failure = (code, statusCode, retryable) => ({ ok: false, statusCode: statusCode || 0,
@@ -174,6 +176,33 @@ function validatePurchaseEnvelope(data, env) {
   return purchase.balanceBefore === purchase.balanceAfter && purchase.newEntitlements.length === 0;
 }
 
+function validateBackupReadEnvelope(data, env) {
+  const BackupSnapshot = require('./backup-snapshot.js');
+  if (BackupSnapshot.utf8Bytes(data) > BackupSnapshot.REQUEST_LIMIT) return false;
+  if (!cloudEnvelope(data, env) || !record(data.data)) return false;
+  const value = data.data;
+  if (!exactKeys(value, value.found ? ['found', 'cloudVersion', 'savedAt', 'snapshotHash', 'snapshot'] : ['found', 'cloudVersion']) ||
+      typeof value.found !== 'boolean' || !Number.isSafeInteger(value.cloudVersion) || value.cloudVersion < 0) return false;
+  if (!value.found) return value.cloudVersion === 0;
+  const valid = BackupSnapshot.validate(value.snapshot);
+  return value.cloudVersion > 0 && Number.isSafeInteger(value.savedAt) && value.savedAt >= 0 &&
+    typeof value.snapshotHash === 'string' && valid.ok && valid.snapshotHash === value.snapshotHash;
+}
+
+function validateBackupCommitEnvelope(data, env, requestId, snapshotHash, baseVersion) {
+  const BackupSnapshot = require('./backup-snapshot.js');
+  if (BackupSnapshot.utf8Bytes(data) > BackupSnapshot.REQUEST_LIMIT) return false;
+  if (!cloudEnvelope(data, env) || !record(data.data) ||
+      !exactKeys(data.data, ['status', 'cloudVersion', 'requestId', 'snapshotHash']) ||
+      !['COMMITTED', 'CONFLICT'].includes(data.data.status) || !Number.isSafeInteger(data.data.cloudVersion) ||
+      data.data.cloudVersion < (data.data.status === 'COMMITTED' ? 1 : 0) || data.data.requestId !== requestId ||
+      (data.data.snapshotHash !== null && (typeof data.data.snapshotHash !== 'string' ||
+        !/^local-fnv1a32:[a-f0-9]{8}:\d+$/.test(data.data.snapshotHash)))) return false;
+  if (data.data.status === 'CONFLICT') return baseVersion === undefined || data.data.cloudVersion !== baseVersion;
+  return data.data.snapshotHash === snapshotHash &&
+    (baseVersion === undefined || data.data.cloudVersion === baseVersion + 1);
+}
+
 function cloudPayload(action, source) {
   if (!record(source)) return null;
   const binding = { claimedPlayerId: source.claimedPlayerId, bindingEpoch: source.bindingEpoch, environmentId: source.environmentId };
@@ -196,6 +225,9 @@ function cloudPayload(action, source) {
   if (action === 'migration.finalize') return Object.assign(binding, { importId: source.importId,
     prepareReceiptId: source.prepareReceiptId, policyVersion: source.policyVersion });
   if (action === 'sync.push') return Object.assign(binding, { knownRevisions: clone(source.knownRevisions), operations: clone(source.operations) });
+  if (action === 'backup.read') return binding;
+  if (action === 'backup.commit') return Object.assign(binding, { baseVersion: source.baseVersion,
+    localVersion: source.localVersion, snapshotHash: source.snapshotHash, snapshot: clone(source.snapshot) });
   if (action === 'economy.purchase') return Object.assign(binding, { kind: source.kind, itemId: source.itemId,
     catalogVersion: source.catalogVersion });
   return null;
@@ -260,6 +292,10 @@ class ApiClient {
     let payload;
     try { payload = cloudPayload(opts.action, opts.payload); } catch (error) { return failure('invalid-request'); }
     if (!payload) return failure('invalid-request');
+    if (['backup.read', 'backup.commit'].includes(opts.action)) {
+      const BackupSnapshot = require('./backup-snapshot.js');
+      if (BackupSnapshot.utf8Bytes(payload) > BackupSnapshot.REQUEST_LIMIT) return failure('invalid-request');
+    }
     const identity = opts.action === 'identity.init';
     const session = !identity && this.cloudSession ? this.cloudSession() : null;
     if (!identity && (!session || session.environmentId !== this.transport.config.env ||
@@ -293,4 +329,6 @@ ApiClient.validateReadOnlyEnvelope = validateReadOnlyEnvelope;
 ApiClient.validateMigrationEnvelope = validateMigrationEnvelope;
 ApiClient.validateSyncEnvelope = validateSyncEnvelope;
 ApiClient.validatePurchaseEnvelope = validatePurchaseEnvelope;
+ApiClient.validateBackupReadEnvelope = validateBackupReadEnvelope;
+ApiClient.validateBackupCommitEnvelope = validateBackupCommitEnvelope;
 module.exports = ApiClient;

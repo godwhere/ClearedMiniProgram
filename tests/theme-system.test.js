@@ -243,6 +243,20 @@ function runRendererChecks() {
   assert(homeButtons[2].rect.w > homeButtons[0].rect.w,
     'start spans the full button width');
 
+  [3, 2, 0].forEach(remaining => {
+    platform.context.calls.length = 0;
+    renderer.render({
+      scene: 'home', completedCount: 0, totalLevels: 92, soundEnabled: true,
+      dailyAvailable: true, dailyEntryAvailable: remaining > 0,
+      dailyEntriesRemaining: remaining, dailyEntryLimit: 3
+    }, now);
+    const labels = platform.context.calls.filter(call => call.op === 'fillText').map(call => call.args[0]);
+    assert(labels.includes(`每日挑战（${remaining}/3）`), 'home label includes live remaining entries');
+    assert(!labels.some(label => /剩余次数|高难关卡/.test(label)), 'home does not duplicate the count or old label');
+    assert.strictEqual(renderer.hits.some(hit => hit.id === 'home:dailyChallenge'), remaining > 0,
+      'exhausted daily entry stays disabled');
+  });
+
   // The debug status is a compact annotation inside the daily button, and
   // all three home actions share the primary button surface.
   platform.context.calls.length = 0;

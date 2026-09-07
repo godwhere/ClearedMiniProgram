@@ -32,6 +32,15 @@ class PreferencesService {
     return validSnapshot(snapshot) ? { ok: true, snapshot } : { ok: false, reason: 'invalid-snapshot' };
   }
 
+  exportBackupSnapshot() {
+    if (!this.progress || typeof this.progress.exportPersistedPreferencesSnapshot !== 'function') {
+      return { ok: false, reason: 'storage-read-failed' };
+    }
+    const result = this.progress.exportPersistedPreferencesSnapshot();
+    return result.ok && validSnapshot(result.snapshot) ? result
+      : { ok: false, reason: result.reason || 'invalid-storage' };
+  }
+
   normalizeForOwnership(snapshot) {
     const value = Object.assign({}, snapshot);
     const bound = this.bound;
@@ -61,6 +70,8 @@ class PreferencesService {
     this.refreshRuntime();
     return { ok: true };
   }
+
+  applyBackupSnapshot(value) { return this.applyAuthoritativeSnapshot(value, []); }
 
   refreshRuntime() {
     if (!this.bound) return;

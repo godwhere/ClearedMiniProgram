@@ -4,7 +4,7 @@
   "Palette": [ "#ff1d23", "#FF2D00" ],
   "IsTraining": true,
   "Games": [
-    {"Width":5,"Height":1,"Name":"Start","Lines":[{"Start":0,"End":4,"Text":"\uE037"}],"Instructions":"Connect the colors"},
-    {"Width":5,"Height":2,"Name":"Two Lines","Lines":[{"Start":0,"End":9,"Text":"\uE037"},{"Start":8,"End":5,"Text":"\uE037"}],"Instructions":"Connect the colors"}
+    {"Width":5,"Height":1,"Difficulty":1,"Name":"Start","Lines":[{"Start":0,"End":4,"Text":"\uE037"}],"Instructions":"Connect the colors"},
+    {"Width":5,"Height":2,"Difficulty":1,"Name":"Two Lines","Lines":[{"Start":0,"End":9,"Text":"\uE037"},{"Start":8,"End":5,"Text":"\uE037"}],"Instructions":"Connect the colors"}
   ]
 }

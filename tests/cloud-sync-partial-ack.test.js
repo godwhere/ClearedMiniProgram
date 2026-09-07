@@ -3,6 +3,7 @@
 const assert = require('assert');
 const ProgressSync = require('../src/services/progress-sync-service.js');
 const SyncStore = require('../src/services/sync-store.js');
+const App = require('../src/app.js');
 const { setup, revisions, envelope, core } = require('./helpers/cloud-stage4-services.js');
 
 module.exports = async function run() {
@@ -169,14 +170,23 @@ module.exports = async function run() {
   const acknowledged = failedWrite.store.enqueueOperation({ domain: 'progress', type: 'MAIN_LEVEL_COMPLETED',
     occurredAtClient: 20, payload: { levelKey: '0:0', elapsedMs: 1000 } });
   assert(acknowledged.ok);
-  const failedWriteApi = { transport: { config: { writeEnabled: true } }, isConfigured: () => true,
+  const recoveryCalls = [];
+  const failedWriteApi = { transport: { config: { readEnabled: true, writeEnabled: true } }, isConfigured: () => true,
     request: async request => {
-      const sent = request.payload.operations[0];
+      recoveryCalls.push(request.action);
       const domains = core(100, { '0:0': { completed: true, bestMs: 1000 } });
       delete domains.daily; domains.economy.claimedOrdinary = { '0:0': true };
+      if (request.action === 'state.read') return { ok: true, data: envelope(request.requestId, {
+        changedDomains: domains, hasCloudState: true, readOnlyPhase: false,
+        completedDomains: SyncStore.CORE_DOMAINS.slice(), deferredDomains: ['stamina', 'preferences'],
+        receiptId: 'read_after_recovery', migrationImportId: 'import_one', migrationReceiptId: 'migration_one',
+        acceptedOperationIds: []
+      }, { progress: 1, economy: 1 }) };
+      const sent = request.payload.operations[0];
       return { ok: true, data: envelope(request.requestId, {
         receiptId: 'sync_finish_write_failed',
-        results: [{ operationId: sent.operationId, status: 'ACKED', code: 'OK' }],
+        results: [{ operationId: sent.operationId, status: 'ACKED', code: 'OK',
+          details: { rewardGranted: true, rewardAmount: 100 } }],
         acceptedOperationIds: [sent.operationId], revisions: revisions({ progress: 1, economy: 1 }),
         domains, changedDomains: ['progress', 'economy', 'entitlements'], notificationHints: []
       }, { progress: 1, economy: 1 }) };
@@ -185,6 +195,13 @@ module.exports = async function run() {
     failedWrite.auth, {}, null, { daily: failedWrite.daily, rewards: failedWrite.rewards,
       stamina: failedWrite.stamina, sessions: failedWrite.sessions, applier: failedWrite.applier });
   failedWriteService.accountGuard = failedWrite.guard;
+  const resultScreen = { currencyReward: { status: 'pending', amount: 0 } };
+  const resultAccount = failedWrite.guard.capture(); let feedbackCount = 0; let redraws = 0;
+  failedWriteService.observeOperation(acknowledged.operationId, result => {
+    feedbackCount++;
+    App.prototype.applyCloudCurrencyResult.call({ isCurrentAccount: token => failedWrite.guard.matches(token),
+      invalidate() { redraws++; } }, resultScreen, resultAccount, result);
+  });
   const write = failedWrite.platform.setStorage.bind(failedWrite.platform); let syncWrites = 0;
   failedWrite.platform.setStorage = (key, value) => {
     if (key === SyncStore.STORAGE_KEY && ++syncWrites === 2) return false;
@@ -199,6 +216,27 @@ module.exports = async function run() {
     [acknowledged.operationId], 'a failed receipt write cannot delete an ACKed operation');
   assert(failedWrite.store.currentScope().pendingApplication,
     'the stable receipt remains available for crash recovery');
+  assert.strictEqual(failedWrite.rewards.view().balance, 100, 'wallet can be saved before the receipt commit fails');
+  assert.strictEqual(resultScreen.currencyReward.status, 'pending');
+  assert.strictEqual(feedbackCount, 0, 'incomplete local application must not announce a settled reward');
+
+  const finishApplication = failedWrite.store.finishApplication.bind(failedWrite.store);
+  failedWrite.store.finishApplication = () => false;
+  assert.strictEqual((await failedWriteService.bootstrapCloud(failedWrite.auth.current())).reason, 'persist-failed');
+  assert.strictEqual(feedbackCount, 0, 'a recovery that still cannot persist must keep the observer pending');
+  failedWrite.store.finishApplication = finishApplication;
+  const recoveredReward = await failedWriteService.bootstrapCloud(failedWrite.auth.current());
+  assert.strictEqual(recoveredReward.status, 'cloud-synced');
+  assert.strictEqual(failedWrite.store.currentScope().pendingOperations.length, 0);
+  assert.strictEqual(failedWrite.rewards.view().balance, 100, 'recovery must not grant the same coins twice');
+  assert.deepStrictEqual(resultScreen.currencyReward, { status: 'granted', amount: 100 },
+    'the recovered receipt must update the real result-screen feedback, not just the wallet');
+  assert.strictEqual(feedbackCount, 1); assert.strictEqual(redraws, 1);
+  assert.strictEqual(failedWriteService.operationObservers.size, 0);
+  assert.deepStrictEqual(recoveryCalls, ['sync.push', 'state.read'], 'feedback recovery adds no network request or duplicate push');
+  await failedWriteService.bootstrapCloud(failedWrite.auth.current());
+  assert.strictEqual(feedbackCount, 1, 'later syncs cannot announce the recovered reward again');
+  assert.strictEqual(failedWrite.rewards.view().balance, 100);
 
   const capped = setup(); let sentCount = 0;
   for (let index = 0; index < 51; index++) {

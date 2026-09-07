@@ -30,6 +30,8 @@ class ProgressSyncService {
   }
 
   state() {
+    if (this.config.localBackupEnabled === true && this.services.backup &&
+        this.store.authorityMode('progress') === 'local-backup') return this.services.backup.state();
     return { status: this.status, pending: this.store.state.pendingOperations.length,
       lastSyncAt: this.store.state.lastSyncAt, lastError: this.store.state.lastError };
   }
@@ -44,6 +46,16 @@ class ProgressSyncService {
 
   atCheckpoint(reason, sync) {
     const run = sync || (() => this.flush());
+    if (this.config.localBackupEnabled === true && this.services.backup) {
+      if (this.checkpointFlight) return this.checkpointFlight;
+      if (reason === 'hide') return Promise.resolve({ ok: true, skipped: true, status: this.status });
+      this.checkpointFlight = Promise.resolve().then(run).then(result => {
+        if (!result || result.ok !== true || !['home', 'account', 'manual'].includes(reason)) return result;
+        if (this.store.authorityMode('progress') !== 'local-backup') return result;
+        return this.services.backup.atCheckpoint(reason).then(backup => Object.assign({}, result, { backup }));
+      }).finally(() => { this.checkpointFlight = null; });
+      return this.checkpointFlight;
+    }
     if (this.auth.mode !== 'cloud') return run();
     if (this.checkpointFlight) return this.checkpointFlight;
     if (this.inFlight) return this.inFlight;
@@ -85,6 +97,11 @@ class ProgressSyncService {
   }
 
   localChanged() {
+    if (this.store.authorityMode('progress') === 'local-backup') {
+      const changed = this.store.markBackupDirty(this.store.context());
+      this.status = changed ? 'backup-pending' : 'storage-blocked';
+      return changed;
+    }
     if (!this.inFlight) this.status = 'cloud-pending';
     this.atCheckpoint('progress').catch(function () {});
   }
@@ -115,6 +132,7 @@ class ProgressSyncService {
         session && session.userId === this.store.state.boundUserId && !this.store.bindLegacyUser(session.userId)) return false;
     const levelKey = `${input.setIndex}:${input.levelIndex}`;
     const occurredAtClient = Math.max(0, Math.round(Number(input.completedAtClient) || Date.now()));
+    if (mode === 'local-backup') return this.localChanged();
     if (mode === 'cloud-authoritative') {
       const queued = this.store.enqueueOperation({ domain: 'progress', type: 'MAIN_LEVEL_COMPLETED', occurredAtClient,
         payload: { levelKey, elapsedMs: Math.max(1, Math.round(input.elapsedMs)) } });
@@ -133,7 +151,8 @@ class ProgressSyncService {
   enqueueLastPlayed(input) {
     if (!input || !Number.isInteger(input.setIndex) || input.setIndex < 0 ||
         !Number.isInteger(input.levelIndex) || input.levelIndex < 0 ||
-        (this.store.authorityMode && this.store.authorityMode('progress') !== 'cloud-authoritative')) return false;
+        (this.store.authorityMode && !['cloud-authoritative', 'local-backup'].includes(this.store.authorityMode('progress')))) return false;
+    if (this.store.authorityMode('progress') === 'local-backup') return this.localChanged();
     const queued = this.store.enqueueOperation({ domain: 'progress', type: 'PROGRESS_LAST_PLAYED',
       occurredAtClient: Math.max(0, Math.round(Number(input.occurredAtClient) || Date.now())),
       payload: { setIndex: input.setIndex, levelIndex: input.levelIndex } });
@@ -142,7 +161,8 @@ class ProgressSyncService {
   }
 
   enqueueDailyEntry(input) {
-    if (!input || (this.store.authorityMode && this.store.authorityMode('daily') !== 'cloud-authoritative')) return false;
+    if (!input || (this.store.authorityMode && !['cloud-authoritative', 'local-backup'].includes(this.store.authorityMode('daily')))) return false;
+    if (this.store.authorityMode('daily') === 'local-backup') return this.localChanged();
     const queued = this.store.enqueueOperation({ domain: 'daily', type: 'DAILY_ENTRY_RECORDED', occurredAtClient: Date.now(),
       payload: { dateKey: input.dateKey, dayId: input.dayId, entryKey: input.entryKey,
         entryLimit: input.entryLimit, levelIds: input.levelIds } });
@@ -151,7 +171,8 @@ class ProgressSyncService {
   }
 
   enqueueDailyCompletion(input, observer) {
-    if (!input || (this.store.authorityMode && this.store.authorityMode('daily') !== 'cloud-authoritative')) return false;
+    if (!input || (this.store.authorityMode && !['cloud-authoritative', 'local-backup'].includes(this.store.authorityMode('daily')))) return false;
+    if (this.store.authorityMode('daily') === 'local-backup') return this.localChanged();
     const queued = this.store.enqueueOperation({ domain: 'daily', type: 'DAILY_LEVEL_COMPLETED',
       occurredAtClient: input.completedAtClient, payload: input });
     if (queued.ok) {
@@ -162,7 +183,9 @@ class ProgressSyncService {
   }
 
   enqueueShareEntitlement(rewardId) {
-    if (rewardId !== 'theme:festival' || (this.store.authorityMode && this.store.authorityMode('entitlements') !== 'cloud-authoritative')) return false;
+    if (rewardId !== 'theme:festival' || (this.store.authorityMode &&
+        !['cloud-authoritative', 'local-backup'].includes(this.store.authorityMode('entitlements')))) return false;
+    if (this.store.authorityMode('entitlements') === 'local-backup') return this.localChanged();
     const queued = this.store.enqueueOperation({ domain: 'entitlements', type: 'CLIENT_POLICY_SHARE_GRANTED',
       occurredAtClient: Date.now(), payload: { rewardId } });
     if (queued.ok) this.localChanged();
@@ -178,7 +201,11 @@ class ProgressSyncService {
   unlockOrdinaryLevel(levelKey, now) {
     const stamina = this.services.stamina;
     if (!stamina) return { ok: false, reason: 'not-configured' };
-    if (this.store.authorityMode('stamina') !== 'cloud-authoritative') return stamina.unlockOrdinaryLevel(levelKey, now);
+    if (this.store.authorityMode('stamina') !== 'cloud-authoritative') {
+      const result = stamina.unlockOrdinaryLevel(levelKey, now);
+      if (result.ok && this.store.authorityMode('stamina') === 'local-backup') this.localChanged();
+      return result;
+    }
     const exported = stamina.exportAuthoritativeSnapshot();
     if (!exported.ok) return { ok: false, reason: exported.reason };
     if (exported.snapshot.unlockedLevels.includes(levelKey) ||
@@ -197,7 +224,9 @@ class ProgressSyncService {
     const stamina = this.services.stamina;
     if (!stamina) return { ok: false, reason: 'not-configured', refunded: 0 };
     if (this.store.authorityMode('stamina') !== 'cloud-authoritative') {
-      return stamina.refundQuickClear(levelKey, elapsedMs, now);
+      const result = stamina.refundQuickClear(levelKey, elapsedMs, now);
+      if (result.ok && result.refunded > 0 && this.store.authorityMode('stamina') === 'local-backup') this.localChanged();
+      return result;
     }
     const exported = stamina.exportAuthoritativeSnapshot();
     if (!exported.ok) return { ok: false, reason: exported.reason, refunded: 0 };
@@ -217,6 +246,7 @@ class ProgressSyncService {
   }
 
   enqueuePreference(field, value) {
+    if (this.store.authorityMode('preferences') === 'local-backup') return this.localChanged();
     if (this.store.authorityMode('preferences') !== 'cloud-authoritative' || !this.stage5Enabled('preferences')) return false;
     const queued = this.store.enqueueOperation({ domain: 'preferences', type: 'PREFERENCE_FIELD_SET',
       occurredAtClient: Date.now(), payload: { field, value } });
@@ -225,6 +255,11 @@ class ProgressSyncService {
   }
 
   async grantShareEntitlement(rewardId) {
+    if (this.store.authorityMode('entitlements') === 'local-backup') {
+      const result = this.services.rewards.recordShareInitiated({ rewardId, initiated: true });
+      if (result.ok) this.localChanged();
+      return result;
+    }
     if (!this.enqueueShareEntitlement(rewardId)) return { ok: false, reason: 'network-required', newRewards: [] };
     const result = await this.flush();
     if (!result.ok) return { ok: false, reason: result.reason, newRewards: [] };
@@ -356,6 +391,19 @@ class ProgressSyncService {
     if (this.inFlight) return this.inFlight;
     const scope = this.store.context(); const account = this.accountGuard && this.accountGuard.capture();
     if (!this.cloudMatches(current, scope, account)) return Promise.resolve({ ok: false, reason: 'account-mismatch' });
+    const pendingPurchase = this.services.economy &&
+      typeof this.services.economy.hasPendingPurchase === 'function' &&
+      this.services.economy.hasPendingPurchase(current);
+    if (this.config.localBackupEnabled === true && this.services.backup &&
+        !pendingPurchase &&
+        !this.store.currentScope().pendingApplication && !this.store.currentScope().pendingOperations.length &&
+        this.store.authorityMode('progress') !== 'migration-freeze') {
+      this.status = 'backup-starting';
+      this.inFlight = this.services.backup.bootstrap(current).then(result => {
+        this.status = result.status || (result.ok ? 'backup-pending' : 'error'); return result;
+      }).finally(() => { this.inFlight = null; });
+      return this.inFlight;
+    }
     this.status = 'cloud-reading';
     this.inFlight = this.runCloud(current, scope, account).catch(() => this.cloudFailed('network', current, scope, account))
       .finally(() => { this.inFlight = null; });
@@ -371,6 +419,7 @@ class ProgressSyncService {
         if (!this.cloudMatches(current, scope, account)) {
           return this.cloudFailed('account-mismatch', current, scope, account);
         }
+        this.settleOperationObservers(recovered.results);
       }
     }
     const read = await this.cloudRequest(ApiClient.OPERATIONS.stateRead, current, scope, account,

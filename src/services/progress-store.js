@@ -116,6 +116,67 @@ class ProgressStore {
     return { schemaVersion: 1, levels };
   }
 
+  exportBackupSnapshot() {
+    const persisted = this.readPersistedState();
+    if (!persisted.ok) return persisted;
+    const state = persisted.state;
+    const levels = {};
+    const keys = new Set(Object.keys(state.completed).concat(Object.keys(state.bestMs)));
+    keys.forEach(key => {
+      if (!validCloudKey(key) || state.completed[key] !== true) return;
+      levels[key] = { completed: true };
+      if (validBest(state.bestMs[key])) levels[key].bestMs = state.bestMs[key];
+    });
+    const snapshot = { schemaVersion: 1, levels };
+    Object.keys(snapshot.levels).forEach(key => {
+      if (snapshot.levels[key].completed !== true) delete snapshot.levels[key];
+    });
+    snapshot.lastPlayed = state.lastPlayed ? normalizeTarget(state.lastPlayed) : null;
+    return { ok: true, snapshot };
+  }
+
+  readPersistedState() {
+    if (!this.platform || typeof this.platform.readStorageResult !== 'function') {
+      return { ok: false, reason: 'storage-read-failed' };
+    }
+    let read;
+    try { read = this.platform.readStorageResult(STORAGE_KEY); } catch (error) {}
+    if (!read || read.ok !== true || (read.found !== true && read.found !== false)) {
+      return { ok: false, reason: 'storage-read-failed' };
+    }
+    if (read.found === false) return { ok: true, state: createDefaultState('none') };
+    let saved = read.value;
+    if (typeof saved === 'string') {
+      try { saved = JSON.parse(saved); } catch (error) { return { ok: false, reason: 'invalid-storage' }; }
+    }
+    if (!isRecord(saved) || saved.schemaVersion !== 2 || !isRecord(saved.completed) || !isRecord(saved.bestMs) ||
+        !isRecord(saved.settings) || !isRecord(saved.stats) ||
+        Object.keys(saved.completed).some(key => BLOCKED_KEYS[key] || typeof saved.completed[key] !== 'boolean') ||
+        Object.keys(saved.bestMs).some(key => BLOCKED_KEYS[key] || !validBest(saved.bestMs[key])) ||
+        (saved.lastPlayed !== null && saved.lastPlayed !== undefined && !normalizeTarget(saved.lastPlayed)) ||
+        (saved.settings.skinId !== undefined && (typeof saved.settings.skinId !== 'string' || !saved.settings.skinId)) ||
+        (saved.settings.clearEffectId !== undefined &&
+          (typeof saved.settings.clearEffectId !== 'string' || !saved.settings.clearEffectId)) ||
+        (saved.settings.soundEnabled !== undefined && typeof saved.settings.soundEnabled !== 'boolean') ||
+        (saved.stats.totalClears !== undefined &&
+          (!Number.isSafeInteger(saved.stats.totalClears) || saved.stats.totalClears < 0))) {
+      return { ok: false, reason: 'invalid-storage' };
+    }
+    return { ok: true, state: this.normalize(saved) };
+  }
+
+  exportPersistedPreferencesSnapshot() {
+    const persisted = this.readPersistedState();
+    if (!persisted.ok) return persisted;
+    const settings = persisted.state.settings;
+    return { ok: true, snapshot: { schemaVersion: 1, skinId: settings.skinId,
+      clearEffectId: settings.clearEffectId, soundEnabled: settings.soundEnabled } };
+  }
+
+  applyBackupSnapshot(snapshot) {
+    return this.applyAuthoritativeProgressSnapshot(snapshot, []);
+  }
+
   exportRewardCompletions() {
     if (!this.platform || typeof this.platform.readStorageResult !== 'function') {
       return { ok: false, reason: 'storage-read-failed' };

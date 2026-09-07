@@ -9,7 +9,7 @@ const MAX_MIGRATION_ARCHIVES = 4;
 const MAX_OPERATIONS = 200;
 const opaqueId = prefix => `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}_${Math.random().toString(36).slice(2)}`;
 const DOMAINS = ['progress', 'daily', 'economy', 'entitlements', 'stamina', 'preferences'];
-const MODES = ['legacy-local', 'migration-freeze', 'cloud-authoritative'];
+const MODES = ['legacy-local', 'migration-freeze', 'cloud-authoritative', 'local-backup'];
 const CORE_DOMAINS = ['progress', 'daily', 'economy', 'entitlements'];
 const domainAuthority = mode => DOMAINS.reduce((result, domain) => {
   result[domain] = CORE_DOMAINS.includes(domain) ? mode : 'legacy-local'; return result;
@@ -34,6 +34,19 @@ const validOwner = ownerId => ownerId === null || (typeof ownerId === 'string' &
 const validEpoch = (ownerId, epoch) => integer(epoch) &&
   (ownerId === null || ownerId.startsWith('legacy-http:') ? epoch === 0 : epoch > 0);
 const revisions = () => DOMAINS.reduce((result, domain) => { result[domain] = 0; return result; }, {});
+const emptyBackup = () => ({ localVersion: 0, cloudVersion: 0, dirty: false, remoteKnown: false,
+  lastAttemptAt: 0, lastSuccessAt: 0, lastError: null, lastSnapshotHash: null, conflictVersion: null });
+const validFingerprint = value => typeof value === 'string' && /^local-fnv1a32:[a-f0-9]{8}:\d+$/.test(value);
+const validBackup = value => record(value) && Object.keys(value).length === 9 &&
+  integer(value.localVersion) && integer(value.cloudVersion) && typeof value.dirty === 'boolean' &&
+  typeof value.remoteKnown === 'boolean' && integer(value.lastAttemptAt) && integer(value.lastSuccessAt) &&
+  (value.lastError === null || validId(value.lastError)) &&
+  (value.lastSnapshotHash === null || validFingerprint(value.lastSnapshotHash)) &&
+  (value.conflictVersion === null || integer(value.conflictVersion));
+const validBackupRestore = value => value === null || (record(value) && Object.keys(value).length === 6 &&
+  value.schemaVersion === 1 && validId(value.restoreId) && integer(value.cloudVersion) &&
+  integer(value.localVersionAtConfirmation) && validFingerprint(value.snapshotHash) && record(value.snapshot) &&
+  fingerprint(value.snapshot) === value.snapshotHash);
 const validRevisions = value => record(value) && Object.keys(value).length === DOMAINS.length && DOMAINS.every(key => integer(value[key]));
 const validRecoveryOptions = value => record(value) && Object.keys(value).every(key =>
   ['adoptLocal', 'migration', 'importId', 'migrationReceiptId', 'expectedOperationIds', 'cloudDomains'].includes(key)) &&
@@ -58,7 +71,8 @@ const validApplicationReceipt = (value, pending) => {
 };
 const emptyScope = (ownerId, bindingEpoch) => ({ ownerId, bindingEpoch, revisions: revisions(),
   pendingOperations: [], snapshotRequired: false, lastSyncAt: 0, lastError: null, migration: null,
-  pendingApplication: null, lastApplication: null, quarantinedOperations: [] });
+  pendingApplication: null, lastApplication: null, quarantinedOperations: [], backup: emptyBackup(),
+  pendingBackupRestore: null });
 
 function normalizeMigrationArchive(saved) {
   if (saved == null) return { schemaVersion: 1, imports: {} };
@@ -167,11 +181,12 @@ function normalize(saved) {
       Object.keys(saved.domainAuthority).length !== DOMAINS.length ||
       DOMAINS.some(domain => !MODES.includes(saved.domainAuthority[domain])) ||
       CORE_DOMAINS.some(domain => saved.domainAuthority[domain] !== saved.authorityMode) ||
-      (saved.authorityMode !== 'cloud-authoritative' &&
+      (!['cloud-authoritative', 'local-backup'].includes(saved.authorityMode) &&
         (saved.domainAuthority['stamina'] !== 'legacy-local' || saved.domainAuthority.preferences !== 'legacy-local')) ||
       (saved.authorityMode === 'cloud-authoritative' &&
         [saved.domainAuthority['stamina'], saved.domainAuthority.preferences].some(mode =>
           !['legacy-local', 'cloud-authoritative'].includes(mode))) || !record(saved.scopes) ||
+      (saved.authorityMode === 'local-backup' && DOMAINS.some(domain => saved.domainAuthority[domain] !== 'local-backup')) ||
       (saved.boundUserId !== null && !validId(saved.boundUserId)) ||
       !validEnvironment(environment(saved.activeEnvironmentId)) || !validEnvironment(environment(saved.localEnvironmentId))) return null;
   const scopes = {}; const ids = new Set();
@@ -188,13 +203,29 @@ function normalize(saved) {
     if (record(scope) && !Object.prototype.hasOwnProperty.call(scope, 'quarantinedOperations')) {
       scope = Object.assign({}, scope, { quarantinedOperations: [] });
     }
+    if (record(scope) && !Object.prototype.hasOwnProperty.call(scope, 'backup')) {
+      scope = Object.assign({}, scope, { backup: emptyBackup(), pendingBackupRestore: null });
+    }
+    if (record(scope) && !Object.prototype.hasOwnProperty.call(scope, 'pendingBackupRestore')) {
+      scope = Object.assign({}, scope, { pendingBackupRestore: null });
+    }
+    if (record(scope) && record(scope.backup) &&
+        !Object.prototype.hasOwnProperty.call(scope.backup, 'conflictVersion')) {
+      // The first local-backup build stored a conflicted remote version in
+      // cloudVersion. Preserve that evidence as blocked authorization when
+      // upgrading instead of allowing the next automatic commit to use it.
+      const conflictVersion = scope.backup.lastError === 'backup-version-conflict'
+        ? scope.backup.cloudVersion : null;
+      scope = Object.assign({}, scope, { backup: Object.assign({}, scope.backup, { conflictVersion }) });
+    }
     const env = scope && environment(scope.environmentId);
     if (!record(scope) || !validOwner(scope.ownerId) || !validEnvironment(env) ||
         (env !== null && !String(scope.ownerId).startsWith('player_')) || key !== scopeKey(scope.ownerId, env) ||
         !validEpoch(scope.ownerId, scope.bindingEpoch) || !validRevisions(scope.revisions) ||
         !Array.isArray(scope.pendingOperations) || !integer(scope.lastSyncAt) ||
         typeof scope.snapshotRequired !== 'boolean' || (scope.lastError !== null && !validId(scope.lastError)) ||
-        !Array.isArray(scope.quarantinedOperations) || scope.quarantinedOperations.length > 50) return null;
+        !Array.isArray(scope.quarantinedOperations) || scope.quarantinedOperations.length > 50 ||
+        !validBackup(scope.backup) || !validBackupRestore(scope.pendingBackupRestore)) return null;
     if (scope.quarantinedOperations.some(item => !record(item) || Object.keys(item).length !== 3 ||
         !validId(item.operationId) || !validId(item.code) || !integer(item.quarantinedAt))) return null;
     const pending = [];
@@ -508,6 +539,77 @@ class SyncStore {
     return this.commit(candidate);
   }
   acknowledge(ids, token) { return this.updateScope({}, token || this.context(), ids); }
+  enableLocalBackup(token) {
+    if (!this.matches(token) || !String(token.ownerId || '').startsWith('player_') ||
+        (this.state.localOwnerId !== null && (this.state.localOwnerId !== token.ownerId ||
+          environment(this.state.localEnvironmentId) !== environment(token.environmentId)))) {
+      return { ok: false, reason: 'account-mismatch' };
+    }
+    const scope = this.currentScope();
+    if (scope.pendingApplication || scope.pendingOperations.length || this.state.authorityMode === 'migration-freeze') {
+      return { ok: false, reason: scope.pendingApplication ? 'application-pending' : 'legacy-operations-pending' };
+    }
+    if (this.state.authorityMode === 'local-backup' && this.ownsLocalState()) return { ok: true };
+    const candidate = clone(this.state); const target = candidate.scopes[scopeKey(token.ownerId, token.environmentId)];
+    candidate.localOwnerId = token.ownerId; candidate.localEnvironmentId = environment(token.environmentId);
+    candidate.authorityMode = 'local-backup'; candidate.domainAuthority = legacyGlobalAuthority('local-backup');
+    delete target.readOnlyPhase; delete target.readOnlySummary;
+    if (target.backup.localVersion === 0) target.backup.localVersion = 1;
+    target.backup.dirty = true;
+    return this.commit(candidate) ? { ok: true } : { ok: false, reason: 'persist-failed' };
+  }
+  markBackupDirty(token) {
+    const current = token || this.context();
+    if (!this.matches(current) || this.state.authorityMode !== 'local-backup' || !this.ownsLocalState()) return false;
+    const scope = this.currentScope();
+    if (!integer(scope.backup.localVersion + 1)) return false;
+    const candidate = clone(this.state); const backup = candidate.scopes[scopeKey(current.ownerId, current.environmentId)].backup;
+    backup.localVersion++; backup.dirty = true; backup.lastError = null;
+    return this.commit(candidate);
+  }
+  updateBackup(update, token) {
+    const current = token || this.context();
+    if (!this.matches(current) || this.state.authorityMode !== 'local-backup' || !record(update)) return false;
+    const scope = this.currentScope(); const next = Object.assign({}, scope.backup, clone(update));
+    if (!validBackup(next)) return false;
+    const candidate = clone(this.state); candidate.scopes[scopeKey(current.ownerId, current.environmentId)].backup = next;
+    return this.commit(candidate);
+  }
+  beginBackupRestore(input, token) {
+    const current = token || this.context();
+    if (!this.matches(current) || this.state.authorityMode !== 'local-backup' || !validBackupRestore(input) || input === null) {
+      return { ok: false, reason: 'invalid-restore' };
+    }
+    const scope = this.currentScope();
+    if (scope.pendingBackupRestore) {
+      return scope.pendingBackupRestore.restoreId === input.restoreId &&
+        scope.pendingBackupRestore.snapshotHash === input.snapshotHash
+        ? { ok: true, alreadyBegun: true } : { ok: false, reason: 'restore-pending' };
+    }
+    if (scope.backup.localVersion !== input.localVersionAtConfirmation) return { ok: false, reason: 'restore-confirmation-stale' };
+    const candidate = clone(this.state);
+    candidate.scopes[scopeKey(current.ownerId, current.environmentId)].pendingBackupRestore = clone(input);
+    return this.commit(candidate) ? { ok: true } : { ok: false, reason: 'persist-failed' };
+  }
+  pendingBackupRestore(token) {
+    const current = token || this.context();
+    if (!this.matches(current)) return null;
+    const value = this.currentScope().pendingBackupRestore;
+    return validBackupRestore(value) ? clone(value) : null;
+  }
+  finishBackupRestore(input, token) {
+    const current = token || this.context();
+    if (!this.matches(current) || !validBackupRestore(input) || input === null) return false;
+    const scope = this.currentScope(); const pending = scope.pendingBackupRestore;
+    if (!pending || pending.restoreId !== input.restoreId || pending.snapshotHash !== input.snapshotHash) return false;
+    if (!integer(scope.backup.localVersion + 1)) return false;
+    const candidate = clone(this.state); const target = candidate.scopes[scopeKey(current.ownerId, current.environmentId)];
+    target.pendingBackupRestore = null;
+    target.backup = Object.assign({}, target.backup, { localVersion: target.backup.localVersion + 1,
+      cloudVersion: input.cloudVersion, dirty: false, remoteKnown: true, lastSuccessAt: Date.now(),
+      lastError: null, lastSnapshotHash: input.snapshotHash, conflictVersion: null });
+    return this.commit(candidate);
+  }
   setAuthorityMode(mode, token) {
     if (!MODES.includes(mode) || !this.matches(token) || !this.ownsLocalState() ||
         (this.state.authorityMode !== 'legacy-local' && mode === 'legacy-local')) return false;

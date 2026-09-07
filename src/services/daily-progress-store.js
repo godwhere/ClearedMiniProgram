@@ -102,7 +102,7 @@ function writeStorage(platform, key, value) {
 }
 
 function createDefaultState() {
-  return { schemaVersion: SCHEMA_VERSION, entries: {} };
+  return { schemaVersion: SCHEMA_VERSION, entries: {}, rewardBaselines: {} };
 }
 
 function stringId(value) {
@@ -291,6 +291,10 @@ class DailyProgressStore {
       if (!validDateKey(dateKey) || !isRecord(entries[dateKey])) return;
       state.entries[dateKey] = normalizeDayRecord(entries[dateKey], dateKey);
     });
+    const baselines = isRecord(saved.rewardBaselines) ? saved.rewardBaselines : {};
+    Object.keys(baselines).forEach(dateKey => {
+      if (validDateKey(dateKey) && stringId(baselines[dateKey])) state.rewardBaselines[dateKey] = baselines[dateKey];
+    });
     return state;
   }
 
@@ -315,9 +319,12 @@ class DailyProgressStore {
       try { saved = JSON.parse(saved); } catch (error) { return { ok: false, reason: 'invalid-storage' }; }
     }
     if (!isRecord(saved) || saved.schemaVersion !== SCHEMA_VERSION || !isRecord(saved.entries) ||
+        (saved.rewardBaselines !== undefined && (!isRecord(saved.rewardBaselines) ||
+          Object.keys(saved.rewardBaselines).some(dateKey => !validDateKey(dateKey) || !stringId(saved.rewardBaselines[dateKey])))) ||
         Object.keys(saved.entries).some(dateKey => !validDateKey(dateKey) || !isRecord(saved.entries[dateKey]))) {
       return { ok: false, reason: 'invalid-storage' };
     }
+    const baselines = saved.rewardBaselines || {};
     const days = [];
     let invalid = false;
     Object.keys(saved.entries).forEach(dateKey => {
@@ -342,9 +349,95 @@ class DailyProgressStore {
           !stringId(raw.dayId) || !ids.every((id, index) => typeof id === 'string' && /^[A-Za-z0-9_:-]{1,200}$/.test(id) &&
             !['__proto__', 'constructor', 'prototype'].includes(id) && own(raw.levels, id) &&
             isRecord(raw.levels[id]) && raw.levels[id].levelIndex === index && raw.levels[id].completed === true)) return;
-      days.push({ dateKey, dayId: raw.dayId, levelIds: ids });
+      if (baselines[dateKey] !== raw.dayId) days.push({ dateKey, dayId: raw.dayId, levelIds: ids });
     });
     return invalid ? { ok: false, reason: 'invalid-storage' } : { ok: true, days };
+  }
+
+  exportBackupSnapshot(dateKey) {
+    if (!validDateKey(dateKey)) return { ok: false, reason: 'invalid-date-key' };
+    if (!this.platform || typeof this.platform.readStorageResult !== 'function') {
+      return { ok: false, reason: 'storage-read-failed' };
+    }
+    let read;
+    try { read = this.platform.readStorageResult(STORAGE_KEY); } catch (error) {}
+    if (!read || read.ok !== true || (read.found !== true && read.found !== false)) {
+      return { ok: false, reason: 'storage-read-failed' };
+    }
+    if (read.found === false) return { ok: true, snapshot: { schemaVersion: 1, dateKey, day: null } };
+    let saved = read.value;
+    if (typeof saved === 'string') {
+      try { saved = JSON.parse(saved); } catch (error) { return { ok: false, reason: 'invalid-storage' }; }
+    }
+    const entries = isRecord(saved) && isRecord(saved.entries) ? saved.entries
+      : isRecord(saved) && isRecord(saved.days) ? saved.days : null;
+    if (!isRecord(saved) || saved.schemaVersion !== SCHEMA_VERSION || !entries ||
+        Object.keys(entries).some(key => !validDateKey(key) || !isRecord(entries[key]))) {
+      return { ok: false, reason: 'invalid-storage' };
+    }
+    const source = entries[dateKey];
+    if (!source) return { ok: true, snapshot: { schemaVersion: 1, dateKey, day: null } };
+    const day = normalizeDayRecord(source, dateKey);
+    const levelIds = Array.isArray(day._levelIds) ? day._levelIds.slice() : Object.keys(day.levels)
+      .sort((a, b) => day.levels[a].levelIndex - day.levels[b].levelIndex);
+    if (!stringId(day.dayId) || levelIds.length !== 2 || levelIds[0] === levelIds[1] ||
+        !levelIds.every((id, index) => stringId(id) && day.levels[id] && day.levels[id].levelIndex === index)) {
+      return { ok: false, reason: 'invalid-storage' };
+    }
+    const snapshot = { schemaVersion: 1, dateKey, day: { dayId: day.dayId,
+      entryLimit: normalizedLimit(day.entryLimit, DEFAULT_ENTRY_LIMIT), entriesUsed: normalizedCount(day.entriesUsed, 0),
+      completed: day.completed === true, levelIds, levels: clone(day.levels),
+      entryKeys: normalizeIdList(day._entryKeys), grantIds: normalizeIdList(day._grantIds) } };
+    if (snapshot.day.entriesUsed !== snapshot.day.entryKeys.length || snapshot.day.entriesUsed > snapshot.day.entryLimit) {
+      return { ok: false, reason: 'invalid-storage' };
+    }
+    return { ok: true, snapshot };
+  }
+
+  applyBackupSnapshot(snapshot) {
+    if (!isRecord(snapshot) || snapshot.schemaVersion !== 1 || !validDateKey(snapshot.dateKey) ||
+        (snapshot.day !== null && !isRecord(snapshot.day))) return { ok: false, reason: 'invalid-snapshot' };
+    const previous = this.state;
+    const rewardBaselines = Object.assign({}, previous.rewardBaselines || {});
+    Object.keys(previous.entries).forEach(dateKey => {
+      const existing = previous.entries[dateKey];
+      if (existing && existing.completed === true && stringId(existing.dayId)) rewardBaselines[dateKey] = existing.dayId;
+    });
+    if (snapshot.day === null) {
+      this.state = { schemaVersion: SCHEMA_VERSION, entries: Object.assign({}, previous.entries), rewardBaselines };
+      if (!this.save()) { this.state = previous; return { ok: false, reason: 'persist-failed' }; }
+      return { ok: true };
+    }
+    const day = snapshot.day;
+    if (!stringId(day.dayId) || !Number.isSafeInteger(day.entryLimit) || day.entryLimit <= 0 ||
+        !Number.isSafeInteger(day.entriesUsed) || day.entriesUsed < 0 || day.entriesUsed > day.entryLimit ||
+        typeof day.completed !== 'boolean' || !Array.isArray(day.levelIds) || day.levelIds.length !== 2 ||
+        day.levelIds[0] === day.levelIds[1] || !isRecord(day.levels) || !Array.isArray(day.entryKeys) ||
+        day.entriesUsed !== day.entryKeys.length || new Set(day.entryKeys).size !== day.entryKeys.length ||
+        !day.entryKeys.every(stringId) || !Array.isArray(day.grantIds) || new Set(day.grantIds).size !== day.grantIds.length ||
+        !day.grantIds.every(stringId)) return { ok: false, reason: 'invalid-snapshot' };
+    const levels = {};
+    for (let index = 0; index < day.levelIds.length; index++) {
+      const id = day.levelIds[index]; const level = day.levels[id];
+      if (!stringId(id) || !isRecord(level) || level.levelIndex !== index || typeof level.completed !== 'boolean' ||
+          !Number.isSafeInteger(level.bestMs) || level.bestMs < 0 ||
+          (level.completedAt !== undefined && (!Number.isSafeInteger(level.completedAt) || level.completedAt < 0))) {
+        return { ok: false, reason: 'invalid-snapshot' };
+      }
+      levels[id] = clone(level);
+    }
+    if (Object.keys(day.levels).length !== day.levelIds.length ||
+        day.completed !== day.levelIds.every(id => levels[id].completed === true)) return { ok: false, reason: 'invalid-snapshot' };
+    const entry = { dayId: day.dayId, entryLimit: day.entryLimit, entriesUsed: day.entriesUsed,
+      attempts: day.entriesUsed, completed: day.completed, levels, _explicitEntryLimit: true,
+      _levelCount: day.levelIds.length, _levelIds: day.levelIds.slice(), _entryKeys: day.entryKeys.slice(),
+      _grantIds: day.grantIds.slice(), _dateKey: snapshot.dateKey };
+    if (entry.completed) rewardBaselines[snapshot.dateKey] = entry.dayId;
+    else delete rewardBaselines[snapshot.dateKey];
+    this.state = { schemaVersion: SCHEMA_VERSION,
+      entries: Object.assign({}, previous.entries, { [snapshot.dateKey]: entry }), rewardBaselines };
+    if (!this.save()) { this.state = previous; return { ok: false, reason: 'persist-failed' }; }
+    return { ok: true };
   }
 
   /**

@@ -18,6 +18,23 @@ function formatStaminaCountdown(milliseconds) {
   return `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
 }
 
+function resultRewardFeedback(model, result, claimedText) {
+  const reward = result && result.currencyReward;
+  if (!reward) return null;
+  if (reward.status === 'local-save-failed' || (reward.status === 'pending' &&
+      (model.settlementMode !== 'cloud-authoritative' || result.persisted === false))) {
+    return { text: '本地保存未成功，点击重试', retry: true };
+  }
+  if (reward.status === 'granted') return { text: `获得 ${reward.amount} 货币`, retry: false };
+  if (reward.status === 'pending') {
+    // Display the configured reward, not an unconfirmed wallet credit.
+    const amount = model.firstClearRewardAmount;
+    return { text: Number.isSafeInteger(amount) && amount > 0 ? `首通奖励 ${amount} 货币` : '首通奖励', retry: false };
+  }
+  if (reward.status === 'failed') return { text: '奖励未到账', retry: false };
+  return { text: claimedText, retry: false };
+}
+
 const PLAY_PROMPT_BAND_HEIGHT = 32;
 const PLAY_PROMPT_CYCLE_MS = 1800;
 const CANVAS_FONT_FAMILY = '-apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif';
@@ -147,6 +164,28 @@ class CanvasRenderer {
   }
 
   render(model, now) {
+    const feedback = model && model.clearFeedback;
+    const gameplay = model && ['play', 'result', 'daily', 'dailyResult'].includes(model.scene);
+    const elapsed = feedback ? now - feedback.startedAt : -1;
+    const duration = feedback && Number(feedback.durationMs);
+    const active = gameplay && elapsed >= 0 && duration > 0 && elapsed < duration;
+    const progress = active ? elapsed / duration : 1;
+    // Logical pixels, independent of DPR. Horizontal-only feedback preserves
+    // the vertical safe area; layout and touch coordinates remain stable.
+    const amplitude = Math.min(3, this.platform.metrics.width * 0.008);
+    this.clearFeedbackOffset = active
+      ? Math.cos(progress * Math.PI * 6) * amplitude * (1 - progress) : 0;
+    this.ctx.save();
+    try {
+      if (this.clearFeedbackOffset) this.ctx.translate(this.clearFeedbackOffset, 0);
+      this.renderScene(model, now);
+    } finally {
+      this.ctx.restore();
+      this.clearFeedbackOffset = 0;
+    }
+  }
+
+  renderScene(model, now) {
     const scene = model && model.scene;
     if (scene !== this.lastScene) {
       this.lastScene = scene;
@@ -192,6 +231,8 @@ class CanvasRenderer {
     const { width, height } = this.platform.metrics;
     const ctx = this.ctx;
     ctx.save();
+    // Clear the complete, unshifted viewport to avoid edge trails while shaking.
+    if (this.clearFeedbackOffset) ctx.translate(-this.clearFeedbackOffset, 0);
     ctx.globalAlpha = 1;
     ctx.globalCompositeOperation = 'source-over';
     ctx.clearRect(0, 0, width, height);
@@ -878,16 +919,17 @@ class CanvasRenderer {
       (model.dailyEntriesRemaining !== undefined && model.dailyEntryLimit !== undefined));
     const dailyEntryRemaining = dailyEntryKnown ? Number(model.dailyEntriesRemaining) : 0;
     const dailyEntryLimit = dailyEntryKnown ? Number(model.dailyEntryLimit) : 0;
-    // In the development/unlimited-entry state the compact status belongs to
-    // the daily button itself, so leave the space above the row clear. Finite
-    // entry states keep the wider status line above the actions.
+    const dailyButtonLabel = dailyEntryKnown && model.dailyDebugUnlimited !== true
+      ? `每日挑战（${Math.max(0, dailyEntryRemaining)}/${Math.max(1, dailyEntryLimit)}）`
+      : '每日挑战';
+    // Remaining entries live in the label; only unavailable states need a hint.
     if (dailyEntryKnown && model.dailyDebugUnlimited !== true) {
       const dailyStatus = model.dailyAvailable === false
         ? '今日暂无关卡'
         : dailyEntryRemaining > 0
-          ? `剩余次数 ${Math.max(0, dailyEntryRemaining)} / ${Math.max(1, dailyEntryLimit)}`
+          ? null
           : '今日次数已用完';
-      this.text(dailyStatus, width / 2, firstY - 13, 11, { alpha: 0.58 });
+      if (dailyStatus) this.text(dailyStatus, width / 2, firstY - 13, 11, { alpha: 0.58 });
     }
     const dailyButtonRect = {
       x: buttonX,
@@ -895,10 +937,10 @@ class CanvasRenderer {
       w: columnWidth,
       h: buttonHeight
     };
-    this.button('home:dailyChallenge', dailyButtonRect, '高难关卡', {
+    this.button('home:dailyChallenge', dailyButtonRect, dailyButtonLabel, {
       fill: skin.colors.primaryButton,
       stroke: skin.colors.primaryButtonStroke,
-      fontSize: 19,
+      fontSize: dailyButtonLabel === '每日挑战' ? 19 : Math.min(19, (columnWidth - 16) / 8),
       enabled: model.dailyAvailable !== false && model.dailyEntryAvailable !== false
     }, model.pressedId);
     if (model.dailyDebugUnlimited === true) {
@@ -1040,15 +1082,23 @@ class CanvasRenderer {
       this.text('我', center, avatarRect.y + avatarSize / 2, Math.min(24, avatarSize / 2));
     }
     this.text(profile ? profile.nickname : '本地玩家', center, panel.y + space * 0.46, 18, { maxWidth: panel.w - 24 });
-    const status = { local: '本地游玩', syncing: '正在同步', pending: '等待同步', synced: '已同步', error: '同步失败',
+    const status = { local: model.backupMode ? '本地存档' : '本地游玩', syncing: model.backupMode ? '正在处理云备份' : '正在同步',
+      pending: model.backupMode ? '本地已保存，云备份待更新' : '等待同步',
+      synced: model.backupMode ? '本地已保存，云备份最新' : '已同步', error: model.backupMode ? '云备份失败' : '同步失败',
       'account-mismatch': '账号不一致，已暂停同步' }[model.accountStatus] || '本地游玩';
     this.text(status, center, panel.y + space * 0.65, 15, { maxWidth: panel.w - 24 });
     this.text(model.accountMessage || '头像昵称为可选资料', center, panel.y + space * 0.84, 12, { maxWidth: panel.w - 24, alpha: 0.7 });
     this.button('account:authorizeProfile', layout.profileButton,
       model.profilePending ? '正在保存资料' : model.profileSupported ? '授权头像昵称' : '头像昵称暂不可用',
       { enabled: model.profileSupported === true && !model.profilePending, fontSize: 17 }, model.pressedId);
-    this.button('account:retrySync', layout.retryButton, model.syncPending ? '正在同步' : '重试同步',
+    const backupAction = model.backupConfirmRestore ? 'account:confirmRestore'
+      : model.backupConfirmCommit ? 'account:confirmBackup' : 'account:retrySync';
+    const backupLabel = model.syncPending ? '正在处理…' : model.backupConfirmRestore ? '确认恢复云备份'
+      : model.backupConfirmCommit ? '确认用本机覆盖云备份' : model.backupMode ? '立即备份' : '重试同步';
+    this.button(backupAction, layout.retryButton, backupLabel,
       { enabled: !model.syncPending, fontSize: 17 }, model.pressedId);
+    this.button('account:restoreBackup', layout.restoreButton, '恢复云备份',
+      { enabled: model.backupMode === true && !model.syncPending, fontSize: 17 }, model.pressedId);
     this.button('account:privacy', layout.privacyButton, '隐私协议', { fontSize: 17 }, model.pressedId);
   }
 
@@ -2065,8 +2115,9 @@ class CanvasRenderer {
     const renderModel = this.renderBoardViewModel(model, game, now);
     const board = renderModel && renderModel.board;
     const portal = renderModel && renderModel.mechanic && renderModel.mechanic.portal;
-    const instruction = portal ? portal.instruction : model.beginnerInstruction;
-    // Portal keeps its band even after the phase-specific copy disappears.
+    const instruction = model.scene === 'result'
+      ? null : (portal ? portal.instruction : model.beginnerInstruction);
+    // Keep the band after copy disappears, including during result transitions.
     const hasPromptBand = !!portal || !!model.beginnerInstruction;
     this.begin(setStyle.background);
 
@@ -2487,12 +2538,9 @@ class CanvasRenderer {
     this.text(`每日挑战完成  ${levelCount} / ${levelCount}`, width / 2, panelY + 92, 27,
       { weight: 300, maxWidth: width - 48 });
     this.text(`用时 ${formatTime(result.elapsedMs || 0)}`, width / 2, panelY + 124, 13, { alpha: 0.72 });
-    if (result.currencyReward) this.text(result.currencyReward.status === 'granted'
-      ? `获得 ${result.currencyReward.amount} 货币`
-      : result.currencyReward.status === 'pending' ? '奖励待同步'
-        : result.currencyReward.status === 'failed' ? '奖励同步失败' : '今日奖励已领取',
-    width / 2, panelY + 142, 12, { alpha: 0.72 });
-    if (result.currencyReward && result.currencyReward.status === 'pending') {
+    const rewardFeedback = resultRewardFeedback(model, result, '今日奖励已领取');
+    if (rewardFeedback) this.text(rewardFeedback.text, width / 2, panelY + 142, 12, { alpha: 0.72 });
+    if (rewardFeedback && rewardFeedback.retry) {
       this.addHit('reward:retry', { x: width / 2 - 64, y: panelY + 128, w: 128, h: 28 }, true);
     }
     if (model.dailyDateKey) {
@@ -2567,12 +2615,9 @@ class CanvasRenderer {
     const resultText = model.trial ? `用时 ${formatTime(model.result.elapsedMs)} · 不计入主线进度`
       : `本次 ${formatTime(model.result.elapsedMs)} · 最佳 ${formatTime(model.result.bestMs)}`;
     this.text(resultText, width / 2, panelY + 124, 13, { alpha: 0.72 });
-    if (model.result.currencyReward) this.text(model.result.currencyReward.status === 'granted'
-      ? `获得 ${model.result.currencyReward.amount} 货币`
-      : model.result.currencyReward.status === 'pending' ? '奖励待同步'
-        : model.result.currencyReward.status === 'failed' ? '奖励同步失败' : '本关奖励已领取',
-    width / 2, panelY + 146, 12, { alpha: 0.68 });
-    if (model.result.currencyReward && model.result.currencyReward.status === 'pending') {
+    const rewardFeedback = resultRewardFeedback(model, model.result, '本关奖励已领取');
+    if (rewardFeedback) this.text(rewardFeedback.text, width / 2, panelY + 146, 12, { alpha: 0.68 });
+    if (rewardFeedback && rewardFeedback.retry) {
       this.addHit('reward:retry', { x: width / 2 - 64, y: panelY + 132, w: 128, h: 28 }, true);
     }
 

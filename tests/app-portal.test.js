@@ -147,6 +147,7 @@ function run() {
   assert.strictEqual(app.isAnimating(app.levelEnteredAt + 1000), true,
     'the active portal selection keeps prompt breathing frames alive');
   assert.deepStrictEqual(api.haptics, [], 'reaching a portal does not vibrate');
+  assert.strictEqual(app.buildModel().clearFeedback, null, 'reaching a portal does not shake the scene');
 
   // Move after A is ignored
   app.onPointerMove(cellPoint(22, 1));
@@ -183,6 +184,7 @@ function run() {
   assert.strictEqual(model.portalInstruction, portalInstructions.CONTINUE);
   assert.strictEqual(model.mechanic.portal.instruction, model.portalInstruction);
   assert.deepStrictEqual(api.haptics, [], 'releasing at a portal does not vibrate');
+  assert.strictEqual(app.buildModel().clearFeedback, null, 'waiting at a portal does not shake the scene');
 
   // Cancelling an exit-side gesture drops only that side and keeps A waiting.
   app.onPointerStart(cellPoint(2, 30));
