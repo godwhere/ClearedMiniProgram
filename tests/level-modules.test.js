@@ -24,7 +24,7 @@ function run() {
   assert.strictEqual(/require\([^)]*\.json/.test(runtimeCatalog), false);
   const catalog = require(path.join(dataDir, 'catalog-v2.js'));
   assert.strictEqual(catalog.sets.length, 5);
-  assert.strictEqual(catalog.levels.length, 137);
+  assert.strictEqual(catalog.levels.length, 138);
 
   const portalPositions = [
     { index: 6, setIndex: 1, levelIndex: 4, id: 'portal-main-5x5-01', name: '传送初识' },

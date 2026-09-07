@@ -50,6 +50,7 @@ const tests = [
   ['architecture boundaries', require('./architecture-boundaries.test.js')],
   ['game runner', require('./game-runner.test.js')],
   ['ice mechanic and isolated 5x5 trial', require('./ice-trial.test.js')],
+  ['ice mainline teaching, hints and ordinary settlement', require('./ice-mainline.test.js')],
   ['game runner contract', require('./game-runner-contract.test.js')],
   ['run context and completion policies', require('./run-context.test.js')],
   ['progress store', require('./progress-store.test.js')],

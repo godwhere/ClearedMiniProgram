@@ -1,7 +1,8 @@
 'use strict';
 
 // Offline design estimate, not a player-performance model. Only the current
-// mainline ordinary/Portal boards up to 8x8 are supported; ice stays a trial.
+// mainline boards up to 8x8 are supported, including one-cell ice teaching.
+const iceRules = require('../core/mechanics/ice-v1.js');
 const clamp = value => Math.max(0, Math.min(1, value));
 const round = value => Math.round(value * 100) / 100;
 
@@ -9,9 +10,16 @@ function evaluate(level, answer) {
   if (!level || !Number.isInteger(level.Width) || level.Width < 1 || level.Width > 8 ||
       !Number.isInteger(level.Height) || level.Height < 1 || level.Height > 8 ||
       !Array.isArray(level.Lines) || !level.Lines.length || !Array.isArray(answer) ||
-      answer.length !== level.Lines.length || (level.Mechanic && level.Mechanic !== 'portal') ||
-      level.IceCells !== undefined) throw new Error('Difficulty v1 requires a mainline ordinary/Portal answer up to 8x8');
+      answer.length !== level.Lines.length || (level.Mechanic && !['portal', 'ice'].includes(level.Mechanic)) ||
+      (level.IceCells !== undefined && level.Mechanic !== 'ice')) throw new Error('Difficulty v1 requires a mainline ordinary/Portal/ice answer up to 8x8');
   const width = level.Width, area = width * level.Height;
+  const ice = new Set(level.Mechanic === 'ice' ? iceRules.normalize(level,
+    Array.from({ length: area }, (_, cell) => (level.Blocked || []).includes(cell))) : []);
+  // This release rates only the one-cell/two-pass teaching contract. Revisit
+  // mechanic cost and shared-route metrics before authoring multi-ice levels.
+  if (level.Mechanic === 'ice' && (level.IceRulesVersion !== 1 || ice.size !== 1)) {
+    throw new Error('Ice difficulty v1 supports exactly one valid two-pass ice cell');
+  }
   const groups = answer.map(line => Array.isArray(line) ? [line] : line.Segments.map(segment => segment.Cells));
   const endpoints = new Set(level.Lines.flatMap(line => [line.Start, line.End]));
   const doors = new Set((level.Portals || []).flatMap(network => network.Cells || [network.A, network.B]));
@@ -55,7 +63,7 @@ function evaluate(level, answer) {
       // Competing colors on ANY endpoint-legal shortest route, not just the
       // first BFS witness or overlapping bounding boxes. Still answer-relative.
       from.forEach((distance, cell) => {
-        if (distance + to[cell] === from[end] && owner[cell] >= 0 && owner[cell] !== color) {
+        if (!ice.has(cell) && distance + to[cell] === from[end] && owner[cell] >= 0 && owner[cell] !== color) {
           competitors.add(owner[cell]);
         }
       });
@@ -76,14 +84,14 @@ function evaluate(level, answer) {
     path: round(30 * clamp(0.6 * detourRate / 0.45 + 0.4 * bendsPerLine / 5)),
     space: round(25 * clamp(competingColors / 3)),
     readability: round(20 * (1 - easyLines / colors)),
-    mechanic: round(doors.size ? 15 * clamp(0.4 + Math.max(0, doors.size - 2) * 0.25 + competingColors / 15) : 0),
+    mechanic: round(ice.size ? 6 : doors.size ? 15 * clamp(0.4 + Math.max(0, doors.size - 2) * 0.25 + competingColors / 15) : 0),
     colors: round(10 * clamp((colors - 4) / 6))
   };
   const score = round(Object.values(factors).reduce((sum, value) => sum + value, 0));
   // Calibrated design anchors: the original 47/64 multi-region Portal boards
   // occupy the challenge tier. Grades remain provisional until device playtest.
   return { score, grade: 1 + [20, 40, 60, 75].filter(boundary => score >= boundary).length, factors,
-    colors, doors: doors.size, easyLines, lengths, detourRate: round(detourRate),
+    colors, doors: doors.size, iceCells: ice.size, easyLines, lengths, detourRate: round(detourRate),
     bendsPerLine: round(bendsPerLine), competingColors: round(competingColors), lineMetrics };
 }
 
@@ -101,9 +109,9 @@ if (require.main === module) {
       name: level.Name, published: level.Difficulty || null, ...evaluate(level, answer) };
   });
   if (process.argv.includes('--markdown')) {
-    console.log('| 显示号 | 稳定坐标 | 名称 | 设计难度 | 分数 | 色/门 | 起手候选 | 绕行比 | 每线竞争色 |');
+    console.log('| 显示号 | 稳定坐标 | 名称 | 设计难度 | 分数 | 色/门/冰 | 起手候选 | 绕行比 | 每线竞争色 |');
     console.log('| ---: | --- | --- | ---: | ---: | --- | ---: | ---: | ---: |');
-    rows.forEach(row => console.log(`| ${row.number} | ${row.key} | ${row.name} | ${row.published || row.grade} | ${row.score} | ${row.colors}/${row.doors} | ${row.easyLines} | ${row.detourRate} | ${row.competingColors} |`));
+    rows.forEach(row => console.log(`| ${row.number} | ${row.key} | ${row.name} | ${row.published || row.grade} | ${row.score} | ${row.colors}/${row.doors}/${row.iceCells} | ${row.easyLines} | ${row.detourRate} | ${row.competingColors} |`));
   } else {
     console.log(JSON.stringify(rows));
   }

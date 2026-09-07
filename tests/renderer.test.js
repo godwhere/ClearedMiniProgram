@@ -286,13 +286,13 @@ function run() {
   renderer.render({
     scene: 'levels', levelItems: lastPageItems,
     levelPageIndex: 5, levelPageCount: 6,
-    levelRangeStart: 126, levelRangeEnd: 137,
-    totalLevels: 137, pressedId: null
+    levelRangeStart: 126, levelRangeEnd: 138,
+    totalLevels: 138, pressedId: null
   }, Date.now());
-  assert.strictEqual(renderer.hits.filter(hit => hit.id.indexOf('level:') === 0).length, 12);
-  assert.strictEqual(textCalls(platform.context, '126–137 / 137').length, 1);
+  assert.strictEqual(renderer.hits.filter(hit => hit.id.indexOf('level:') === 0).length, 13);
+  assert.strictEqual(textCalls(platform.context, '126–138 / 138').length, 1);
   assert(renderer.hits.some(hit => hit.id === lastPageItems[0].action));
-  assert(renderer.hits.some(hit => hit.id === lastPageItems[11].action));
+  assert(renderer.hits.some(hit => hit.id === lastPageItems[12].action));
   assert(renderer.hits.some(hit => hit.id === 'levels:prev'));
   assert.strictEqual(renderer.hits.some(hit => hit.id === 'levels:next'), false);
 

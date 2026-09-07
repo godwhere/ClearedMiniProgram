@@ -48,13 +48,13 @@ function replay(game, answer) {
 }
 
 function contentAndRating() {
-  const games = catalog.sets[4].Games;
+  const games = catalog.sets[4].Games.slice(0, 105);
   assert.deepStrictEqual(histogram(games), [16, 27, 51, 9, 2]);
   assert.deepStrictEqual(histogram(games.slice(65)), [16, 18, 6, 0, 0]);
   const seen = new Set(games.slice(0, 65).map(canonicalLayout));
   const hints = new HintService(normal);
   games.forEach((game, index) => {
-    assert.strictEqual(game.IceCells, undefined, 'ice must remain outside the mainline');
+    assert.strictEqual(game.IceCells, undefined, 'the original 137 levels must not gain ice');
     const answer = answerFor(game, index);
     const rating = evaluate(game, answer);
     assert.strictEqual(rating.grade, game.Difficulty, `${game.Id || index}: published grade drift`);
@@ -129,8 +129,8 @@ function earlyLevelRating() {
 function sequence() {
   assert.strictEqual(catalog.orderValid, true);
   assert.strictEqual(catalog.orderVersion, 1);
-  assert.strictEqual(catalog.levels.length, 137);
-  assert.strictEqual(new Set(catalog.levels.map(key)).size, 137);
+  assert.strictEqual(catalog.levels.length, 138);
+  assert.strictEqual(new Set(catalog.levels.map(key)).size, 138);
   const canonical = catalog.sets.flatMap((set, setIndex) => set.Games.map((game, levelIndex) => ({ setIndex, levelIndex, game })));
   assert.deepStrictEqual(catalog.levels.slice(0, 32).map(key), canonical.slice(0, 32).map(key));
   catalog.levels.forEach(entry => assert.strictEqual(entry.game, catalog.sets[entry.setIndex].Games[entry.levelIndex]));
@@ -159,8 +159,8 @@ function sequence() {
   }
   // A corrupt packaged order retains every stable entry and advertises fallback.
   const source = fs.readFileSync(require.resolve('../data/catalog-v2.js'), 'utf8');
-  for (const order of [null, {}, { version: 2, eightByLevelIndex: [] }, { version: 1, eightByLevelIndex: new Array(105).fill(0) },
-    { version: 1, eightByLevelIndex: Array.from({ length: 105 }, (_, i) => i === 104 ? 105 : i) }]) {
+  for (const order of [null, {}, { version: 2, eightByLevelIndex: [] }, { version: 1, eightByLevelIndex: new Array(106).fill(0) },
+    { version: 1, eightByLevelIndex: Array.from({ length: 106 }, (_, i) => i === 105 ? 106 : i) }]) {
     const context = { module: { exports: {} }, require: name => name === './level-order.js' ? order : require('../data/' + name.slice(2)) };
     vm.runInNewContext(source, context);
     assert.strictEqual(context.module.exports.orderValid, false);

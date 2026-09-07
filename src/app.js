@@ -1445,7 +1445,7 @@ class ClearedApp {
         levelIndex: activeLevelIndex,
         ordinaryLevelNumber: ordinaryPosition >= 0 ? ordinaryPosition + 1 : null,
         ordinaryLevelCount: catalog.levels.length,
-        beginnerInstruction: trial ? '冰封格需要两次连线\n第一次破冰，第二次消除地板' : ordinaryPosition >= 0 && ordinaryPosition < 5
+        beginnerInstruction: context && context.mechanic.id === 'ice' ? '冰封格需要两次连线\n第一次破冰，第二次消除地板' : ordinaryPosition >= 0 && ordinaryPosition < 5
           ? (ordinaryPosition === 0 ? '连接两个相同的色块或物体' : '别漏掉空白格，全部消除才能通关哦') : null,
         board: boardView && boardView.board,
         mechanic: boardView ? boardView.mechanic : { portal: null },

@@ -126,7 +126,8 @@ class HintService {
     if (!context || (context.outcome && context.outcome !== 'playing')) return null;
     if (context.mechanic && context.mechanic.id === 'ice') {
       return this.iceProvider.findComplete(context,
-        context.levelId === iceTrial.Games[0].Id ? iceTrial.solution : null);
+        context.levelId === iceTrial.Games[0].Id ? iceTrial.solution
+          : this.solutionFor(setIndex, levelIndex, context.levelId));
     }
     if (context.mechanic && context.mechanic.id === 'portal') {
       return this.portalProvider.findComplete(

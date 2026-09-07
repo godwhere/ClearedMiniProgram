@@ -263,12 +263,12 @@ async function run() {
   assert.strictEqual(app.result, null);
   assert.strictEqual(app.clearAnimation, null);
 
-  // The ordinary selector is one continuous 1-137 catalog, paged independently
+  // The ordinary selector is one continuous 1-138 catalog, paged independently
   // from the canonical set/level coordinates used by progress and hints.
   app.scene = 'levels';
   app.levelPageIndex = 0;
   let levelModel = app.buildModel();
-  assert.strictEqual(levelModel.totalLevels, 137);
+  assert.strictEqual(levelModel.totalLevels, 138);
   assert.strictEqual(levelModel.levelPageCount, 6);
   assert.strictEqual(levelModel.levelItems.length, 25);
   assert.strictEqual(levelModel.levelItems[0].displayNumber, 1);
@@ -278,7 +278,7 @@ async function run() {
   assert.deepStrictEqual([0, 1, 2, 3, 4, 5].map(pageIndex => {
     app.levelPageIndex = pageIndex;
     return app.buildModel().levelItems.length;
-  }), [25, 25, 25, 25, 25, 12]);
+  }), [25, 25, 25, 25, 25, 13]);
 
   app.levelPageIndex = 0;
   app.performAction('levels:next');
@@ -295,9 +295,10 @@ async function run() {
   app.levelPageIndex = 5;
   levelModel = app.buildModel();
   assert.strictEqual(levelModel.levelRangeStart, 126);
-  assert.strictEqual(levelModel.levelRangeEnd, 137);
-  assert.strictEqual(levelModel.levelItems.length, 12);
+  assert.strictEqual(levelModel.levelRangeEnd, 138);
+  assert.strictEqual(levelModel.levelItems.length, 13);
   assert.strictEqual(levelModel.levelItems[11].action, 'level:4:9');
+  assert.strictEqual(levelModel.levelItems[12].action, 'level:4:105');
 
   const activeCompletedBeforeRetiredSave = app.ordinaryCompletedCount();
   app.progress.state.completed['1:5'] = true;
@@ -307,8 +308,8 @@ async function run() {
   app.scene = 'home';
   const homeModelWithRetiredSave = app.buildModel();
   assert.strictEqual(homeModelWithRetiredSave.completedCount, activeCompletedBeforeRetiredSave,
-    'retired ordinary progress is preserved but excluded from the active 1-137 count');
-  assert.strictEqual(homeModelWithRetiredSave.totalLevels, 137);
+    'retired ordinary progress is preserved but excluded from the active 1-138 count');
+  assert.strictEqual(homeModelWithRetiredSave.totalLevels, 138);
 
   app.progress.state.lastPlayed = { setIndex: 2, levelIndex: 10 };
   app.performAction('home:levels');
@@ -339,17 +340,17 @@ async function run() {
   assert.strictEqual(app.showHint(), true);
   app.performAction('play:back');
 
-  app.progress.state.completed['4:38'] = true;
+  app.progress.state.completed['4:9'] = true;
   app.levelPageIndex = 5;
-  assert.strictEqual(app.performAction('level:4:9'), undefined);
+  assert.strictEqual(app.performAction('level:4:105'), undefined);
   assert.strictEqual(app.scene, 'play');
   assert.strictEqual(app.setIndex, 4);
-  assert.strictEqual(app.levelIndex, 9);
+  assert.strictEqual(app.levelIndex, 105);
   assert.strictEqual(app.runContext.source.kind, 'catalog');
   assert.strictEqual(app.runContext.progressionScope, 'ordinary');
   const finalOrdinaryModel = app.buildModel();
-  assert.strictEqual(finalOrdinaryModel.ordinaryLevelNumber, 137);
-  assert.strictEqual(finalOrdinaryModel.ordinaryLevelCount, 137);
+  assert.strictEqual(finalOrdinaryModel.ordinaryLevelNumber, 138);
+  assert.strictEqual(finalOrdinaryModel.ordinaryLevelCount, 138);
   assert.strictEqual(finalOrdinaryModel.hasNext, false);
   assert.strictEqual(app.showHint(), true);
   assert.strictEqual(app.hint.source, 'solution');
@@ -358,13 +359,13 @@ async function run() {
   assert.strictEqual(app.levelPageIndex, 5,
     'returning from the last ordinary level restores its selector page');
 
-  app.performAction('level:4:9');
+  app.performAction('level:4:105');
   app.scene = 'result';
   app.result = { outcome: GameRunner.OUTCOME.WON };
   app.performAction('result:next');
   assert.strictEqual(app.scene, 'levels');
   assert.strictEqual(app.levelPageIndex, 5,
-    'the final ordinary result returns to the page containing level 137');
+    'the final ordinary result returns to the page containing level 138');
 
   // A catalog Portal level still settles through the ordinary progress domain
   // after its segmented answer is completed.

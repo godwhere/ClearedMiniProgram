@@ -5,7 +5,7 @@ module.exports = Object.freeze({
   rulesVersion: 1,
 
   // v1 is one removable ice layer on empty floor only. No endpoint ice,
-  // Portal combination, or more-than-two-layer cells in this trial contract.
+  // Portal combination, or more-than-two-layer cells; progression is separate.
   normalize(level, blockedMask) {
     const cells = level.IceCells;
     const total = level.Width * level.Height;

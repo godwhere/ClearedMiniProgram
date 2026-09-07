@@ -24,8 +24,8 @@ function run() {
     'the legacy flat solution table contains exactly 58 non-Portal level solutions');
   assert(solutions.ByLevelId && typeof solutions.ByLevelId === 'object',
     'mixed chapter ordinary solutions must expose a stable-ID table');
-  assert.strictEqual(Object.keys(solutions.ByLevelId).length, 53,
-    'the chapter must publish exactly 53 ID-indexed ordinary solutions');
+  assert.strictEqual(Object.keys(solutions.ByLevelId).length, 54,
+    'the chapter must publish 53 ordinary and one ice ID-indexed solutions');
 
   const ordinaryIds = new Set();
   let ordinaryCount = 0;
@@ -65,8 +65,13 @@ function run() {
           covered.push(cell);
         });
       });
-      assert.strictEqual(covered.length, total, `${set.Name}/${game.Name} does not cover board`);
-      assert.strictEqual(new Set(covered).size, total, `${set.Name}/${game.Name} overlaps paths`);
+      const ice = new Set(game.Mechanic === 'ice' ? game.IceCells : []);
+      assert.strictEqual(covered.length, total + ice.size, `${set.Name}/${game.Name} does not cover all layers`);
+      assert.strictEqual(new Set(covered).size, total, `${set.Name}/${game.Name} misses playable cells`);
+      for (let cell = 0; cell < total; cell++) {
+        assert.strictEqual(covered.filter(value => value === cell).length, ice.has(cell) ? 2 : 1,
+          `${set.Name}/${game.Name}: only ice can be shared, exactly twice`);
+      }
 
       const runner = new GameRunner(game, set.Palette || []);
       paths.forEach((path, lineIndex) => {
@@ -83,8 +88,8 @@ function run() {
         `${set.Name}/${game.Name} official solution must win`);
     });
   });
-  assert.strictEqual(ordinaryCount, 111,
-    'the 137-level catalog must contain 111 ordinary and 26 Portal levels');
+  assert.strictEqual(ordinaryCount, 112,
+    'the 138-level catalog must contain 111 ordinary, one ice and 26 Portal levels');
   assert.deepStrictEqual(Array.from(ordinaryIds).sort(), Object.keys(solutions.ByLevelId).sort(),
     'the ID-indexed ordinary table must not contain stale or Portal-only entries');
 }
