@@ -16,9 +16,12 @@ module.exports = function run() {
   assert.strictEqual(cloudConfigForEnvironment('trial').enabled, true);
   assert.strictEqual(cloudConfigForEnvironment('trial').migrationEnabled, uploadedDevelop.migrationEnabled);
   assert.strictEqual(cloudConfigForEnvironment('trial').testOnly, true);
-  const release = cloudConfigForEnvironment('release');
-  assert.strictEqual(release.enabled, false);
-  assert.strictEqual(release.migrationEnabled, false);
+  const release = cloudConfigForEnvironment('release', () => { throw Error('release must never read local config'); });
+  for (const lane of [release, cloudConfigForEnvironment('trial'), uploadedDevelop]) {
+    for (const flag of ['enabled', 'identityEnabled', 'readEnabled', 'writeEnabled', 'migrationEnabled',
+      'economyEnabled', 'staminaEnabled', 'preferencesEnabled']) assert.strictEqual(lane[flag], true, flag);
+    assert.strictEqual(lane.localBackupEnabled, false, 'public admission does not switch save protocols');
+  }
   assert.strictEqual(release.testOnly, false);
   assert.strictEqual(release.productionOnly, true);
   assert.strictEqual(cloudConfigForEnvironment('unknown').enabled, false);

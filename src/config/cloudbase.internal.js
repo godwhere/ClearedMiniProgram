@@ -1,18 +1,18 @@
 'use strict';
 
-// Checked-in Phase 6 internal preview lane. It is selected by trial, or by an
-// uploaded QR preview reported as develop after the local override is removed.
-// CloudFunctionTransport independently rejects it in release.
+// Review preview lane, including first-time player onboarding. Selected by
+// trial or an uploaded develop preview; rejected by the release runtime.
 module.exports = {
   enabled: true,
   env: 'cloudbase-d9gpluqt21ba89532',
   identityEnabled: true,
   readEnabled: true,
   writeEnabled: true,
-  migrationEnabled: false,
+  migrationEnabled: true,
   economyEnabled: true,
   staminaEnabled: true,
   preferencesEnabled: true,
+  localBackupEnabled: false,
   testOnly: true,
   productionOnly: false
 };

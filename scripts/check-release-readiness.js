@@ -41,6 +41,7 @@ function auditRelease(input) {
     if (release.enabled !== true || release.identityEnabled !== true || release.readEnabled !== true ||
         release.writeEnabled !== true || release.migrationEnabled !== true || release.economyEnabled !== true ||
         release.staminaEnabled !== true || release.preferencesEnabled !== true) failures.push('rollout-release-gates-incomplete');
+    if (release.localBackupEnabled !== false) failures.push('rollout-save-protocol-mismatch');
   } else failures.push('unknown-release-mode');
   return { ready: failures.length === 0, mode, failures };
 }

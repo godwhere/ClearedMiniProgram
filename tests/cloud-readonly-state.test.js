@@ -91,12 +91,21 @@ module.exports = async function run() {
     assert.notStrictEqual(g.app.progressSync.status, 'cloud-readonly'); assert.deepStrictEqual(g.sync.currentScope(), before);
   } finally { g.app.dispose(); }
 
-  for (const version of ['release', 'unknown']) {
+  for (const version of ['unknown']) {
     const h = fixture({ version });
     try { assert.strictEqual((await h.app.resumeOnline()).reason, 'not-configured'); assert.strictEqual(h.calls.length, 0);
       assert.deepStrictEqual(h.native.events, ['frame']); assert(h.app.openLevel(0, 0));
     } finally { h.app.dispose(); }
   }
+  const release = fixture({ version: 'release' });
+  try {
+    const before = business(release);
+    assert.strictEqual((await release.app.resumeOnline()).reason, 'invalid-response',
+      'the public release must reject a response from the test-only fixture environment');
+    assert.deepStrictEqual(release.calls.map(call => call.data.action), ['identity.init']);
+    assert.strictEqual(business(release), before);
+    assert(release.app.openLevel(0, 0));
+  } finally { release.app.dispose(); }
   for (const flag of ['staminaEnabled', 'preferencesEnabled']) {
     const h = fixture({ config: { [flag]: true } });
     try { const result = await h.app.resumeOnline(); assert(result.ok); assert.strictEqual(result.status, 'cloud-readonly');

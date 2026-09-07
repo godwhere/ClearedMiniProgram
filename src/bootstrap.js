@@ -44,13 +44,13 @@ const rewardConfig = require('./config/rewards.js');
 
 function cloudConfigForEnvironment(environmentVersion, loadLocalConfig) {
   if (environmentVersion === 'release') {
-    // A formal package never reads the ignored test override. The checked-in
-    // release lane remains disabled until Stage 6 production gates are met.
+    // A formal package uses only the checked-in production lane, never the
+    // ignored developer override or the preview runtime boundary.
     return Object.assign({}, cloudbaseConfig, cloudbaseReleaseConfig);
   }
   if (environmentVersion === 'trial') {
     // Uploaded previews cannot contain the ignored developer override. The
-    // checked-in internal lane is trial-only and remains server allowlisted.
+    // checked-in internal lane stays trial-only; server admission is separate.
     return Object.assign({}, cloudbaseConfig, cloudbaseInternalConfig);
   }
   if (environmentVersion === 'develop') {

@@ -1,18 +1,18 @@
 'use strict';
 
-// Checked-in production lane. The existing CloudBase environment was
-// explicitly approved as the game's single environment; cloud gates remain
-// closed until the internal rollout is deployed and its final device checks pass.
+// Authorized full-player review candidate, using the existing cloud settlement
+// protocol. Only release reads this lane; local-backup is a separate switch.
 module.exports = {
-  enabled: false,
+  enabled: true,
   env: 'cloudbase-d9gpluqt21ba89532',
-  identityEnabled: false,
-  readEnabled: false,
-  writeEnabled: false,
-  migrationEnabled: false,
-  economyEnabled: false,
-  staminaEnabled: false,
-  preferencesEnabled: false,
+  identityEnabled: true,
+  readEnabled: true,
+  writeEnabled: true,
+  migrationEnabled: true,
+  economyEnabled: true,
+  staminaEnabled: true,
+  preferencesEnabled: true,
+  localBackupEnabled: false,
   testOnly: false,
   productionOnly: true
 };

@@ -26,7 +26,7 @@ function run() {
   assert.strictEqual(cloudbaseInternal.productionOnly, false);
   assert.strictEqual(typeof cloudbaseInternal.migrationEnabled, 'boolean');
   assert.strictEqual(cloudbaseInternal.economyEnabled, true);
-  assert.strictEqual(cloudbaseRelease.enabled, false);
+  assert.strictEqual(cloudbaseRelease.enabled, true);
   assert.strictEqual(cloudbaseRelease.env, 'cloudbase-d9gpluqt21ba89532');
   assert.strictEqual(cloudbaseRelease.testOnly, false);
   assert.strictEqual(cloudbaseRelease.productionOnly, true);
