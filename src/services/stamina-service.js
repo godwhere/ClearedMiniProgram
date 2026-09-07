@@ -235,6 +235,14 @@ class StaminaService {
     };
   }
 
+  // Navigation query only: never settles time, saves, or spends stamina.
+  isPermanentlyUnlocked(levelKey) {
+    if (!validLevelKey(levelKey)) return false;
+    if (this._state) return this._state.unlockedLevels.includes(levelKey);
+    const saved = this.exportAuthoritativeSnapshot();
+    return saved.ok && saved.snapshot.unlockedLevels.includes(levelKey);
+  }
+
   snapshot(now) {
     const timestamp = this.time(now);
     if (this.settle(timestamp)) this._pending = !this.persist(this._state);

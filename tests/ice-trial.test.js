@@ -122,8 +122,8 @@ function appFlow(width, height, effect) {
   const render = () => { texts.length = 0; app.renderer.render(app.buildModel(), Date.now() + 1000); };
   render();
   const entrance = app.renderer.hits.find(hit => hit.id === 'home:iceTrial');
-  assert(entrance && entrance.enabled !== false);
-  assert(entrance.rect.y >= app.platform.metrics.safeTop);
+  assert.strictEqual(entrance, undefined, 'hidden trial entry has no home touch target');
+  assert(!texts.some(value => value.includes('冰封试玩')), 'home does not draw a trial label');
   app.performAction('home:iceTrial');
   assert.strictEqual(app.scene, 'play');
   render();

@@ -24,7 +24,7 @@ function run() {
   assert.strictEqual(/require\([^)]*\.json/.test(runtimeCatalog), false);
   const catalog = require(path.join(dataDir, 'catalog-v2.js'));
   assert.strictEqual(catalog.sets.length, 5);
-  assert.strictEqual(catalog.levels.length, 97);
+  assert.strictEqual(catalog.levels.length, 137);
 
   const portalPositions = [
     { index: 6, setIndex: 1, levelIndex: 4, id: 'portal-main-5x5-01', name: '传送初识' },
@@ -34,7 +34,8 @@ function run() {
   ];
 
   portalPositions.forEach(pos => {
-    const entry = catalog.levels[pos.index];
+    const entry = pos.setIndex === 4 ? catalog.levels.find(level =>
+      level.setIndex === pos.setIndex && level.levelIndex === pos.levelIndex) : catalog.levels[pos.index];
     assert(entry, `level position ${pos.index} must exist in catalog`);
     assert.strictEqual(entry.setIndex, pos.setIndex);
     assert.strictEqual(entry.levelIndex, pos.levelIndex);

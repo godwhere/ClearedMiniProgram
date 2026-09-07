@@ -214,10 +214,10 @@ module.exports = solveWithoutPortals;
 if (require.main === module) {
   const catalog = require('../data/catalog-v2.js');
   const target = process.argv[2];
-  const entries = catalog.levels.map((entry, index) => ({ number: index + 1, game: entry.game }))
+  const entries = catalog.levels.map((entry, index) => ({ number: index + 1, setIndex: entry.setIndex, game: entry.game }))
     .filter(entry => target
       ? String(entry.number) === target || entry.game.Id === target
-      : entry.number >= 63 && entry.game.Mechanic === 'portal');
+      : entry.setIndex === 4 && entry.game.Mechanic === 'portal');
   if (!entries.length) {
     console.error('No matching level. Pass a display number or stable level ID.');
     process.exitCode = 1;

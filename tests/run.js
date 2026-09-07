@@ -10,6 +10,7 @@ const tests = [
   ['cloud economy purchase retry', require('./cloud-economy-purchase.test.js')],
   ['cloud new-device core restore', require('./cloud-new-device-restore.test.js')],
   ['cloud stage 5 stamina and preferences', require('./cloud-stage5-client.test.js')],
+  ['cloud local-first checkpoint sync and request counts', require('./cloud-checkpoint-sync.test.js')],
   ['cloud rollout admission and first save', require('./cloud-rollout.test.js')],
   ['stage 4 private client backup', require('./stage4-client-backup.test.js')],
   ['stage 4 synthetic legacy save', require('./stage4-synthetic-save.test.js')],
@@ -81,7 +82,8 @@ const tests = [
   ['renderer portals', require('./renderer-portal.test.js')],
   ['gameplay mechanics', require('./mechanics.test.js')],
   ['portal publishing gate', require('./portal-publishing.test.js')],
-  ['mixed 8x8 chapter', require('./mixed-chapter.test.js')]
+  ['mixed 8x8 chapter', require('./mixed-chapter.test.js')],
+  ['8x8 design difficulty, recovery pack and stable navigation', require('./level-difficulty.test.js')]
 ];
 
 async function main() {

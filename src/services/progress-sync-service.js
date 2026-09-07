@@ -3,6 +3,12 @@
 const ApiClient = require('./api-client.js');
 const SyncStore = require('./sync-store.js');
 
+// Event-driven checkpoints, not polling: gameplay checks the age on its next
+// durable change. Keep the existing 200-operation outbox and 50-operation API.
+const CHECKPOINT_GAP_MS = 60000;
+const DIRTY_AGE_MS = 180000;
+const REFRESH_AGE_MS = 300000;
+
 class ProgressSyncService {
   constructor(api, progress, syncStore, auth, config, behavior, services) {
     this.api = api;
@@ -19,11 +25,68 @@ class ProgressSyncService {
     // Result-screen feedback is process-local UI state. Keep observers out of
     // SyncStore while allowing a later retry to settle the original screen.
     this.operationObservers = new Map();
+    this.checkpointFlight = null;
+    this.checkpointSchedule = null;
   }
 
   state() {
     return { status: this.status, pending: this.store.state.pendingOperations.length,
       lastSyncAt: this.store.state.lastSyncAt, lastError: this.store.state.lastError };
+  }
+
+  schedule() {
+    if (!this.checkpointSchedule || !this.store.matches(this.checkpointSchedule.scope)) {
+      this.checkpointSchedule = { scope: this.store.context(), dirtySince: null,
+        lastAttemptAt: null, lastSuccessAt: null, failures: 0 };
+    }
+    return this.checkpointSchedule;
+  }
+
+  atCheckpoint(reason, sync) {
+    const run = sync || (() => this.flush());
+    if (this.auth.mode !== 'cloud') return run();
+    if (this.checkpointFlight) return this.checkpointFlight;
+    if (this.inFlight) return this.inFlight;
+    const schedule = this.schedule();
+    const now = this.services.now ? this.services.now() : Date.now();
+    const pending = this.store.currentScope().pendingOperations;
+    if (pending.length && schedule.dirtySince === null) schedule.dirtySince = now;
+    if (!pending.length) schedule.dirtySince = null;
+    const elapsed = timestamp => timestamp === null || now < timestamp ? Infinity : now - timestamp;
+    const skipped = () => Promise.resolve({ ok: true, status: this.status, skipped: true, pending: pending.length });
+    if (reason !== 'manual') {
+      const gap = Math.min(REFRESH_AGE_MS, CHECKPOINT_GAP_MS * Math.pow(2, Math.max(0, schedule.failures - 1)));
+      if (elapsed(schedule.lastAttemptAt) < gap) return skipped();
+      if (reason === 'progress') {
+        const clears = pending.filter(item => ['MAIN_LEVEL_COMPLETED', 'DAILY_LEVEL_COMPLETED'].includes(item.type)).length;
+        if (!pending.length || (clears < 5 && pending.length < 40 && elapsed(schedule.dirtySince) < DIRTY_AGE_MS)) return skipped();
+      } else if (!pending.length && (reason === 'hide' || elapsed(schedule.lastSuccessAt) < REFRESH_AGE_MS)) {
+        return skipped();
+      }
+    }
+    schedule.lastAttemptAt = now;
+    this.checkpointFlight = Promise.resolve().then(run).then(result => {
+      // Identity/bootstrap may intentionally adopt a new scope. Late failures
+      // must never carry one account's cooldown into another account.
+      if (this.checkpointSchedule === schedule && result && result.reason !== 'account-mismatch') {
+        schedule.scope = this.store.context();
+        if (result.ok && result.status !== 'cloud-pending' && result.status !== 'cloud-paused') {
+          schedule.lastSuccessAt = this.services.now ? this.services.now() : Date.now();
+          schedule.failures = 0;
+        } else schedule.failures = Math.min(4, schedule.failures + 1);
+        if (!this.store.currentScope().pendingOperations.length) schedule.dirtySince = null;
+      }
+      return result;
+    }).catch(() => {
+      if (this.store.matches(schedule.scope)) schedule.failures = Math.min(4, schedule.failures + 1);
+      return { ok: false, reason: 'network' };
+    }).finally(() => { this.checkpointFlight = null; });
+    return this.checkpointFlight;
+  }
+
+  localChanged() {
+    if (!this.inFlight) this.status = 'cloud-pending';
+    this.atCheckpoint('progress').catch(function () {});
   }
 
   observeOperation(operationId, observer) {
@@ -57,7 +120,7 @@ class ProgressSyncService {
         payload: { levelKey, elapsedMs: Math.max(1, Math.round(input.elapsedMs)) } });
       if (queued.ok) {
         this.observeOperation(queued.operationId, observer);
-        this.flush().catch(function () {});
+        this.localChanged();
       }
       return queued.ok;
     }
@@ -74,7 +137,7 @@ class ProgressSyncService {
     const queued = this.store.enqueueOperation({ domain: 'progress', type: 'PROGRESS_LAST_PLAYED',
       occurredAtClient: Math.max(0, Math.round(Number(input.occurredAtClient) || Date.now())),
       payload: { setIndex: input.setIndex, levelIndex: input.levelIndex } });
-    if (queued.ok) this.flush().catch(function () {});
+    if (queued.ok) this.localChanged();
     return queued.ok;
   }
 
@@ -83,7 +146,7 @@ class ProgressSyncService {
     const queued = this.store.enqueueOperation({ domain: 'daily', type: 'DAILY_ENTRY_RECORDED', occurredAtClient: Date.now(),
       payload: { dateKey: input.dateKey, dayId: input.dayId, entryKey: input.entryKey,
         entryLimit: input.entryLimit, levelIds: input.levelIds } });
-    if (queued.ok) this.flush().catch(function () {});
+    if (queued.ok) this.localChanged();
     return queued.ok;
   }
 
@@ -93,7 +156,7 @@ class ProgressSyncService {
       occurredAtClient: input.completedAtClient, payload: input });
     if (queued.ok) {
       this.observeOperation(queued.operationId, observer);
-      this.flush().catch(function () {});
+      this.localChanged();
     }
     return queued.ok;
   }
@@ -102,7 +165,7 @@ class ProgressSyncService {
     if (rewardId !== 'theme:festival' || (this.store.authorityMode && this.store.authorityMode('entitlements') !== 'cloud-authoritative')) return false;
     const queued = this.store.enqueueOperation({ domain: 'entitlements', type: 'CLIENT_POLICY_SHARE_GRANTED',
       occurredAtClient: Date.now(), payload: { rewardId } });
-    if (queued.ok) this.flush().catch(function () {});
+    if (queued.ok) this.localChanged();
     return queued.ok;
   }
 
@@ -126,7 +189,7 @@ class ProgressSyncService {
       payload: { levelKey } });
     if (!queued.ok) return { ok: false, reason: queued.reason, snapshot: stamina.snapshot(now) };
     const applied = stamina.applyPendingUnlock(levelKey, occurredAtClient);
-    if (applied.ok) this.flush().catch(function () {});
+    if (applied.ok) this.localChanged();
     return applied;
   }
 
@@ -149,7 +212,7 @@ class ProgressSyncService {
       payload: { levelKey, elapsedMs: Math.round(elapsedMs) } });
     if (!queued.ok) return { ok: false, reason: queued.reason, refunded: 0, snapshot: stamina.snapshot(now) };
     const applied = stamina.applyPendingRefund(levelKey, Math.round(elapsedMs), occurredAtClient);
-    if (applied.ok) this.flush().catch(function () {});
+    if (applied.ok) this.localChanged();
     return applied;
   }
 
@@ -157,7 +220,7 @@ class ProgressSyncService {
     if (this.store.authorityMode('preferences') !== 'cloud-authoritative' || !this.stage5Enabled('preferences')) return false;
     const queued = this.store.enqueueOperation({ domain: 'preferences', type: 'PREFERENCE_FIELD_SET',
       occurredAtClient: Date.now(), payload: { field, value } });
-    if (queued.ok) this.flush().catch(function () {});
+    if (queued.ok) this.localChanged();
     return queued.ok;
   }
 
@@ -350,7 +413,7 @@ class ProgressSyncService {
       const stage5 = this.ensureStage5Bootstrap(read.data.data.deferredDomains);
       if (!stage5.ok) return this.cloudFailed(stage5.reason, current, this.store.context(),
         this.accountGuard && this.accountGuard.capture());
-      return this.pushCloud(current, this.store.context(), this.accountGuard && this.accountGuard.capture());
+      return this.drainCloud(current, this.store.context(), this.accountGuard && this.accountGuard.capture());
     }
     if (this.auth.readOnlyPhase || this.api.transport.config.migrationEnabled !== true) {
       const summary = { serverTimeMs: read.data.serverTimeMs, serverDateKey: read.data.serverDateKey,
@@ -524,9 +587,21 @@ class ProgressSyncService {
     const stage5 = this.ensureStage5Bootstrap(value.deferredDomains);
     if (!stage5.ok) return this.cloudFailed(stage5.reason, current, this.store.context(),
       this.accountGuard && this.accountGuard.capture());
-    const pushed = await this.pushCloud(current, this.store.context(), this.accountGuard && this.accountGuard.capture());
+    const pushed = await this.drainCloud(current, this.store.context(), this.accountGuard && this.accountGuard.capture());
     return Object.assign({}, pushed, { migrated: true, role: value.role,
       conflicts: value.conflicts.slice(), localSnapshotPreserved: true });
+  }
+
+  async drainCloud(current, scope, account) {
+    // At most four batches drain the bounded outbox without repeating state.read.
+    // Stop on partial/retryable results; a checkpoint must not become a retry loop.
+    let result;
+    for (let batch = 0; batch < 4; batch++) {
+      result = await this.pushCloud(current, scope, account);
+      if (!result.ok || !result.pending || !result.results ||
+          !result.results.length || result.results.some(item => item.status === 'RETRYABLE')) break;
+    }
+    return result;
   }
 
   async pushCloud(current, scope, account) {

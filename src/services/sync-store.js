@@ -465,7 +465,14 @@ class SyncStore {
       occurredAtClient: input.occurredAtClient, ownerIdAtCreation: token.ownerId, bindingEpochAtCreation: token.bindingEpoch };
     if (token.environmentId !== null) candidateOperation.environmentIdAtCreation = token.environmentId;
     if (!operation(candidateOperation, token.ownerId, token.bindingEpoch, token.environmentId)) return { ok: false, reason: 'invalid-operation' };
-    if (this.scopeFor(token.ownerId, token.environmentId).pendingOperations.length >= MAX_OPERATIONS) {
+    const pending = this.scopeFor(token.ownerId, token.environmentId).pendingOperations;
+    const superseded = new Set(pending.filter(item => !this.inFlightOperationIds.has(item.operationId) && (
+      (input.domain === 'progress' && input.type === 'PROGRESS_LAST_PLAYED' &&
+        item.domain === 'progress' && item.type === input.type) ||
+      (input.domain === 'preferences' && input.type === 'PREFERENCE_FIELD_SET' &&
+        item.domain === 'preferences' && item.type === input.type && item.payload.field === payload.field)
+    )).map(item => item.operationId));
+    if (pending.length - superseded.size >= MAX_OPERATIONS) {
       this.updateScope({ snapshotRequired: true }, token, undefined, local);
       return { ok: false, reason: 'pending-limit' };
     }
@@ -474,13 +481,9 @@ class SyncStore {
     candidateOperation.operationId = id;
     const candidate = clone(this.state);
     const target = candidate.scopes[scopeKey(token.ownerId, token.environmentId)];
-    if (candidateOperation.domain === 'progress' && candidateOperation.type === 'PROGRESS_LAST_PLAYED') {
-      // Coalesce only unsent local intent and keep the newly allocated ID.
-      // An older in-flight ID may still be ACKed safely by server-side LWW.
-      target.pendingOperations = target.pendingOperations.filter(item =>
-        item.domain !== 'progress' || item.type !== 'PROGRESS_LAST_PLAYED' ||
-          this.inFlightOperationIds.has(item.operationId));
-    }
+    // Position and same-field preferences retain only the latest local intent.
+    // Never replace in-flight IDs or merge completion/reward/stamina events.
+    target.pendingOperations = target.pendingOperations.filter(item => !superseded.has(item.operationId));
     target.pendingOperations.push(candidateOperation);
     if (!this.commit(candidate)) { this.updateScope({ snapshotRequired: true }, token, undefined, local); return { ok: false, reason: 'persist-failed' }; }
     return { ok: true, operationId: id };

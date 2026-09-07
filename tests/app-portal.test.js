@@ -332,7 +332,8 @@ function run() {
   assert.strictEqual(levelItemsPage1[6].displayNumber, 32);
   assert.strictEqual(levelItemsPage1[6].mechanicId, 'portal', 'Level 32 must expose portal mechanicId');
   assert.strictEqual(levelItemsPage1[21].displayNumber, 47);
-  assert.strictEqual(levelItemsPage1[21].mechanicId, 'portal', 'Level 47 must expose portal mechanicId');
+  assert.strictEqual(levelItemsPage1[21].mechanicId,
+    catalog.levels[46].game.Mechanic || null, 'the display slot must expose its reordered mechanic');
   assert.strictEqual(levelItemsPage1[0].mechanicId, null);
 }
 

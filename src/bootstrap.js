@@ -147,7 +147,7 @@ function start() {
   share.captureEntry(platform.getLaunchOptions());
   // Local boot is synchronous. Online work is always scheduled afterwards.
   behavior.track('app_launch', { scene: 'home' });
-  Promise.resolve().then(() => app.resumeOnline()).then(() => behavior.flush('launch')).catch(function () {});
+  Promise.resolve().then(() => app.resumeOnline('launch')).then(() => behavior.flush('launch')).catch(function () {});
   return app;
 }
 

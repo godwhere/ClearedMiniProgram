@@ -229,23 +229,22 @@ function run() {
   assert(renderer.hits.some(hit => hit.id === 'levels:next'));
   assert.strictEqual(renderer.hits.some(hit => hit.id === 'levels:prev'), false);
 
-  const lastPageItems = catalog.levels.slice(75).map((entry, index) => ({
+  const lastPageItems = catalog.levels.slice(125).map((entry, index) => ({
     action: `level:${entry.setIndex}:${entry.levelIndex}`,
-    displayNumber: 76 + index,
+    displayNumber: 126 + index,
     completed: false,
     unlocked: true
   }));
   renderer.render({
     scene: 'levels', levelItems: lastPageItems,
-    levelPageIndex: 3, levelPageCount: 4,
-    levelRangeStart: 76, levelRangeEnd: 97,
-    totalLevels: 97, pressedId: null
+    levelPageIndex: 5, levelPageCount: 6,
+    levelRangeStart: 126, levelRangeEnd: 137,
+    totalLevels: 137, pressedId: null
   }, Date.now());
-  assert.strictEqual(renderer.hits.filter(hit => hit.id.indexOf('level:') === 0).length, 22);
-  assert.strictEqual(textCalls(platform.context, '76–97 / 97').length, 1);
-  assert(renderer.hits.some(hit => hit.id === 'level:4:43'));
-  assert(renderer.hits.some(hit => hit.id === 'level:4:59'));
-  assert(renderer.hits.some(hit => hit.id === 'level:4:64'));
+  assert.strictEqual(renderer.hits.filter(hit => hit.id.indexOf('level:') === 0).length, 12);
+  assert.strictEqual(textCalls(platform.context, '126–137 / 137').length, 1);
+  assert(renderer.hits.some(hit => hit.id === lastPageItems[0].action));
+  assert(renderer.hits.some(hit => hit.id === lastPageItems[11].action));
   assert(renderer.hits.some(hit => hit.id === 'levels:prev'));
   assert.strictEqual(renderer.hits.some(hit => hit.id === 'levels:next'), false);
 

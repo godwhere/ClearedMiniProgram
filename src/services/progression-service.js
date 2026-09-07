@@ -1,5 +1,5 @@
 class ProgressionService {
-  constructor(progressStore, sets, config) {
+  constructor(progressStore, sets, config, navigation) {
     this.progressStore = progressStore;
     this.sets = sets || [];
     this.config = Object.assign({ unlockAcrossSets: true }, config || {});
@@ -9,12 +9,25 @@ class ProgressionService {
         this.levels.push({ setIndex, levelIndex });
       });
     });
+    const options = navigation || {};
+    const order = options.levels;
+    const known = new Set(this.levels.map(level => `${level.setIndex}:${level.levelIndex}`));
+    if (Array.isArray(order) && order.length === known.size &&
+        new Set(order.map(level => level && `${level.setIndex}:${level.levelIndex}`)).size === known.size &&
+        order.every(level => level && Number.isInteger(level.setIndex) && Number.isInteger(level.levelIndex) &&
+          known.has(`${level.setIndex}:${level.levelIndex}`))) {
+      this.levels = order.map(level => ({ setIndex: level.setIndex, levelIndex: level.levelIndex }));
+    }
+    this.isPermanentlyUnlocked = typeof options.isPermanentlyUnlocked === 'function'
+      ? options.isPermanentlyUnlocked : () => false;
   }
 
   isUnlocked(setIndex, levelIndex) {
     const set = this.sets[setIndex];
     if (!set || !(set.Games || [])[levelIndex]) return false;
     if (this.progressStore.isCompleted(setIndex, levelIndex)) return true;
+    // A reordered prerequisite must never revoke an already paid entrance.
+    if (this.isPermanentlyUnlocked(setIndex, levelIndex)) return true;
 
     // Bootstrap supplies this transient flag only for the WeChat Developer
     // Tools simulator. It is never persisted and therefore cannot change
@@ -48,6 +61,20 @@ class ProgressionService {
     return position >= 0 && position + 1 < this.levels.length
       ? Object.assign({}, this.levels[position + 1])
       : null;
+  }
+
+  resumeTarget(lastPlayed) {
+    const lastIndex = lastPlayed ? this.levels.findIndex(level =>
+      level.setIndex === lastPlayed.setIndex && level.levelIndex === lastPlayed.levelIndex) : -1;
+    if (lastIndex >= 0 && !this.progressStore.isCompleted(lastPlayed.setIndex, lastPlayed.levelIndex) &&
+        this.isUnlocked(lastPlayed.setIndex, lastPlayed.levelIndex)) return Object.assign({}, this.levels[lastIndex]);
+    for (let offset = 1; offset <= this.levels.length; offset += 1) {
+      const index = lastIndex >= 0 ? (lastIndex + offset) % this.levels.length : offset - 1;
+      const level = this.levels[index];
+      if (!this.progressStore.isCompleted(level.setIndex, level.levelIndex) &&
+          this.isUnlocked(level.setIndex, level.levelIndex)) return Object.assign({}, level);
+    }
+    return Object.assign({}, this.levels[lastIndex >= 0 ? lastIndex : 0] || { setIndex: 0, levelIndex: 0 });
   }
 }
 

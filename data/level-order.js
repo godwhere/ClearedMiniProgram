@@ -1,0 +1,8 @@
+'use strict';
+
+// Display/play order only. Never reorder Games or use these positions as save keys.
+// First 32 small-board levels retain canonical order; every 8x8 slot appears once.
+module.exports = Object.freeze({
+  version: 1,
+  eightByLevelIndex: Object.freeze([73,78,67,57,22,23,5,104,20,18,79,0,87,56,94,83,19,69,45,48,90,13,101,25,62,66,95,82,15,97,16,42,77,93,49,12,58,102,53,26,75,44,81,50,63,92,3,68,98,96,89,2,100,47,30,76,11,52,17,29,41,28,74,21,32,84,10,99,27,54,65,34,55,60,61,91,36,71,51,40,46,35,103,8,31,80,6,88,7,64,86,1,70,39,33,85,43,24,4,14,72,37,59,38,9])
+});

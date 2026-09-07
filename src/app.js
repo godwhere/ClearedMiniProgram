@@ -246,7 +246,12 @@ class ClearedApp {
     this.progression = new ProgressionService(
       this.progress,
       catalog.sets,
-      opts.progressionConfig || progressionConfig
+      opts.progressionConfig || progressionConfig,
+      {
+        levels: catalog.levels,
+        isPermanentlyUnlocked: (setIndex, levelIndex) => !!(this.stamina &&
+          this.stamina.isPermanentlyUnlocked && this.stamina.isPermanentlyUnlocked(`${setIndex}:${levelIndex}`))
+      }
     );
     this.ads = opts.ads || new AdsService(platform, opts.adConfig || adConfig);
     this.hintRequest = null;
@@ -1326,6 +1331,8 @@ class ClearedApp {
           return {
             action: `level:${entry.setIndex}:${entry.levelIndex}`,
             displayNumber: pageStart + offset + 1,
+            difficulty: Number.isInteger(game.Difficulty) && game.Difficulty >= 1 && game.Difficulty <= 5
+              ? game.Difficulty : null,
             setIndex: entry.setIndex,
             levelIndex: entry.levelIndex,
             completed: this.progress.isCompleted(entry.setIndex, entry.levelIndex),
@@ -2132,7 +2139,7 @@ class ClearedApp {
     } else if (action === 'home:iceTrial' && this.scene === 'home') {
       this.openIceTrial();
     } else if (action === 'home:start') {
-      const target = this.progress.resumeTarget(catalog.sets);
+      const target = this.progression.resumeTarget(this.progress.state.lastPlayed);
       this.openLevel(target.setIndex, target.levelIndex);
     } else if (action === 'home:levels') {
       const last = this.progress.state.lastPlayed;
@@ -2327,7 +2334,10 @@ class ClearedApp {
     if (previousScene !== this.scene) {
       ++this.skinLoadRequestId;
       this.pendingSkinId = null;
-      if (this.scene === 'home') this.recoverRewardUnlocks();
+      if (this.scene === 'home') {
+        this.recoverRewardUnlocks();
+        if (this.auth && this.auth.mode === 'cloud') this.resumeOnline('home');
+      }
       this.homeStaminaExpanded = false;
       this.clearHintRequest();
       if (this.share) this.share.prepareContext(this.shareContext());
@@ -2345,6 +2355,7 @@ class ClearedApp {
     this.pressedId = null;
     this.boardInput.setRunner(null);
     this.mountAccountProfile();
+    if (this.auth && this.auth.mode === 'cloud') this.resumeOnline('account');
     if (this.profile) {
       const generation = this.accountSceneGeneration;
       const account = this.captureAccountContext();
@@ -2947,9 +2958,18 @@ class ClearedApp {
     let task;
     if (status.conditionType === 'currency') {
       const mode = this.authorityMode(this.rewardUnlocks, 'economy');
-      task = mode === 'legacy-local' ? this.rewardUnlocks.purchase(rewardId)
-        : mode === 'cloud-authoritative' && this.economy ? this.economy.purchase(rewardId)
-          : { ok: false, reason: mode, newRewards: [] };
+      if (mode === 'cloud-authoritative' && this.economy) {
+        const pendingRewards = () => this.syncStore && this.syncStore.currentScope().pendingOperations.some(item =>
+          ['MAIN_LEVEL_COMPLETED', 'DAILY_LEVEL_COMPLETED'].includes(item.type));
+        // A purchase is an explicit checkpoint: settle deferred earnings before
+        // asking the existing wallet to spend them. Empty queues add no read.
+        task = pendingRewards() && this.progressSync ? this.progressSync.flush().then(result => {
+          if (!this.isCurrentAccount(account)) return { ok: false, reason: 'account-mismatch', newRewards: [] };
+          return result.ok && !pendingRewards() ? this.economy.purchase(rewardId)
+            : { ok: false, reason: 'network-required', newRewards: [] };
+        }) : this.economy.purchase(rewardId);
+      } else task = mode === 'legacy-local' ? this.rewardUnlocks.purchase(rewardId)
+        : { ok: false, reason: mode, newRewards: [] };
     }
     else if (this.engagement && this.engagement.requestRewardUnlock) {
       task = this.engagement.requestRewardUnlock({ rewardId, scene: this.scene });
@@ -3591,17 +3611,20 @@ class ClearedApp {
     }
     this.audio.pauseAll();
     this.progress.save();
-    if (this.progressSync) this.progressSync.flush().catch(function () {});
+    if (this.progressSync) {
+      const sync = this.progressSync.atCheckpoint ? this.progressSync.atCheckpoint('hide') : this.progressSync.flush();
+      sync.catch(function () {});
+    }
     if (this.behavior) this.behavior.flush('hide').catch(function () {});
   }
 
-  resumeOnline() {
+  resumeOnline(reason) {
     if (!this.auth) return Promise.resolve({ ok: false, reason: 'not-configured' });
     if (this.auth.mode === 'cloud') {
       // Identity/read-only diagnostics never enter legacy HTTP synchronization,
       // attribution, profile refresh, reward recovery or authoritative apply.
       let account = this.captureAccountContext();
-      return this.auth.ensureSession({ force: true }).then(result => {
+      const run = () => this.auth.ensureSession({ force: !reason || reason === 'launch' || reason === 'show' }).then(result => {
         if (this.disposed || !result.ok) return result;
         account = this.captureAccountContext();
         if (!this.isCurrentAccount(account)) return { ok: false, reason: 'account-mismatch' };
@@ -3625,6 +3648,8 @@ class ClearedApp {
         if (this.isCurrentAccount(account)) { this.accountMessage = this.cloudAccountMessage(result); this.invalidate(); }
         return result;
       });
+      return this.progressSync && this.progressSync.atCheckpoint
+        ? this.progressSync.atCheckpoint(reason || 'manual', run) : run();
     }
     let account = this.captureAccountContext();
     const stale = () => ({ ok: false, reason: 'account-mismatch' });
@@ -3673,7 +3698,7 @@ class ClearedApp {
     this.invalidate();
     this.startLoop();
     if (this.scene === 'account') this.mountAccountProfile();
-    this.resumeOnline();
+    this.resumeOnline('show');
     if (this.behavior) this.behavior.flush('show').catch(function () {});
   }
 

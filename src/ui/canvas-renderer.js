@@ -838,7 +838,7 @@ class CanvasRenderer {
     // the logo upward (and only then scale it down) so its caption
     // never collides with the button stack.
     let logoSize = Math.min(width * 0.58, height * 0.32, 260);
-    const logoBottomLimit = firstY - 102;
+    const logoBottomLimit = firstY - 18;
     const usableTop = safeTop + 12;
     let logoY = safeTop + (safeBottom - safeTop) * 0.38;
     const minLogoY = usableTop + logoSize / 2;
@@ -873,8 +873,6 @@ class CanvasRenderer {
     // from safeBottom so it remains above gesture areas on devices with a
     // home indicator.
     const buttonX = (width - buttonWidth) / 2;
-    this.button('home:iceTrial', { x: buttonX, y: firstY - 82, w: buttonWidth, h: 44 },
-      '冰封试玩 · 5×5', { fontSize: 17 }, model.pressedId);
     const columnWidth = (buttonWidth - buttonGap) / 2;
     const dailyEntryKnown = model && (model.dailyDebugUnlimited === true ||
       (model.dailyEntriesRemaining !== undefined && model.dailyEntryLimit !== undefined));
@@ -1892,6 +1890,16 @@ class CanvasRenderer {
         weight: 300,
         alpha: unlocked ? 1 : 0.36
       });
+      if (Number.isInteger(item.difficulty) && item.difficulty >= 1 && item.difficulty <= 5) {
+        ctx.save();
+        ctx.fillStyle = skin.colors.text;
+        const barWidth = Math.min(2.5, cell * 0.05);
+        for (let grade = 1; grade <= 5; grade += 1) {
+          ctx.globalAlpha = (grade <= item.difficulty ? 0.85 : 0.18) * (unlocked ? 1 : 0.5);
+          ctx.fillRect(rect.x + 5 + (grade - 1) * (barWidth + 1.5), rect.y + 3, barWidth, 2);
+        }
+        ctx.restore();
+      }
       if (hasBestTime) {
         this.text(formatTime(item.bestMs), rect.x + rect.w / 2, rect.y + rect.h * 0.73,
           clamp(cell * 0.2, 10, 14), { alpha: 0.82, maxWidth: Math.max(1, rect.w - 10) });
@@ -1911,7 +1919,7 @@ class CanvasRenderer {
     const controlY = safeBottom - controlsHeight + 8;
     this.iconButton('levels:prev', { x: width / 2 - 92, y: controlY, w: 52, h: 44 }, 'back', pageIndex > 0, model.pressedId);
     this.iconButton('levels:next', { x: width / 2 + 40, y: controlY, w: 52, h: 44 }, 'next', pageIndex < pageCount - 1, model.pressedId);
-    this.text('左右滑动切换关卡', width / 2, controlY + 50, 11, { alpha: 0.42 });
+    this.text('左右滑动切换关卡 · 难度 1–5 格', width / 2, controlY + 50, 11, { alpha: 0.42 });
   }
 
   fallbackBoardViewModel(model, level) {

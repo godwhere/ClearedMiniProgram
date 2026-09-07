@@ -132,7 +132,7 @@ function run() {
   assert.strictEqual(solveWithoutPortals({
     Width: 9, Height: 1, Lines: [{ Start: 0, End: 8 }]
   }).status, 'invalid');
-  const pilotOptional = catalog.levels[63].game;
+  const pilotOptional = catalog.sets[4].Games[31];
   assertNoOneOrTwoLineBypass(pilotOptional, portalSolutions.ByLevelId[pilotOptional.Id]);
 
   const hints = new HintService(solutions);
@@ -143,7 +143,8 @@ function run() {
   let ordinaryCount = 0;
   let portalCount = 0;
   SPECS.forEach(([number, name, colorCount, bypass]) => {
-    const entry = catalog.levels[number - 1];
+    // number is the historical design number, never the reordered display slot.
+    const entry = catalog.levels.find(level => level.setIndex === 4 && level.levelIndex === number - 33);
     const game = entry.game;
     const id = `portal-8x8-${String(number - 62).padStart(2, '0')}`;
     assert.strictEqual(entry.setIndex, 4);
@@ -241,7 +242,7 @@ function run() {
   });
   assert.strictEqual(ordinaryCount, 19);
   assert.strictEqual(portalCount, 11);
-  assert.strictEqual(catalog.sets[4].Games.slice(30).filter(game => game.Mechanic === 'portal').length, 16);
+  assert.strictEqual(catalog.sets[4].Games.slice(30, 65).filter(game => game.Mechanic === 'portal').length, 16);
 
   // Existing level 92 saves unlock the appended batch without renumbering.
   const completed = new Set(['4:59']);
@@ -254,7 +255,7 @@ function run() {
     assert.strictEqual(progression.isUnlocked(4, level + 1), false);
     completed.add(`4:${level}`);
   }
-  assert.strictEqual(progression.nextLevel(4, 64), null);
+  assert.deepStrictEqual(progression.nextLevel(4, 64), { setIndex: 4, levelIndex: 65 });
 }
 
 module.exports = run;

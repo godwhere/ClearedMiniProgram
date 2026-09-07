@@ -81,6 +81,49 @@ function bestTimes() {
   }
 }
 
+function difficultyBars() {
+  for (const width of [280, 320, 390]) {
+    const f = fixture(width, 568);
+    f.app.performAction('home:levels'); f.app.levelPageIndex = 2;
+    const model = f.app.buildModel();
+    f.render(model);
+    const rectangles = new Map(f.renderer.hits.map(hit => [hit.id, hit.rect]));
+    const bars = [];
+    const context = f.renderer.ctx;
+    const fillRect = context.fillRect;
+    context.fillRect = (x, y, w, h) => {
+      if (h === 2 && w <= 2.5) bars.push({ x, y, w, h, alpha: context.globalAlpha });
+      fillRect.call(context, x, y, w, h);
+    };
+    model.levelItems.forEach((item, i) => Object.assign(item, {
+      difficulty: i % 5 + 1, unlocked: i !== 1, completed: i === 0, bestMs: i === 0 ? 90000 : null
+    }));
+    f.render(model);
+    assert.strictEqual(bars.length, model.levelItems.length * 5);
+    const hits = JSON.stringify(f.renderer.hits);
+    model.levelItems.forEach((item, i) => {
+      const rect = rectangles.get(item.action);
+      const group = bars.slice(i * 5, i * 5 + 5);
+      group.forEach((bar, index) => {
+        assert(bar.x > rect.x && bar.x + bar.w < rect.x + rect.w);
+        assert(bar.y > rect.y && bar.y + bar.h < rect.y + rect.h);
+        assert.strictEqual(bar.alpha, (index < item.difficulty ? 0.85 : 0.18) * (item.unlocked ? 1 : 0.5));
+      });
+      const number = f.texts.find(text => text.value === String(item.displayNumber));
+      assert(group[0].y + group[0].h < number.y - number.size / 2, 'bars stay above number and record');
+    });
+    assert(f.texts.some(text => text.value === '1:30'));
+    assert(f.texts.some(text => text.value === '✓'));
+    assert(f.texts.some(text => text.value.includes('难度 1–5 格')));
+    bars.length = 0;
+    model.levelItems.forEach((item, i) => { item.difficulty = [null, 0, 6, 1.5, '3'][i % 5]; });
+    f.render(model);
+    assert.strictEqual(bars.length, 0, 'invalid/unrated difficulty is not shown');
+    assert.strictEqual(JSON.stringify(f.renderer.hits), hits, 'rating cannot change touch targets');
+    f.app.dispose();
+  }
+}
+
 function galleryBackButtons() {
   for (const width of [280, 320, 390]) {
     const f = fixture(width, 568);
@@ -163,6 +206,7 @@ function beginnerInstructions() {
 
 module.exports = function run() {
   bestTimes();
+  difficultyBars();
   galleryBackButtons();
   beginnerInstructions();
 };

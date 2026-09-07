@@ -1,5 +1,8 @@
 # 传送门玩法设计与实现边界
 
+> 2026-09-07 内容更新：主线 137 题，其中 26 个 Portal。8×8 新增 6 个简单双门并重新编排，规则和提示状态机不变。
+> 历史章节编号不再等于显示位置；见 [难度系统](level-difficulty-system.md) 和 [当前目录](level-difficulty-catalog.md)。冰块不加入主线。
+
 > 设计记录：2026-09-01
 > 当前规则：Portal v2；Portal v1 仅保留兼容读取与回放。
 > 实现状态：主线 Portal、统一两句提示、触摸取消和发布校验已接入；独立试玩已删除，微信开发者工具及真机仍需发布前验收。
@@ -254,7 +257,7 @@ v1 只允许一个固定双向门对，解答可继续使用 `PairId`，且两�
 - `PortalOverlay` 只绘门图、资源回退、LOCKED 入口放大/选中高亮和状态光圈，不绘 `P1` 或其他内部 ID；
 - 已参与当前路径的门格在格内绘制对应路径颜色的细框，入口与实际选中的出口同色，保留门图；颜色与棋盘共用 palette。候选出口仍为黄色提示，LOCKED 青色外圈保留。边框消费 ViewModel 的 selected/selection 和清除期间的 owner，不缓存归属；撤销、取消同步恢复，清除结束时与门图一起消失，无特效时立即消失。
 - `src/ui/portal-instructions.js` 是两句提示的唯一来源；App、初始答案预览与 Renderer 兼容路径均复用它。READY/进门前使用第一句，LOCKED/WAIT 使用第二句，CONTINUE/出口后的 DRAWING 隐藏；
-- 全部主线游玩标题统一显示“当前关卡 / 总关卡”（如 `27 / 97`）；不显示名称或 `Instructions`，计时保持独立；
+- 全部主线游玩标题统一显示“当前关卡 / 总关卡”（如 `27 / 137`）；不显示名称或 `Instructions`，计时保持独立；
 - 选关页只显示连续关卡数字，不在 Portal 关卡数字格上叠加机制徽标；
 - 提示使用轻微呼吸效果，出现和切换时不得改变棋盘布局；
 - Renderer 只消费纯 ViewModel，不自行推断规则或注册独立 Portal hit；
@@ -275,7 +278,7 @@ v1 兼容继续由不进入小游戏包的测试 fixture 验证，不能为测�
 - `tests/hint-service-portal.test.js`：分段解、多出口搜索、等待态和无解；
 - `tests/app-portal.test.js`：两句提示切换、无 Portal 阶段震动、主线结算与导航、旧试玩入口不再执行；
 - `tests/renderer-portal.test.js`：提示位置/呼吸、棋盘不跳位、纯数字标题、选关页不叠加 Portal 徽标、LOCKED 入口居中放大/选中高亮、无 P1、多出口高亮和资源回退；
-- `tests/portal-publishing.test.js`：20 个主线 Portal 题、无逐关说明与残留试玩解、63–67 内容质量门槛、高成本无门解、三门未用门 fixture、v1 兼容 fixture 和逐段回放；
+- `tests/portal-publishing.test.js`：26 个主线 Portal 题、无逐关说明与残留试玩解、历史 63–67 内容质量门槛、高成本无门解、三门未用门 fixture、v1 兼容 fixture 和逐段回放；
 - `tests/mixed-chapter.test.js`：68–97 的 19 普通/11 Portal 混排、6–9 色、双门、无凑数短线、完整提示、对称去重、无门分类与一/二色廉价旁路排除；93–97 另检查反向/变序回放、逐格完整提示与追加解锁衔接；
 - `node tests/run.js` 必须全量通过，现有普通关行为不得回归。
 - `Portals` 缺省或空数组时，现有无 Portal 普通关卡必须保持原有规则、输入、计时、撤销与完成判定语义；新增普通 Portal 关卡使用独立的 v2 分段解答。
@@ -284,7 +287,7 @@ v1 兼容继续由不进入小游戏包的测试 fixture 验证，不能为测�
 
 ## 10. 发布门槛
 
-1. 连续编号 1—97 的普通关（含 20 个主线 Portal 题）和 Portal v1 兼容 fixture 零回归；
+1. 连续编号 1—137 的普通主线关（含 26 个 Portal 题）和 Portal v1 兼容 fixture 零回归；新增六个简单双门受 `level-difficulty.test.js` 的禁门、提示和正反/变序回放约束；
 2. Portal v2 题面、PortalId 解答和 required coverage 全部通过离线校验；
 3. 真实触摸完成“入口 → 松手 → 任一候选出口 → 普通终点”；
 4. 全部主线 Portal 复用两句提示；进门前为第一句，LOCKED/WAIT 为第二句，出口续接后隐藏，棋盘不跳位；
