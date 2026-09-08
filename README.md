@@ -63,7 +63,7 @@ tests/                               规则、服务、渲染、同步和启动�
 .github/workflows/                   持续集成测试
 ```
 
-最新一轮架构调整先从 `src/app.js` 中抽离了两项容易独立验证的职责：`daily-progress-adapter.js` 兼容每日存档的新旧调用形式并统一返回结果，`daily-view-model.js` 把已经解析好的每日状态映射成 Renderer 所需字段。两个模块都不持有 App、Runner、平台或云服务，也不创建第二套每日状态；每日场景、当前 Runner、关卡推进和云待办顺序仍由 App 编排。
+`src/app.js` 保留每日场景状态、Runner、关卡推进和云待办顺序。`daily-progress-adapter.js` 负责统一每日存档接口和返回结果，`daily-view-model.js` 负责将每日状态映射成 Renderer 所需字段。两个模块都是无状态模块，不持有 App、Runner、平台或云服务。
 
 几个重要的实现约束：
 
@@ -73,8 +73,8 @@ tests/                               规则、服务、渲染、同步和启动�
 - 存档 key、关卡 ID 和机制版本保持稳定；奖励、体力和云端操作使用去重记录，保存失败不会先行发奖或破坏内存状态。
 - 金币仍只有一份云确认钱包；`RewardUnlockService` 额外派生待同步奖励的只读显示合计，App 负责传递，Renderer 只负责绘制，不读取云待办或计算奖励。
 - 原始关卡保存在 JSON 中，提交到小游戏的是生成后的 JavaScript 模块；发布测试会回放正式解答并校验目录、难度和兼容关系。
-- `scripts/theme-extraction/runs/` 只存放本地生成的素材检查结果，已加入 Git 忽略，不再把中间产物提交到仓库。
-- `game.js` 是仓库中唯一的客户端入口；旧小程序的 `pages/` 与根目录旧入口已经删除，不再保留两套并行结构。
+- `scripts/theme-extraction/runs/` 存放本地生成的素材检查结果，并由 Git 忽略；仓库只保存正式主题素材。
+- `game.js` 是仓库中唯一的客户端入口。
 
 更完整的依赖方向和扩展规则见 [玩法拓展架构](docs/gameplay-extension-architecture.md)。
 
@@ -123,16 +123,13 @@ node scripts/generate-level-modules.js
 - 网络暂时不可用时，允许离线进行的内容仍先保留本地进度、待办和显示金额，重启后也会从原待办恢复；联网后继续原操作，不会切换到本地发币。
 - 购买时会先同步待确认收益，再由 CloudBase 确认扣款与解锁；同步或购买失败不会扣币或授予主题。
 
-此前设计的“本地直接结算 + 偶尔上传最新云快照”已经退出正常运行入口。`game.js -> bootstrap.start()` 不再创建或注入该备份服务，所有运行环境也固定关闭对应开关；旧存档状态、恢复保护和回归测试暂时保留用于兼容，不能通过修改本地配置重新启用。
+当前协议、恢复与冲突边界见 [CloudBase 联网说明](docs/cloudbase-local-first-sync.md)。
 
-当前协议、恢复与冲突边界见 [CloudBase 联网说明](docs/cloudbase-local-first-sync.md)，单一入口的实现范围见 [单方案结算实施记录](docs/single-mode-settlement-plan.md)。
-
-广告位、资料授权和部分分享奖励也保持默认关闭，需要完成对应平台配置后才能启用。
+广告位、资料授权和部分分享奖励默认关闭，完成对应平台配置后可启用。
 
 ## 相关文档
 
 - [玩法拓展架构](docs/gameplay-extension-architecture.md)：规则层、输入、提示、渲染和结算的职责边界。
-- [App 编排调整](docs/app-orchestration-refactor-plan.md)：每日存档适配和每日 ViewModel 的拆分范围。
 - [Portal 机制](docs/portal-mechanic.md)：传送门状态机、分段手势、数据与解答格式。
 - [冰封玩法](docs/ice-trial.md)：两层地板规则、提示流程及主线接入边界。
 - [关卡难度系统](docs/level-difficulty-system.md)：评分方法、排序规则和舒缓关节奏。
@@ -141,6 +138,4 @@ node scripts/generate-level-modules.js
 - [奖励与货币系统](docs/reward-unlock-system.md)：确认余额、待同步显示、领取去重和购买权限。
 - [主题系统](docs/theme-system.md)：主题 manifest、精灵表、画廊和异常回退。
 - [分包方案](docs/package-splitting.md)：主包预算、主题下载和失败重试。
-- [CloudBase 联网说明](docs/cloudbase-local-first-sync.md)：当前云结算行为、同步频率和历史状态兼容。
-- [单方案结算实施记录](docs/single-mode-settlement-plan.md)：正常启动只装配一条结算链路的代码与验证边界。
-- [CloudBase 接入计划](docs/cloudbase-integration-execution-plan.md)：身份、同步、迁移与发布阶段。
+- [CloudBase 联网说明](docs/cloudbase-local-first-sync.md)：云结算、同步频率、恢复和冲突规则。
