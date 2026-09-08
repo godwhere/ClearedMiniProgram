@@ -129,8 +129,8 @@ function earlyLevelRating() {
 function sequence() {
   assert.strictEqual(catalog.orderValid, true);
   assert.strictEqual(catalog.orderVersion, 1);
-  assert.strictEqual(catalog.levels.length, 138);
-  assert.strictEqual(new Set(catalog.levels.map(key)).size, 138);
+  assert.strictEqual(catalog.levels.length, 168);
+  assert.strictEqual(new Set(catalog.levels.map(key)).size, 168);
   const canonical = catalog.sets.flatMap((set, setIndex) => set.Games.map((game, levelIndex) => ({ setIndex, levelIndex, game })));
   assert.deepStrictEqual(catalog.levels.slice(0, 32).map(key), canonical.slice(0, 32).map(key));
   catalog.levels.forEach(entry => assert.strictEqual(entry.game, catalog.sets[entry.setIndex].Games[entry.levelIndex]));
@@ -159,8 +159,8 @@ function sequence() {
   }
   // A corrupt packaged order retains every stable entry and advertises fallback.
   const source = fs.readFileSync(require.resolve('../data/catalog-v2.js'), 'utf8');
-  for (const order of [null, {}, { version: 2, eightByLevelIndex: [] }, { version: 1, eightByLevelIndex: new Array(106).fill(0) },
-    { version: 1, eightByLevelIndex: Array.from({ length: 106 }, (_, i) => i === 105 ? 106 : i) }]) {
+  for (const order of [null, {}, { version: 2, eightByLevelIndex: [] }, { version: 1, eightByLevelIndex: new Array(136).fill(0) },
+    { version: 1, eightByLevelIndex: Array.from({ length: 136 }, (_, i) => i === 135 ? 136 : i) }]) {
     const context = { module: { exports: {} }, require: name => name === './level-order.js' ? order : require('../data/' + name.slice(2)) };
     vm.runInNewContext(source, context);
     assert.strictEqual(context.module.exports.orderValid, false);

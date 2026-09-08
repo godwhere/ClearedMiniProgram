@@ -6,7 +6,8 @@ const SyncStore = require('../src/services/sync-store.js');
 const { setup, revisions, envelope, core } = require('./helpers/cloud-stage4-services.js');
 const { fixture, tick } = require('./helpers/cloud-readonly-fixture.js');
 
-function client() {
+function client(options) {
+  const opts = options || {};
   const f = setup(); const calls = []; let now = 1000000; let revision = 0;
   const domains = core(0);
   domains.stamina = { schemaVersion: 1, balance: 5, nextRecoveryAt: null, unlockedLevels: [], refundedLevels: [] };
@@ -40,9 +41,10 @@ function client() {
       value.player.completedDomains = SyncStore.DOMAINS.slice(); value.player.deferredDomains = [];
       return { ok: true, data: JSON.parse(JSON.stringify(value)) };
     } };
-  const service = new ProgressSync(api, f.progress, f.store, f.auth, {}, null,
-    { daily: f.daily, rewards: f.rewards, stamina: f.stamina, preferences: f.preferences,
-      sessions: f.sessions, applier: f.applier, now: () => now });
+  const services = { daily: f.daily, rewards: f.rewards, stamina: f.stamina, preferences: f.preferences,
+    sessions: f.sessions, applier: f.applier, now: () => now };
+  if (opts.backup) services.backup = opts.backup;
+  const service = new ProgressSync(api, f.progress, f.store, f.auth, opts.config || {}, null, services);
   service.accountGuard = f.guard;
   return Object.assign(f, { service, calls, advance: ms => { now += ms; } });
 }
@@ -152,6 +154,12 @@ function coalescing() {
 async function lifecycle() {
   const f = fixture(); let now = 1000000;
   f.app.progressSync.services.now = () => now;
+  let backupCalls = 0;
+  f.app.progressSync.config.localBackupEnabled = false;
+  f.app.progressSync.services.backup = {
+    bootstrap: async () => { backupCalls++; throw Error('backup.bootstrap must stay inactive'); },
+    atCheckpoint: async () => { backupCalls++; throw Error('backup.commit must stay inactive'); }
+  };
   try {
     await f.app.resumeOnline(); await tick();
     assert.deepStrictEqual(f.calls.map(item => item.data.action), ['identity.init', 'state.read']);
@@ -164,7 +172,29 @@ async function lifecycle() {
     f.calls.length = 0;
     await f.app.resumeOnline();
     assert.deepStrictEqual(f.calls.map(item => item.data.action), ['identity.init', 'state.read'], 'explicit account retry remains immediate');
+    assert.strictEqual(backupCalls, 0, 'current startup and lifecycle checkpoints never enter backup mode');
+    assert.strictEqual(f.calls.some(item => ['backup.read', 'backup.commit'].includes(item.data.action)), false);
   } finally { f.app.dispose(); }
+}
+
+async function currentProtocolExclusivity() {
+  let backupCalls = 0;
+  const f = client({ config: { localBackupEnabled: false }, backup: {
+    bootstrap: async () => { backupCalls++; throw Error('backup.read must stay inactive'); },
+    atCheckpoint: async () => { backupCalls++; throw Error('backup.commit must stay inactive'); }
+  } });
+  assert((await f.service.atCheckpoint('launch')).ok);
+  f.calls.length = 0;
+  complete(f, 0);
+  assert(f.service.enqueueDailyCompletion({ dateKey: '2026-09-08', dayId: 'daily-route',
+    levelIds: ['daily-route-0', 'daily-route-1'], levelId: 'daily-route-0', levelIndex: 0,
+    levelCount: 2, elapsedMs: 1000, completedAtClient: 1000000 }));
+  assert(f.service.enqueuePreference('soundEnabled', false));
+  assert((await f.service.atCheckpoint('manual')).ok);
+  assert.deepStrictEqual(f.calls.map(item => item.action), ['state.read', 'sync.push']);
+  assert.deepStrictEqual(f.calls[1].payload.operations.map(item => item.type),
+    ['MAIN_LEVEL_COMPLETED', 'DAILY_LEVEL_COMPLETED', 'PREFERENCE_FIELD_SET']);
+  assert.strictEqual(backupCalls, 0, 'current cloud settlement excludes both backup entry points');
 }
 
 async function purchaseCheckpoint() {
@@ -202,5 +232,6 @@ module.exports = async function run() {
   await retriesAndBatches();
   coalescing();
   await lifecycle();
+  await currentProtocolExclusivity();
   await purchaseCheckpoint();
 };

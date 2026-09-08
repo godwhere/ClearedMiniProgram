@@ -9,6 +9,19 @@ const CHECKPOINT_GAP_MS = 60000;
 const DIRTY_AGE_MS = 180000;
 const REFRESH_AGE_MS = 300000;
 
+function selectCloudBootstrapRoute(input) {
+  const value = input || {};
+  if (value.progressAuthority === 'local-backup' && value.backupAvailable !== true) {
+    return { route: 'blocked', reason: 'not-configured' };
+  }
+  if (value.backupAvailable !== true) return { route: 'cloud', reason: 'backup-unavailable' };
+  if (value.pendingPurchase) return { route: 'cloud', reason: 'purchase-pending' };
+  if (value.pendingApplication) return { route: 'cloud', reason: 'application-pending' };
+  if (value.pendingOperationCount > 0) return { route: 'cloud', reason: 'operations-pending' };
+  if (value.progressAuthority === 'migration-freeze') return { route: 'cloud', reason: 'migration-pending' };
+  return { route: 'backup', reason: 'backup-ready' };
+}
+
 class ProgressSyncService {
   constructor(api, progress, syncStore, auth, config, behavior, services) {
     this.api = api;
@@ -30,6 +43,8 @@ class ProgressSyncService {
   }
 
   state() {
+    // Display delegation requires both an available backup service and an
+    // archive that already belongs to it; bootstrap routing has stricter gates.
     if (this.config.localBackupEnabled === true && this.services.backup &&
         this.store.authorityMode('progress') === 'local-backup') return this.services.backup.state();
     return { status: this.status, pending: this.store.state.pendingOperations.length,
@@ -46,6 +61,8 @@ class ProgressSyncService {
 
   atCheckpoint(reason, sync) {
     const run = sync || (() => this.flush());
+    // A checkpoint may finish legacy cloud recovery before authority changes;
+    // re-check the persisted authority after run() instead of sharing state().
     if (this.config.localBackupEnabled === true && this.services.backup) {
       if (this.checkpointFlight) return this.checkpointFlight;
       if (reason === 'hide') return Promise.resolve({ ok: true, skipped: true, status: this.status });
@@ -394,10 +411,19 @@ class ProgressSyncService {
     const pendingPurchase = this.services.economy &&
       typeof this.services.economy.hasPendingPurchase === 'function' &&
       this.services.economy.hasPendingPurchase(current);
-    if (this.config.localBackupEnabled === true && this.services.backup &&
-        !pendingPurchase &&
-        !this.store.currentScope().pendingApplication && !this.store.currentScope().pendingOperations.length &&
-        this.store.authorityMode('progress') !== 'migration-freeze') {
+    const currentScope = this.store.currentScope();
+    const route = selectCloudBootstrapRoute({
+      backupAvailable: this.config.localBackupEnabled === true && !!this.services.backup,
+      pendingPurchase,
+      pendingApplication: !!currentScope.pendingApplication,
+      pendingOperationCount: currentScope.pendingOperations.length,
+      progressAuthority: this.store.authorityMode('progress')
+    });
+    if (route.route === 'blocked') {
+      this.status = 'error';
+      return Promise.resolve({ ok: false, reason: route.reason });
+    }
+    if (route.route === 'backup') {
       this.status = 'backup-starting';
       this.inFlight = this.services.backup.bootstrap(current).then(result => {
         this.status = result.status || (result.ok ? 'backup-pending' : 'error'); return result;

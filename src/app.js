@@ -3581,7 +3581,8 @@ class ClearedApp {
     }
     if (Array.isArray(hint.steps) && hint.steps.length === lines.length) {
       const frames = hint.steps.map((step, index) => Object.assign({}, viewModel, {
-        hintStepLabel: `第 ${index + 1}/${hint.steps.length} 步：${step.breaksIce ? '经过冰封格，先破冰'
+        hintStepLabel: `第 ${index + 1}/${hint.steps.length} 步：${step.breaksIce && step.clearsIce ? '破冰并消除已解冻地板'
+          : step.breaksIce ? '经过冰封格，先破冰'
           : step.clearsIce ? '再次经过，消除地板' : '连接同色端点'}`,
         board: Object.assign({}, viewModel.board, {
           cells: viewModel.board.cells.map(cell => Object.assign({}, cell, {

@@ -100,8 +100,8 @@ function run() {
   });
 
   const chapterGames = (catalog.sets[4].Games || []).slice(30);
-  assert.strictEqual(chapterGames.length, 76,
-    'the stable chapter has 35 original, 40 recovery and one ice teaching board');
+  assert.strictEqual(chapterGames.length, 106,
+    'the stable chapter has 35 original, 40 recovery, one ice teaching, ten thaw and twenty meadow boards');
   chapterGames.slice(0, 35).forEach((game, index) => {
     const expectedId = `portal-8x8-${String(index + 1).padStart(2, '0')}`;
     assert.strictEqual(game.Id, expectedId,

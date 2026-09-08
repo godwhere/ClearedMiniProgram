@@ -1,7 +1,7 @@
 'use strict';
 
 // Offline design estimate, not a player-performance model. Only the current
-// mainline boards up to 8x8 are supported, including one-cell ice teaching.
+// mainline boards up to 8x8 are supported, including connected/scattered ice.
 const iceRules = require('../core/mechanics/ice-v1.js');
 const clamp = value => Math.max(0, Math.min(1, value));
 const round = value => Math.round(value * 100) / 100;
@@ -15,10 +15,8 @@ function evaluate(level, answer) {
   const width = level.Width, area = width * level.Height;
   const ice = new Set(level.Mechanic === 'ice' ? iceRules.normalize(level,
     Array.from({ length: area }, (_, cell) => (level.Blocked || []).includes(cell))) : []);
-  // This release rates only the one-cell/two-pass teaching contract. Revisit
-  // mechanic cost and shared-route metrics before authoring multi-ice levels.
-  if (level.Mechanic === 'ice' && (level.IceRulesVersion !== 1 || ice.size !== 1)) {
-    throw new Error('Ice difficulty v1 supports exactly one valid two-pass ice cell');
+  if (level.Mechanic === 'ice' && (level.IceRulesVersion !== 1 || !ice.size)) {
+    throw new Error('Ice difficulty requires valid two-pass ice cells');
   }
   const groups = answer.map(line => Array.isArray(line) ? [line] : line.Segments.map(segment => segment.Cells));
   const endpoints = new Set(level.Lines.flatMap(line => [line.Start, line.End]));
@@ -44,6 +42,32 @@ function evaluate(level, answer) {
     }
     return distance;
   }
+  const icePairs = new Set();
+  ice.forEach(cell => {
+    const visitors = [];
+    groups.forEach((segments, color) => segments.flat().forEach(value => {
+      if (value === cell) visitors.push(color);
+    }));
+    if (visitors.length !== 2 || visitors[0] === visitors[1]) {
+      throw new Error('Ice difficulty requires two distinct routes per ice cell');
+    }
+    icePairs.add(visitors.join(':'));
+  });
+  const unseenIce = new Set(ice);
+  let iceGroups = 0, largestIceGroup = 0;
+  while (unseenIce.size) {
+    const queue = [unseenIce.values().next().value];
+    unseenIce.delete(queue[0]); iceGroups++;
+    for (let i = 0; i < queue.length; i++) adjacent(queue[i]).forEach(cell => {
+      if (unseenIce.delete(cell)) queue.push(cell);
+    });
+    largestIceGroup = Math.max(largestIceGroup, queue.length);
+  }
+  // Preserve the single-cell teaching anchor (6). More cells, disconnected
+  // regions and different sharing route-pairs add bounded planning cost.
+  // This is a two-pass design estimate, not proof of solution uniqueness.
+  const iceCost = ice.size ? 6 + 4 * clamp((ice.size - 1) / 11) +
+    3 * clamp((iceGroups - 1) / 3) + 2 * clamp((icePairs.size - 1) / 3) : 0;
   let steps = 0, detours = 0, bends = 0, easyLines = 0, competition = 0;
   const lengths = [];
   const lineMetrics = groups.map((segments, color) => {
@@ -84,14 +108,15 @@ function evaluate(level, answer) {
     path: round(30 * clamp(0.6 * detourRate / 0.45 + 0.4 * bendsPerLine / 5)),
     space: round(25 * clamp(competingColors / 3)),
     readability: round(20 * (1 - easyLines / colors)),
-    mechanic: round(ice.size ? 6 : doors.size ? 15 * clamp(0.4 + Math.max(0, doors.size - 2) * 0.25 + competingColors / 15) : 0),
+    mechanic: round(ice.size ? iceCost : doors.size ? 15 * clamp(0.4 + Math.max(0, doors.size - 2) * 0.25 + competingColors / 15) : 0),
     colors: round(10 * clamp((colors - 4) / 6))
   };
   const score = round(Object.values(factors).reduce((sum, value) => sum + value, 0));
   // Calibrated design anchors: the original 47/64 multi-region Portal boards
   // occupy the challenge tier. Grades remain provisional until device playtest.
   return { score, grade: 1 + [20, 40, 60, 75].filter(boundary => score >= boundary).length, factors,
-    colors, doors: doors.size, iceCells: ice.size, easyLines, lengths, detourRate: round(detourRate),
+    colors, doors: doors.size, iceCells: ice.size, iceGroups, largestIceGroup, iceRoutePairs: icePairs.size,
+    easyLines, lengths, detourRate: round(detourRate),
     bendsPerLine: round(bendsPerLine), competingColors: round(competingColors), lineMetrics };
 }
 
