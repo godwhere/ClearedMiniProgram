@@ -122,6 +122,8 @@ buildModel() 至少提供：
 
 completedCount 和 totalLevels 只统计普通主线 1—137 关；主线 Portal 计入普通总数，每日 8×10 不计入这两个值。
 
+`daily`／`dailyResult` 的页面字段由 `src/ui/view-models/daily-view-model.js` 对 App 已准备好的显式输入做纯映射。App 仍持有每日会话、计算完成状态并只读查询 Runner 生成棋盘 ViewModel；映射模块不接收 Runner、store、平台或服务，也不替换 App 持有的结果对象。
+
 ## 5. 每日场景与轮次
 
 ### 5.1 场景和 action
@@ -477,7 +479,7 @@ store.isCompleted(dateKey, dayId)
 new DailyProgressStore(platform, { debugUnlimited: true })
 ~~~
 
-兼容旧单题调用可保留 get()、isCompleted()、recordCompletion()，但新 App 不得用旧调用记录每日两关。
+兼容旧单题调用可保留 get()、isCompleted()、recordCompletion()，但新 App 不得用旧调用记录每日两关。`src/services/daily-progress-adapter.js` 集中保持现有对象／位置参数兼容、异常回退和返回值归一化；它用独立的 `accepted` 控制判定告诉 App 是否继续后续副作用，原 store 返回的 `ok`、`allowed`、`canEnter`、`error` 等字段仍原样保留在 `result` 中，不能反向覆盖控制判定。适配器每次使用 App 传入的当前 store，不持有每日会话，也不生成时间、幂等键或提交云操作。App 继续负责这些业务输入和云结算顺序。
 
 存档规则：
 

@@ -90,6 +90,252 @@ function solveCurrentLevel(app) {
   playCurrentLevelPaths(app, dailySolutions.ByChallengeId[app.daily.challengeId]);
 }
 
+function testDailyStoreCompatibilityWiring() {
+  const { platform } = createPlatform();
+  const storeCalls = [];
+  const queuedEntries = [];
+  const queuedCompletions = [];
+  const store = {
+    canEnter(input) {
+      storeCalls.push({ method: 'canEnter', receiver: this, args: Array.from(arguments) });
+      return typeof input === 'object' ? { allowed: true, compatibility: 'object' } : false;
+    },
+    recordEntry(input) {
+      storeCalls.push({ method: 'recordEntry', receiver: this, args: Array.from(arguments) });
+      if (typeof input === 'object') return null;
+      return {
+        ok: true,
+        persisted: true,
+        entriesUsed: 2,
+        remainingEntries: 1,
+        compatibility: 'positional'
+      };
+    },
+    recordLevelCompletion(input) {
+      storeCalls.push({ method: 'recordLevelCompletion', receiver: this, args: Array.from(arguments) });
+      if (typeof input === 'object') return null;
+      return { ok: true, persisted: true, firstClear: true, compatibility: 'positional' };
+    }
+  };
+  const syncStore = {
+    authorityMode() { return 'cloud-authoritative'; },
+    context() { return { ownerId: 'player_A', bindingEpoch: 2, activationSequence: 3 }; }
+  };
+  const progressSync = {
+    store: syncStore,
+    enqueueDailyEntry(payload) {
+      queuedEntries.push(payload);
+      return { ok: true, operationId: 'entry-op' };
+    },
+    enqueueDailyCompletion(payload, observer) {
+      queuedCompletions.push({ payload, observer });
+      return { ok: true, operationId: 'completion-op' };
+    }
+  };
+  const now = new Date('2026-09-08T02:03:04.005Z');
+  const app = new ClearedApp(platform, {
+    clock: () => now,
+    dailyStore: store,
+    progressSync,
+    syncStore
+  });
+  const resolution = {
+    status: 'available',
+    dateKey: '2026-09-08',
+    dayId: 'daily-2026-09-08-v1',
+    challengeId: 'daily-2026-09-08-v1',
+    levels: [{ Id: 'daily-first' }, { Id: 'daily-second' }]
+  };
+  const numbers = { entryLimit: 3, entriesUsed: 1, entriesRemaining: 2 };
+
+  const gate = app.dailyCallCanEnter(resolution, numbers);
+  assert.strictEqual(gate.allowed, true);
+  assert.strictEqual(gate.raw.compatibility, 'object');
+  assert.deepStrictEqual(storeCalls.slice(0, 2).map(call => call.args), [
+    ['2026-09-08', 3],
+    [{ dateKey: '2026-09-08', dayId: 'daily-2026-09-08-v1', entryLimit: 3 }]
+  ]);
+  storeCalls.slice(0, 2).forEach(call => assert.strictEqual(call.receiver, store));
+
+  const originalDateNow = Date.now;
+  Date.now = () => 1788832984005;
+  try {
+    const entry = app.dailyRecordEntry(resolution, numbers);
+    assert.strictEqual(entry.ok, true);
+    assert.strictEqual(entry.persisted, true);
+    assert.strictEqual(entry.entriesUsed, 2);
+    assert.strictEqual(entry.entriesRemaining, 1);
+    assert.strictEqual(entry.compatibility, 'positional');
+    assert.deepStrictEqual(entry.cloudQueued, { ok: true, operationId: 'entry-op' });
+  } finally {
+    Date.now = originalDateNow;
+  }
+  const entryCalls = storeCalls.filter(call => call.method === 'recordEntry');
+  const entryKey = '2026-09-08:daily-2026-09-08-v1:entry:1788832984005:1';
+  assert.deepStrictEqual(entryCalls.map(call => call.args), [
+    [{
+      dateKey: '2026-09-08',
+      dayId: 'daily-2026-09-08-v1',
+      entryLimit: 3,
+      levelIds: ['daily-first', 'daily-second'],
+      idempotencyKey: entryKey,
+      unlimited: false
+    }],
+    ['2026-09-08', 3, 'daily-2026-09-08-v1', ['daily-first', 'daily-second'], { unlimited: false }]
+  ]);
+  entryCalls.forEach(call => assert.strictEqual(call.receiver, store));
+  assert.deepStrictEqual(queuedEntries, [{
+    dateKey: '2026-09-08',
+    dayId: 'daily-2026-09-08-v1',
+    entryKey,
+    entryLimit: 3,
+    levelIds: ['daily-first', 'daily-second']
+  }]);
+
+  store.recordEntry = function () {
+    assert.strictEqual(this, store);
+    return { ok: false, reason: 'persist-failed', persisted: false };
+  };
+  const queueCountBeforeRejectedEntry = queuedEntries.length;
+  assert.deepStrictEqual(app.dailyRecordEntry(resolution, numbers), {
+    ok: false,
+    reason: 'persist-failed',
+    persisted: false
+  });
+  assert.strictEqual(queuedEntries.length, queueCountBeforeRejectedEntry,
+    'a rejected local entry write must not create a cloud operation');
+
+  const controlRejections = [
+    {
+      raw: { ok: true, allowed: false },
+      expected: { ok: true, reason: 'entry-limit-reached', allowed: false }
+    },
+    {
+      raw: { ok: true, error: 'persist-failed', persisted: false },
+      expected: {
+        ok: true,
+        reason: 'entry-limit-reached',
+        error: 'persist-failed',
+        persisted: false
+      }
+    }
+  ];
+  controlRejections.forEach(item => {
+    store.recordEntry = function () { assert.strictEqual(this, store); return item.raw; };
+    const queueCountBefore = queuedEntries.length;
+    assert.deepStrictEqual(app.dailyRecordEntry(resolution, numbers), item.expected);
+    assert.strictEqual(queuedEntries.length, queueCountBefore,
+      'legacy rejection control must prevent cloud enqueue even when the raw ok field is true');
+  });
+
+  app.daily = Object.assign(app.emptyDailyState(), {
+    dateKey: resolution.dateKey,
+    dayId: resolution.dayId,
+    levels: resolution.levels,
+    resolution
+  });
+  const observer = function () {};
+  const completion = app.dailyCompletionCall(resolution.levels[1], 1, 1234.6, observer);
+  assert.strictEqual(completion.ok, true);
+  assert.strictEqual(completion.persisted, true);
+  assert.strictEqual(completion.firstClear, true);
+  assert.strictEqual(completion.compatibility, 'positional');
+  assert.deepStrictEqual(completion.cloudQueued, { ok: true, operationId: 'completion-op' });
+  const completionCalls = storeCalls.filter(call => call.method === 'recordLevelCompletion');
+  assert.strictEqual(completionCalls.length, 2);
+  assert.deepStrictEqual(completionCalls[0].args, [{
+    dateKey: '2026-09-08',
+    dayId: 'daily-2026-09-08-v1',
+    levelId: 'daily-second',
+    challengeId: 'daily-second',
+    levelIndex: 1,
+    levelCount: 2,
+    levelIds: ['daily-first', 'daily-second'],
+    elapsedMs: 1234.6,
+    completedAt: now.getTime()
+  }]);
+  assert.deepStrictEqual(completionCalls[1].args, [
+    '2026-09-08', 'daily-second', 1234.6, now.getTime()
+  ]);
+  completionCalls.forEach(call => assert.strictEqual(call.receiver, store));
+  assert.strictEqual(queuedCompletions.length, 1);
+  assert.deepStrictEqual(queuedCompletions[0].payload, {
+    dateKey: '2026-09-08',
+    dayId: 'daily-2026-09-08-v1',
+    levelId: 'daily-second',
+    levelIndex: 1,
+    levelCount: 2,
+    levelIds: ['daily-first', 'daily-second'],
+    elapsedMs: 1235,
+    completedAtClient: now.getTime()
+  });
+  assert.strictEqual(queuedCompletions[0].observer, observer);
+
+  app.dailyProgress = null;
+  const nonce = app.dailyEntryNonce;
+  const queueCount = queuedEntries.length;
+  const localEntry = app.dailyRecordEntry(resolution, numbers);
+  assert.strictEqual(localEntry.persisted, false);
+  assert.strictEqual(app.dailyEntryNonce, nonce,
+    'a missing store exits before generating an idempotency key or incrementing the nonce');
+  assert.strictEqual(queuedEntries.length, queueCount);
+  const localCompletion = app.dailyCompletionCall(resolution.levels[0], 0, 500, observer);
+  assert.strictEqual(localCompletion.persisted, false);
+  assert.strictEqual(queuedCompletions.length, 1,
+    'a non-persisted lightweight-host completion must not enter the cloud queue');
+  app.dispose();
+
+  const explicitFalseStore = {
+    canEnter(dateKey, entryLimit) {
+      assert.strictEqual(this, explicitFalseStore);
+      assert.strictEqual(dateKey, '2026-09-08');
+      assert.strictEqual(entryLimit, 3);
+      explicitFalseStore.calls++;
+      return false;
+    },
+    calls: 0
+  };
+  const explicitFalseApp = new ClearedApp(createPlatform().platform, { dailyStore: explicitFalseStore });
+  assert.deepStrictEqual(explicitFalseApp.dailyCallCanEnter(resolution, numbers), {
+    allowed: false,
+    source: 'store',
+    raw: false
+  });
+  assert.strictEqual(explicitFalseStore.calls, 1,
+    'a two-argument store explicitly rejecting entry must not be retried with an object');
+  explicitFalseApp.dispose();
+}
+
+function testBuiltInFinalEntryKeepsLegacyCloudQueueBoundary() {
+  const { platform } = createPlatform();
+  const queuedEntries = [];
+  const syncStore = {
+    authorityMode() { return 'cloud-authoritative'; },
+    context() { return { ownerId: 'player_A', bindingEpoch: 1, activationSequence: 1 }; }
+  };
+  const progressSync = {
+    store: syncStore,
+    enqueueDailyEntry(payload) { queuedEntries.push(payload); return { ok: true }; }
+  };
+  const app = new ClearedApp(platform, {
+    clock: () => new Date('2026-09-07T07:00:00.000Z'),
+    progressSync,
+    syncStore
+  });
+
+  for (let entryNumber = 1; entryNumber <= 3; entryNumber++) {
+    assert.strictEqual(app.enterDaily(), true);
+    assert.strictEqual(app.daily.entriesUsed, entryNumber);
+    app.performAction('daily:home');
+  }
+  assert.strictEqual(app.daily.entriesRemaining, 0);
+  assert.strictEqual(app.daily.entryState.ok, true);
+  assert.strictEqual(app.daily.entryState.canEnter, false);
+  assert.strictEqual(queuedEntries.length, 2,
+    'the third successful entry keeps the legacy no-enqueue boundary; changing it needs separate approval');
+  app.dispose();
+}
+
 function testDailyFailureFlow() {
   const { platform, storage } = createPlatform();
   const callbackEvents = [];
@@ -118,7 +364,22 @@ function testDailyFailureFlow() {
   assert.strictEqual(app.currentEffectId(), 'none');
   assert.strictEqual(app.daily.clearAnimation, null,
     'daily boards share the no-effect snapshot semantics');
-  assert.strictEqual(app.buildModel().board.clearAnimation, null);
+  const originalBuildBoardViewModel = app.buildBoardViewModel;
+  let boardModelCalls = 0;
+  app.buildBoardViewModel = function () {
+    boardModelCalls++;
+    return originalBuildBoardViewModel.apply(this, arguments);
+  };
+  const failedModel = app.buildModel();
+  app.buildBoardViewModel = originalBuildBoardViewModel;
+  assert.strictEqual(boardModelCalls, 1,
+    'the daily model delegates one already-built board projection');
+  assert.strictEqual(failedModel.board.clearAnimation, null);
+  assert.strictEqual(failedModel.result, app.daily.result,
+    'the App-owned result object must not be replaced by ViewModel mapping');
+  assert.strictEqual(failedModel.levels, app.daily.levels);
+  assert.strictEqual(failedModel.dailyLevelResults, app.daily.levelResults);
+  assert.strictEqual(Object.prototype.hasOwnProperty.call(failedModel, 'runner'), false);
   assert.strictEqual(app.daily.levelIndex, 0);
   assert.deepStrictEqual(app.daily.levelResults, []);
   assert.strictEqual(app.daily.elapsedBeforeLevel, 0);
@@ -226,7 +487,16 @@ function testDailyCompletionKeepsEnteredDateAcrossShanghaiMidnight() {
   const progressSync = {
     store: syncStore,
     enqueueDailyEntry(payload) { queuedEntries.push(payload); return { ok: true }; },
-    enqueueDailyCompletion(payload) { queuedCompletions.push(payload); return { ok: true }; }
+    enqueueDailyCompletion(payload, observer) {
+      queuedCompletions.push(payload);
+      if (payload.levelIndex === 1 && observer) {
+        observer({
+          status: 'ACKED',
+          details: { rewardGranted: true, rewardAmount: 20 }
+        });
+      }
+      return { ok: true };
+    }
   };
   const app = new ClearedApp(platform, {
     clock: () => now,
@@ -250,6 +520,8 @@ function testDailyCompletionKeepsEnteredDateAcrossShanghaiMidnight() {
   assert.strictEqual(app.daily.result.dateKey, '2026-09-01');
   assert.strictEqual(app.daily.result.dayId, enteredDayId);
   assert.deepStrictEqual(app.daily.result.levelIds, enteredLevelIds);
+  assert.deepStrictEqual(app.daily.result.currencyReward, { status: 'granted', amount: 20 },
+    'a cloud receipt arriving before the final result object is created is applied after construction');
   assert.strictEqual(queuedCompletions.length, 2);
   queuedCompletions.forEach((payload, levelIndex) => {
     assert.strictEqual(payload.dateKey, '2026-09-01');
@@ -334,6 +606,8 @@ function testSeptember7Challenge() {
 }
 
 async function run() {
+  testDailyStoreCompatibilityWiring();
+  testBuiltInFinalEntryKeepsLegacyCloudQueueBoundary();
   testSeptember7Challenge();
   await extraEntryActionAliases();
   testDailyAcceptanceDateOverride();
@@ -369,6 +643,11 @@ async function run() {
   assert.strictEqual(app.daily.challenge.Lines.length, 2);
   assert.strictEqual(app.daily.entriesUsed, 1);
   assert.strictEqual(app.daily.entriesRemaining, 2);
+  const firstDailyModel = app.buildModel();
+  assert.strictEqual(firstDailyModel.dailyLevelIndex, 0);
+  assert.strictEqual(firstDailyModel.dailyLevelCount, 2);
+  assert.strictEqual(firstDailyModel.dailyChallengeId, app.daily.challengeId);
+  assert.strictEqual(firstDailyModel.dailyEntriesRemaining, 2);
 
   app.tick(Date.now() + 1000);
   const introBoard = app.renderer.boardLayout;
@@ -381,6 +660,10 @@ async function run() {
   assert.strictEqual(app.daily.challenge.Height, 10);
   assert.strictEqual(app.daily.entriesUsed, 1);
   assert.strictEqual(app.daily.entriesRemaining, 2);
+  const secondDailyModel = app.buildModel();
+  assert.strictEqual(secondDailyModel.dailyLevelIndex, 1);
+  assert.strictEqual(secondDailyModel.challenge, app.daily.challenge);
+  assert.strictEqual(secondDailyModel.dailyLevelResults, app.daily.levelResults);
 
   app.tick(Date.now() + 2000);
   const hardBoard = app.renderer.boardLayout;
@@ -407,6 +690,10 @@ async function run() {
   assert.strictEqual(app.progress.completedCount(), 0);
   assert.strictEqual(app.progress.state.stats.totalClears, 0);
   assert.strictEqual(storage['cleared:minigame:daily:v1'].entries['2026-08-31'].entriesUsed, 1);
+  const resultModel = app.buildModel();
+  assert.strictEqual(resultModel.result, app.daily.result);
+  assert.strictEqual(resultModel.dailyTotalElapsedMs, app.daily.result.elapsedMs);
+  assert.strictEqual(resultModel.dailyCompleted, true);
 
   // Three entries per day: consume the remaining two entries via fresh runs.
   app.tick(Date.now() + 5000);

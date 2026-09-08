@@ -25,6 +25,8 @@ const { createCatalogRunContext, createTrialRunContext } = require('./gameplay/r
 const iceTrial = require('../data/ice-trial.js');
 const completionPolicies = require('./gameplay/completion-policies.js');
 const BoardInputController = require('./gameplay/board-input-controller.js');
+const dailyProgressAdapter = require('./services/daily-progress-adapter.js');
+const buildDailyViewModel = require('./ui/view-models/daily-view-model.js');
 
 // Daily challenge files are introduced independently from the ordinary
 // level/catalog pipeline.  Keep direct app construction (including older
@@ -683,16 +685,7 @@ class ClearedApp {
   }
 
   dailyStoreDay(dateKey) {
-    if (!this.dailyProgress || !dateKey) return null;
-    try {
-      if (typeof this.dailyProgress.getDay === 'function') {
-        return this.dailyProgress.getDay(dateKey);
-      }
-      if (typeof this.dailyProgress.get === 'function') return this.dailyProgress.get(dateKey);
-    } catch (error) {
-      return null;
-    }
-    return null;
+    return dailyProgressAdapter.readDay(this.dailyProgress, dateKey);
   }
 
   dailyStateNumbers(resolution, day) {
@@ -714,57 +707,13 @@ class ClearedApp {
     };
   }
 
-  dailyResultAllowed(result) {
-    if (result === false || result === null) return false;
-    if (result === undefined) return false;
-    if (result === true) return true;
-    if (!dailyObject(result)) return !!result;
-    if (result.ok === false || result.allowed === false || result.canEnter === false || result.available === false) {
-      return false;
-    }
-    if (result.error || result.reason === 'entry-limit-reached' || result.reason === 'limit-reached') return false;
-    return true;
-  }
-
-  dailyAllowedValue(result, fallback) {
-    if (typeof result === 'boolean') return result;
-    if (dailyObject(result)) {
-      if (result.allowed !== undefined) return !!result.allowed;
-      if (result.canEnter !== undefined) return !!result.canEnter;
-      if (result.available !== undefined) return !!result.available;
-      if (result.ok !== undefined) return result.ok !== false;
-    }
-    return fallback;
-  }
-
   dailyCallCanEnter(resolution, numbers) {
-    if (!this.dailyProgress || typeof this.dailyProgress.canEnter !== 'function') {
-      return { allowed: numbers.entriesRemaining > 0, source: 'fallback' };
-    }
-    const dateKey = resolution && resolution.dateKey;
-    let result;
-    try {
-      // The public store contract is positional: canEnter(dateKey, limit).
-      result = this.dailyProgress.canEnter(dateKey, numbers.entryLimit);
-    } catch (error) {
-      result = null;
-    }
-    // A few host integrations shipped the object form first.  Retry only
-    // when the positional call clearly failed to produce a usable answer.
-    if ((result === undefined || result === null ||
-         (result === false && this.dailyProgress.canEnter.length <= 1)) && this.dailyProgress.canEnter) {
-      try {
-        result = this.dailyProgress.canEnter({
-          dateKey,
-          dayId: resolution && (resolution.dayId || resolution.challengeId),
-          entryLimit: numbers.entryLimit
-        });
-      } catch (error) {
-        result = null;
-      }
-    }
-    const allowed = this.dailyAllowedValue(result, numbers.entriesRemaining > 0);
-    return { allowed, source: 'store', raw: result };
+    return dailyProgressAdapter.canEnter(this.dailyProgress, {
+      dateKey: resolution && resolution.dateKey,
+      dayId: resolution && (resolution.dayId || resolution.challengeId),
+      entryLimit: numbers.entryLimit,
+      entriesRemaining: numbers.entriesRemaining
+    });
   }
 
   dailyEntryState(resolution) {
@@ -829,42 +778,12 @@ class ClearedApp {
       idempotencyKey,
       unlimited: this.dailyDebugUnlimited
     };
-    let result;
-    try {
-      result = this.dailyProgress.recordEntry(payload);
-    } catch (error) {
-      result = null;
-    }
-    // Positional compatibility for early host doubles, and for adapters that
-    // return undefined from an unsupported object-form call. Do not treat an
-    // undefined result as a successful consumption because that would make
-    // the UI and persisted entry budget diverge.
-    if (result === undefined || result === null) {
-      try {
-        result = this.dailyProgress.recordEntry(
-          resolution.dateKey, numbers.entryLimit, dayId, levelIds,
-          { unlimited: this.dailyDebugUnlimited }
-        );
-      } catch (ignored) {
-        result = { ok: false, reason: 'entry-record-error' };
-      }
-    }
-    if (!this.dailyResultAllowed(result)) {
-      return Object.assign({ ok: false, reason: 'entry-limit-reached' }, dailyObject(result) ? result : {});
-    }
-    const used = dailyObject(result) && result.entriesUsed !== undefined
-      ? Math.max(0, dailyInteger(result.entriesUsed, numbers.entriesUsed + 1))
-      : numbers.entriesUsed + 1;
-    const reportedRemaining = dailyObject(result)
-      ? (result.entriesRemaining === undefined ? result.remainingEntries : result.entriesRemaining)
-      : undefined;
-    const unlimited = this.dailyDebugUnlimited ||
-      (dailyObject(result) && (result.unlimited === true || result.debugUnlimited === true));
-    const remaining = unlimited ? null : (reportedRemaining !== undefined
-      ? Math.max(0, dailyInteger(reportedRemaining, Math.max(0, numbers.entryLimit - used)))
-      : Math.max(0, numbers.entryLimit - used));
-    const normalized = Object.assign({ ok: true, persisted: true, entriesUsed: used, entriesRemaining: remaining },
-      dailyObject(result) ? result : {}, { unlimited });
+    const adapted = dailyProgressAdapter.recordEntry(this.dailyProgress, payload, numbers);
+    const normalized = adapted.result;
+    // Preserve the legacy branch decision independently from host fields.
+    // In particular, a successful final entry may report canEnter=false and
+    // historically returns without creating a cloud operation.
+    if (!adapted.accepted) return normalized;
     if (this.progressSync && ['cloud-authoritative', 'local-backup'].includes(this.authorityMode(null, 'daily'))) {
       normalized.cloudQueued = this.progressSync.enqueueDailyEntry({ dateKey: resolution.dateKey, dayId,
         entryKey: idempotencyKey, entryLimit: numbers.entryLimit, levelIds });
@@ -1281,51 +1200,29 @@ class ClearedApp {
     if (activeDaily) {
       const completed = this.dailyCompletionState(dailyResolution);
       const boardView = this.buildBoardViewModel(activeDaily.runner, activeDaily.clearAnimation);
-      const portalStatus = boardView && boardView.mechanic.portal;
-      return Object.assign(base, {
-        dailyAvailable: !!activeDaily.challenge,
-        dailyEntryAvailable: this.dailyDebugUnlimited || activeDaily.entriesRemaining > 0,
-        dailyCanEnter: this.dailyDebugUnlimited || activeDaily.entriesRemaining > 0,
-        dailyDateKey: activeDaily.dateKey,
-        dailyDayId: activeDaily.dayId,
-        dailyChallengeId: activeDaily.challengeId,
-        dailyCompleted: completed,
+      return Object.assign(base, buildDailyViewModel({
         challenge: activeDaily.challenge,
         levels: activeDaily.levels,
-        dailyLevels: activeDaily.levels,
         levelIndex: activeDaily.levelIndex,
-        dailyLevelIndex: activeDaily.levelIndex,
-        levelCount: activeDaily.levels.length,
-        dailyLevelCount: activeDaily.levels.length,
-        dailyLevelResults: activeDaily.levelResults,
-        dailyDifficulty: activeDaily.challenge &&
-          (activeDaily.challenge.Difficulty || activeDaily.challenge.difficulty || null),
-        dailyEntriesUsed: activeDaily.entriesUsed,
-        dailyEntryLimit: activeDaily.entryLimit,
-        dailyEntriesRemaining: this.dailyDebugUnlimited ? null : activeDaily.entriesRemaining,
-        dailyDebugUnlimited: this.dailyDebugUnlimited,
-        board: boardView && boardView.board,
-        mechanic: boardView ? boardView.mechanic : { portal: null },
-        elapsedText: boardView ? boardView.elapsedText : '0:00',
-        canUndo: !!(boardView && boardView.canUndo),
-        levelEnteredAt: activeDaily.enteredAt,
-        clearAnimation: activeDaily.clearAnimation,
-        hintAvailable: !!boardView && !boardView.terminal && hintEnabled,
+        levelResults: activeDaily.levelResults,
+        dateKey: activeDaily.dateKey,
+        dayId: activeDaily.dayId,
+        challengeId: activeDaily.challengeId,
+        entriesUsed: activeDaily.entriesUsed,
+        entryLimit: activeDaily.entryLimit,
+        entriesRemaining: activeDaily.entriesRemaining,
+        debugUnlimited: this.dailyDebugUnlimited,
+        completed,
+        boardView,
+        hintEnabled,
         result: activeDaily.result,
         firstClearRewardAmount: rewardConfig.currency.dailyFirstComplete,
+        enteredAt: activeDaily.enteredAt,
+        clearAnimation: activeDaily.clearAnimation,
         resultVisibleAt: activeDaily.resultVisibleAt,
         runStartedAt: activeDaily.runStartedAt,
-        elapsedBeforeLevel: activeDaily.elapsedBeforeLevel,
-        dailyTotalElapsedMs: activeDaily.result && activeDaily.result.elapsedMs,
-        // These fields are intentionally namespaced by scene/action in the
-        // renderer; no ordinary setIndex/levelIndex is supplied here.
-        dailyResultVisibleAt: activeDaily.resultVisibleAt,
-        portals: portalStatus ? portalStatus.portals : [],
-        portalStatus,
-        expectedExit: portalStatus ? portalStatus.expectedExit : null,
-        expectedExits: portalStatus ? portalStatus.expectedExits : [],
-        portalInstruction: portalStatus ? portalStatus.instruction : null
-      });
+        elapsedBeforeLevel: activeDaily.elapsedBeforeLevel
+      }));
     }
 
     if (this.scene === 'levels') {
@@ -1798,50 +1695,8 @@ class ClearedApp {
       elapsedMs,
       completedAt
     };
-    let completion;
-    if (this.dailyProgress && typeof this.dailyProgress.recordLevelCompletion === 'function') {
-      try {
-        completion = this.dailyProgress.recordLevelCompletion(payload);
-      } catch (error) {
-        completion = null;
-      }
-      if (completion === undefined || completion === null) {
-        try {
-          completion = this.dailyProgress.recordLevelCompletion(
-            daily.dateKey, levelId, elapsedMs, completedAt
-          );
-        } catch (error) {
-          completion = null;
-        }
-      }
-    } else if (this.dailyProgress && typeof this.dailyProgress.recordCompletion === 'function') {
-      // Compatibility path for early stores that expose only
-      // recordCompletion. The built-in two-level store uses
-      // recordLevelCompletion above, so per-level state remains canonical.
-      try {
-        completion = this.dailyProgress.recordCompletion(payload);
-      } catch (error) {
-        try {
-          completion = this.dailyProgress.recordCompletion(
-            daily.dateKey, levelId, elapsedMs, completedAt
-          );
-        } catch (ignored) {
-          completion = null;
-        }
-      }
-    } else {
-      // A missing store is useful for lightweight renderer hosts.  It is a
-      // non-persisted completion and never writes to ordinary progress.
-      completion = {
-        ok: true,
-        firstClear: false,
-        newBest: false,
-        bestMs: elapsedMs,
-        persisted: false
-      };
-    }
-    if (!this.dailyResultAllowed(completion)) return null;
-    const normalized = Object.assign({ ok: true, elapsedMs, levelId, levelIndex }, dailyObject(completion) ? completion : {});
+    const normalized = dailyProgressAdapter.recordCompletion(this.dailyProgress, payload);
+    if (!normalized) return null;
     if (normalized.persisted === true && this.progressSync &&
         ['cloud-authoritative', 'local-backup'].includes(this.authorityMode(null, 'daily'))) {
       normalized.cloudQueued = this.progressSync.enqueueDailyCompletion({ dateKey: daily.dateKey, dayId: daily.dayId,

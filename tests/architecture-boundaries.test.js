@@ -164,6 +164,22 @@ function run() {
   const rendererSource = fs.readFileSync(path.join(SRC_DIR, 'ui', 'canvas-renderer.js'), 'utf8');
   assert(!/StaminaService|this\.stamina|stamina:|(?:get|set)Storage/.test(rendererSource),
     'renderer consumes pure stamina ViewModel without a service, storage or stamina actions');
+  const dailyAdapterSource = fs.readFileSync(
+    path.join(SRC_DIR, 'services', 'daily-progress-adapter.js'),
+    'utf8'
+  );
+  assert.deepStrictEqual(dependencies(dailyAdapterSource), [],
+    'daily progress adapter must not gain runtime dependencies');
+  assert(!/\b(?:Date|setTimeout|setInterval|requestAnimationFrame|GameRunner|ClearedApp|WechatPlatform)\b/.test(dailyAdapterSource),
+    'daily progress adapter cannot own time, timers, rules, App or platform access');
+  const dailyViewModelSource = fs.readFileSync(
+    path.join(SRC_DIR, 'ui', 'view-models', 'daily-view-model.js'),
+    'utf8'
+  );
+  assert.deepStrictEqual(dependencies(dailyViewModelSource), [],
+    'daily ViewModel mapping must not gain runtime dependencies');
+  assert(!/\b(?:runner|store|service|platform|Date|setTimeout|setInterval|requestAnimationFrame|GameRunner|ClearedApp)\b/i.test(dailyViewModelSource),
+    'daily ViewModel mapping cannot query rules, persistence, services, time or App');
   assert(!/\bsetInterval\s*\(/.test(appSource));
   assert(!mutableAccess.test(appSource),
     'App must consume Runner commands and read-only queries, not mutable fields');
@@ -184,7 +200,8 @@ function run() {
   const uiFiles = [
     path.join(SRC_DIR, 'ui', 'canvas-renderer.js'),
     path.join(SRC_DIR, 'ui', 'board', 'board-renderer.js'),
-    path.join(SRC_DIR, 'ui', 'board', 'portal-overlay.js')
+    path.join(SRC_DIR, 'ui', 'board', 'portal-overlay.js'),
+    path.join(SRC_DIR, 'ui', 'view-models', 'daily-view-model.js')
   ];
   uiFiles.forEach(file => {
     const source = fs.readFileSync(file, 'utf8');

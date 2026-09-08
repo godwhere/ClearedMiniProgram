@@ -129,6 +129,8 @@ game.js
             ├─ src/gameplay/run-context.js
             ├─ src/gameplay/board-input-controller.js
             ├─ src/gameplay/completion-policies.js
+            ├─ src/services/daily-progress-adapter.js  每日存档窄接口适配
+            ├─ src/ui/view-models/daily-view-model.js  每日场景字段映射
             ├─ src/services/hint-service.js        兼容门面
             │    ├─ src/services/hints/ordinary-hint-provider.js
             │    └─ src/services/hints/portal-hint-provider.js
@@ -488,6 +490,7 @@ src/ui/board/interaction-map.js
 - `portal-overlay.js` 只负责门格底板、图标、锁定/等待光圈和资源回退，不绘内部 Portal ID；
 - `interaction-map.js` 保存 hit 与 board layout，提供 `hitTest/cellAt/getBoardLayout/clear`；
 - `canvas-renderer.js` 保持场景分发和公共 Canvas 原语，并在棋盘上方固定提示带绘制 LOCKED/WAIT 分阶段呼吸文案；
+- `daily-view-model.js` 只映射 App 已计算的每日场景字段，不接收 Runner、store、平台或服务，不持有会话状态；
 - Portal overlay 必须最后绘制，但不得自行读取 Runner 或修改 App 状态。
 
 ## 6. 文件级代码边界
@@ -508,6 +511,8 @@ src/ui/board/interaction-map.js
 | `core/game-runner.js` | mechanic allowlist、portal schema | 棋盘规则、状态机、撤销、结果 | wx、Canvas、提示、音效、存档 |
 | `src/services/hint-service.js` | provider | 兼容门面和 provider 选择 | portal BFS 细节、UI |
 | `src/services/hints/portal-hint-provider.js` | 只读 HintContext、纯 solution helper | 分段提示和搜索 | Runner 修改、结算 |
+| `src/services/daily-progress-adapter.js` | 调用方传入的 DailyStore 窄接口和纯数据 | 旧／新签名选择、异常回退、返回归一化 | 时间、幂等键、云操作、App 或会话状态 |
+| `src/ui/view-models/daily-view-model.js` | App 显式提供的每日展示数据和棋盘 ViewModel | `daily`／`dailyResult` 字段纯映射 | Runner／服务查询、输入修改、场景切换或缓存 |
 | `src/ui/board/board-renderer.js` | Canvas 原语、纯 ViewModel | 棋盘绘制顺序 | 读取存档、调用规则命令 |
 | `src/ui/board/portal-overlay.js` | Canvas 原语、图片缓存、portal ViewModel | portal 视觉 | 判断传送合法性、修改 phase |
 | `src/app.js` | 上述模块的公开接口 | 场景、反馈、动画和模块编排 | 重复实现 portal schema/BFS/Canvas 细节 |

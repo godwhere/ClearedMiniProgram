@@ -82,6 +82,8 @@ const tests = [
   ['gallery preview assets', require('./gallery-preview-assets.test.js')],
   ['daily challenge service', require('./daily-challenge-service.test.js')],
   ['daily progress store', require('./daily-progress-store.test.js')],
+  ['daily progress adapter', require('./daily-progress-adapter.test.js')],
+  ['daily ViewModel mapping', require('./daily-view-model.test.js')],
   ['daily app flow', require('./daily-app.test.js')],
   ['portal validation', require('./portal-validation.test.js')],
   ['game runner portals', require('./game-runner-portal.test.js')],
