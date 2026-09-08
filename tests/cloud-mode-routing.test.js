@@ -413,6 +413,9 @@ async function cloudAuthoritativeOfflineCompletionSurvivesRestart() {
       assert.strictEqual(completionBeforeRestart.environmentIdAtCreation, accountBefore.scope.environmentId);
       assert.strictEqual(first.calls.some(call =>
         ['backup.read', 'backup.commit'].includes(call.data.action)), false);
+      assert.deepStrictEqual(first.app.buildModel().currency, {
+        available: true, balance: 0, pendingRewardAmount: 100, displayBalance: 100, error: null
+      }, 'a durably queued ordinary first clear is shown immediately without changing the confirmed wallet');
 
       const savedStorage = clone(first.native.storage);
       const firstApp = first.app;
@@ -448,6 +451,9 @@ async function cloudAuthoritativeOfflineCompletionSurvivesRestart() {
       assert.deepStrictEqual(completionAfterRestart, [completionBeforeRestart],
         'restart preserves the exact pending operation instead of creating an equivalent duplicate');
       assert.deepStrictEqual(rewardSnapshot(restarted), rewardsBefore);
+      assert.deepStrictEqual(restarted.app.buildModel().currency, {
+        available: true, balance: 0, pendingRewardAmount: 100, displayBalance: 100, error: null
+      }, 'offline restart rebuilds the display total from the same persisted operation');
 
       const retry = await restarted.app.resumeOnline();
       assert.strictEqual(retry.reason, 'STORE_TEMPORARY');
@@ -489,6 +495,8 @@ async function cloudAuthoritativeDailyCompletionKeepsRewardsPending() {
       solveDailyLevel(f.app, clock);
       assert.strictEqual(f.app.daily.levelIndex, 1,
         'the first solved board advances to the second board rather than granting the daily reward');
+      assert.strictEqual(f.app.buildModel().currency.displayBalance, 0,
+        'the first daily level is not a complete-day reward source');
       solveDailyLevel(f.app, clock);
       await tick();
 
@@ -512,6 +520,9 @@ async function cloudAuthoritativeDailyCompletionKeepsRewardsPending() {
         operation.ownerIdAtCreation === accountBefore.scope.ownerId &&
         operation.bindingEpochAtCreation === accountBefore.scope.bindingEpoch &&
         operation.environmentIdAtCreation === accountBefore.scope.environmentId));
+      assert.deepStrictEqual(f.app.buildModel().currency, {
+        available: true, balance: 0, pendingRewardAmount: 500, displayBalance: 500, error: null
+      }, 'only the final daily level contributes one pending daily reward');
       const pendingDailyBeforeRetry = clone(entryOperations.concat(completionOperations));
       assert.deepStrictEqual(rewardSnapshot(f), rewardsBefore,
         'daily completion must not change the cloud-authoritative balance or claim marker');
@@ -550,10 +561,37 @@ async function cloudAuthoritativeDailyCompletionKeepsRewardsPending() {
   });
 }
 
+async function failedLocalCompletionSaveHasNoPendingDisplay() {
+  await withControlledClock(async clock => {
+    let f = null;
+    try {
+      f = await establishedCloudFixture(clock);
+      f.reply = offlineReply;
+      const write = f.native.setStorageSync.bind(f.native);
+      f.native.setStorageSync = (key, value) => {
+        if (key === ProgressStore.STORAGE_KEY) throw Error('progress storage unavailable');
+        return write(key, value);
+      };
+      completeTraining(f.app);
+      await tick();
+      assert.deepStrictEqual(matchingOperations(f, 'MAIN_LEVEL_COMPLETED',
+        payload => payload.levelKey === '0:0'), [],
+      'a completion that was not durably saved cannot become a pending reward source');
+      assert.deepStrictEqual(f.app.buildModel().currency, {
+        available: true, balance: 0, pendingRewardAmount: 0, displayBalance: 0, error: null
+      });
+      assert.deepStrictEqual(f.app.result.currencyReward, { status: 'pending', amount: 0 });
+    } finally {
+      if (f) f.app.dispose();
+    }
+  });
+}
+
 module.exports = async function run() {
   await configuredRoutesAndBlockers();
   await entryGuardsAndFlights();
   await localBackupArchiveCannotFallThroughToCloud();
   await cloudAuthoritativeOfflineCompletionSurvivesRestart();
   await cloudAuthoritativeDailyCompletionKeepsRewardsPending();
+  await failedLocalCompletionSaveHasNoPendingDisplay();
 };

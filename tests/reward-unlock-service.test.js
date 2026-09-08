@@ -10,6 +10,112 @@ const emptyCompletions = () => ({
   daily: { ok: true, days: [] }
 });
 
+function displayContext(operations, overrides) {
+  return Object.assign({
+    ownerId: 'player_A', bindingEpoch: 1, activationSequence: 1, environmentId: 'test-env',
+    authorityMode: 'cloud-authoritative', storageBlocked: false, ownsLocalState: true,
+    readOnlyPhase: false, migrationState: null, applicationPending: false, restorePending: false,
+    pendingOperations: operations || []
+  }, overrides || {});
+}
+
+function pendingOperation(domain, type, payload, overrides) {
+  return Object.assign({
+    operationId: `operation_${type}`,
+    domain,
+    type,
+    ownerIdAtCreation: 'player_A',
+    bindingEpochAtCreation: 1,
+    environmentIdAtCreation: 'test-env',
+    payload
+  }, overrides || {});
+}
+
+function testPendingRewardDisplay() {
+  const platform = new RewardPlatform({
+    [RewardUnlockService.STORAGE_KEY]: ownedState([], 1000)
+  });
+  const service = new RewardUnlockService(platform, config);
+  assert(service.setAuthorityMode('cloud-authoritative'));
+  const day = {
+    dateKey: '2026-09-08', dayId: 'daily-2026-09-08-v1',
+    levelIds: ['daily-intro-v1', 'daily-extreme-v1'], levelCount: 2,
+    elapsedMs: 1000, completedAtClient: 1
+  };
+  const ordinary = pendingOperation('progress', 'MAIN_LEVEL_COMPLETED', {
+    levelKey: '0:0', elapsedMs: 1000, rewardAmount: 99999
+  });
+  const operations = [
+    ordinary,
+    Object.assign({}, ordinary, { operationId: 'duplicate_ordinary' }),
+    pendingOperation('daily', 'DAILY_LEVEL_COMPLETED', Object.assign({}, day, {
+      levelId: day.levelIds[0], levelIndex: 0
+    })),
+    pendingOperation('daily', 'DAILY_LEVEL_COMPLETED', Object.assign({}, day, {
+      levelId: day.levelIds[1], levelIndex: 1, rewardAmount: 99999
+    })),
+    pendingOperation('daily', 'DAILY_LEVEL_COMPLETED', Object.assign({}, day, {
+      levelId: day.levelIds[1], levelIndex: 1
+    }), { operationId: 'duplicate_daily' }),
+    pendingOperation('progress', 'PROGRESS_LAST_PLAYED', { setIndex: 0, levelIndex: 0 }),
+    pendingOperation('progress', 'MAIN_LEVEL_COMPLETED', { levelKey: '999:999', elapsedMs: 1 },
+      { operationId: 'unknown_level' }),
+    pendingOperation('progress', 'MAIN_LEVEL_COMPLETED', { levelKey: '0:1', elapsedMs: 1 }, {
+      operationId: 'wrong_account', ownerIdAtCreation: 'player_B'
+    }),
+    pendingOperation('progress', 'MAIN_LEVEL_COMPLETED', { levelKey: '0:2', elapsedMs: 1 }, {
+      operationId: 'wrong_environment', environmentIdAtCreation: 'other-env'
+    }),
+    pendingOperation('progress', 'MAIN_LEVEL_COMPLETED', { levelKey: '0:3', elapsedMs: 1 }, {
+      operationId: 'wrong_binding', bindingEpochAtCreation: 2
+    })
+  ];
+  const writesBefore = platform.writes.length;
+  assert.deepStrictEqual(service.view(), { available: true, balance: 1000, error: null },
+    'the authoritative wallet query keeps its original contract');
+  assert.deepStrictEqual(service.displayView(displayContext(operations)), {
+    available: true, balance: 1000, pendingRewardAmount: 600, displayBalance: 1600, error: null
+  }, 'pending display derives config rewards, ignores payload amounts and deduplicates stable sources');
+  assert.strictEqual(platform.writes.length, writesBefore, 'display queries never persist derived balances');
+
+  service.state.claimedOrdinary['0:0'] = true;
+  service.state.claimedDaily['2026-09-08'] = day.dayId;
+  assert.deepStrictEqual(service.displayView(displayContext(operations)), {
+    available: true, balance: 1000, pendingRewardAmount: 0, displayBalance: 1000, error: null
+  }, 'cloud-confirmed claim sources are never counted even if duplicate pending operations remain');
+  delete service.state.claimedOrdinary['0:0'];
+  delete service.state.claimedDaily['2026-09-08'];
+
+  ['storageBlocked', 'readOnlyPhase', 'applicationPending', 'restorePending'].forEach(flag => {
+    const protectedView = service.displayView(displayContext(operations, { [flag]: true }));
+    if (flag === 'storageBlocked') {
+      assert.deepStrictEqual(protectedView, {
+        available: false, balance: null, pendingRewardAmount: 0,
+        displayBalance: null, error: 'ownership-unconfirmed'
+      }, flag);
+    } else {
+      assert.strictEqual(protectedView.displayBalance, 1000, flag);
+    }
+  });
+  assert.deepStrictEqual(service.displayView(displayContext(operations, {
+    ownerId: 'player_B', ownsLocalState: false
+  })), {
+    available: false, balance: null, pendingRewardAmount: 0,
+    displayBalance: null, error: 'ownership-unconfirmed'
+  }, 'an account switch hides both the pending amount and the old owner confirmed balance');
+  assert.deepStrictEqual(service.view(), { available: true, balance: 1000, error: null },
+    'masking the display does not mutate the authoritative wallet contract');
+  assert.strictEqual(service.displayView(displayContext(operations, { migrationState: 'uploading' })).pendingRewardAmount, 0);
+  assert.strictEqual(service.displayView(displayContext(operations, { environmentId: null })).displayBalance, null);
+  assert.strictEqual(service.displayView(displayContext(operations, { bindingEpoch: 0 })).displayBalance, null);
+
+  const local = new RewardUnlockService(new RewardPlatform({
+    [RewardUnlockService.STORAGE_KEY]: ownedState([], 1000)
+  }), config);
+  assert.strictEqual(local.displayView(displayContext(operations)).displayBalance, 1000,
+    'legacy-local never infers a second wallet from cloud operations');
+}
+
 function testSameLevelConfigUpgrade() {
   const firstConfig = JSON.parse(JSON.stringify(config));
   firstConfig.items = firstConfig.items.filter(item => item.id !== 'theme:spring');
@@ -57,6 +163,7 @@ function testSameLevelConfigUpgrade() {
 
 function run() {
   testSameLevelConfigUpgrade();
+  testPendingRewardDisplay();
   assert.strictEqual(config.items.length, 13);
   assert.strictEqual(RewardUnlockService.validateConfig(config) !== null, true);
 

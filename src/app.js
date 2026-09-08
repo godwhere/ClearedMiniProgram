@@ -1104,6 +1104,13 @@ class ClearedApp {
     ), 0);
   }
 
+  rewardDisplayView() {
+    const authoritative = this.rewardUnlocks.view();
+    if (!this.rewardUnlocks.displayView || !this.syncStore || !this.syncStore.rewardDisplayContext) return authoritative;
+    try { return this.rewardUnlocks.displayView(this.syncStore.rewardDisplayContext()); }
+    catch (error) { return authoritative; }
+  }
+
   buildModel() {
     const homeDaily = this.scene === 'home' ? this.resolveDaily() : null;
     const homeDailyEntry = homeDaily && homeDaily.status === 'available'
@@ -1132,7 +1139,7 @@ class ClearedApp {
       scene: this.scene,
       clearFeedback: this.clearFeedback && this.clearFeedback.runner === this.activeRunner()
         ? { startedAt: this.clearFeedback.startedAt, durationMs: this.clearFeedback.durationMs } : null,
-      currency: this.rewardUnlocks.view(),
+      currency: this.rewardDisplayView(),
       rewardDialog: this.rewardDialog ? cloneData(this.rewardDialog) : null,
       stamina: Object.assign({}, this.staminaSnapshot),
       staminaFeedback: this.staminaFeedback ? Object.assign({}, this.staminaFeedback) : null,
@@ -2847,14 +2854,17 @@ class ClearedApp {
     if (!preview) return false;
     const status = preview.reward;
     const unlocked = status.owned === true;
-    const balance = this.rewardUnlocks.view().balance;
+    const currency = this.rewardDisplayView();
+    const balance = Number.isSafeInteger(currency.displayBalance) ? currency.displayBalance : currency.balance;
+    const pendingHint = Number.isSafeInteger(currency.pendingRewardAmount) && currency.pendingRewardAmount > 0
+      ? `，其中 ${currency.pendingRewardAmount} 待同步，购买时联网确认` : '';
     let message = status.conditionType === 'ordinary_level' ? `通关第 ${status.displayLevel || '?'} 关解锁`
-      : status.conditionType === 'currency' ? `${status.cost} 货币解锁（余额 ${balance === null ? '--' : balance}）`
+      : status.conditionType === 'currency' ? `${status.cost} 货币解锁（余额 ${balance === null ? '--' : balance}${pendingHint}）`
         : status.conditionType === 'rewarded_ad' ? `观看 ${status.requiredCount || 1} 次广告解锁`
           : status.conditionType === 'share' ? '发起分享后解锁，取消也可能解锁' : '暂未开放';
     if (status.reason === 'ads-not-enabled') message = '广告奖励尚未开放';
     if (status.reason === 'ads-not-configured' || status.reason === 'ads-not-supported') message = '广告暂不可用，请稍后再试';
-    if (!this.rewardUnlocks.view().available) message = '奖励数据暂不可用，请重试';
+    if (!currency.available) message = '奖励数据暂不可用，请重试';
     if (status.action === 'retry-save') message = '已有奖励待保存，请重试保存';
     this.rewardDialog = {
       dialogId: ++this.rewardDialogSequence,
@@ -2872,9 +2882,9 @@ class ClearedApp {
       secondaryLabel: unlocked ? '稍后再说' : '关闭',
       preview
     };
-    if (!this.rewardUnlocks.view().available || status.action === 'retry-save') {
+    if (!currency.available || status.action === 'retry-save') {
       this.rewardDialog.primaryAction = 'reward:retry';
-      this.rewardDialog.primaryLabel = !this.rewardUnlocks.view().available ? '重试读取' : '重试保存';
+      this.rewardDialog.primaryLabel = !currency.available ? '重试读取' : '重试保存';
       this.rewardDialog.primaryEnabled = true;
     }
     if (this.pendingSkinId && this.skins.current().id !== this.pendingSkinId) {

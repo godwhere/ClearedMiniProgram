@@ -58,4 +58,54 @@ module.exports = function run() {
   reload.acknowledge([reload.state.pendingOperations[0].operationId, 'unknown']);
   assert.strictEqual(reload.state.pendingOperations.length, 199);
   fails = true; assert.strictEqual(reload.nextId(), null, 'IDs are not exposed before durable sequence persistence');
+
+  const cloudPlatform = { storage: {}, getStorage(key) { return this.storage[key] || null; },
+    setStorage(key, value) { this.storage[key] = JSON.parse(JSON.stringify(value)); return true; } };
+  const cloud = new SyncStore(cloudPlatform);
+  assert(cloud.activateScope('player_A', 1, 'test-env', true).ok);
+  cloud.state.localOwnerId = 'player_A'; cloud.state.localEnvironmentId = 'test-env';
+  assert(cloud.save());
+  const readOnly = cloud.rewardDisplayContext();
+  assert.strictEqual(readOnly.readOnlyPhase, true);
+  assert.strictEqual(readOnly.ownsLocalState, true);
+  assert.strictEqual(Object.isFrozen(readOnly), true);
+  assert.strictEqual(Object.isFrozen(readOnly.pendingOperations), true);
+  assert.strictEqual(cloud.setAuthorityMode('cloud-authoritative', cloud.context()), true);
+  const ordinary = cloud.enqueueOperation({ domain: 'progress', type: 'MAIN_LEVEL_COMPLETED', occurredAtClient: 1,
+    payload: { levelKey: '0:0', elapsedMs: 1000 } });
+  const position = cloud.enqueueOperation({ domain: 'progress', type: 'PROGRESS_LAST_PLAYED', occurredAtClient: 2,
+    payload: { setIndex: 0, levelIndex: 0 } });
+  assert(ordinary.ok && position.ok);
+  const persistedBefore = JSON.stringify(cloudPlatform.storage);
+  const context = cloud.rewardDisplayContext();
+  assert.deepStrictEqual(context.pendingOperations.map(item => item.operationId), [ordinary.operationId],
+    'display context exposes only reward-related work from the current scope');
+  assert(cloud.markOperationsInFlight([ordinary.operationId], cloud.context()));
+  assert.deepStrictEqual(cloud.rewardDisplayContext().pendingOperations.map(item => item.operationId),
+    [ordinary.operationId], 'in-flight reward work remains pending until a terminal receipt is persisted');
+  cloud.clearOperationsInFlight([ordinary.operationId]);
+  assert.strictEqual(JSON.stringify(cloudPlatform.storage), persistedBefore, 'display context is read-only');
+  const restartedCloud = new SyncStore(cloudPlatform);
+  assert.deepStrictEqual(restartedCloud.rewardDisplayContext(), context,
+    'restart rebuilds the same display context from the existing queue without new storage');
+  assert(restartedCloud.activateScope('player_B', 1, 'test-env', true).ok);
+  assert.deepStrictEqual(restartedCloud.rewardDisplayContext().pendingOperations, [],
+    'a different account scope cannot observe the first account pending reward sources');
+
+  let queueWriteFails = false;
+  const failedQueuePlatform = { storage: {}, getStorage(key) { return this.storage[key] || null; },
+    setStorage(key, value) {
+      if (queueWriteFails) return false;
+      this.storage[key] = JSON.parse(JSON.stringify(value)); return true;
+    } };
+  const failedQueue = new SyncStore(failedQueuePlatform);
+  assert(failedQueue.activateScope('player_Q', 1, 'test-env', true).ok);
+  failedQueue.state.localOwnerId = 'player_Q'; failedQueue.state.localEnvironmentId = 'test-env';
+  assert(failedQueue.save());
+  assert(failedQueue.setAuthorityMode('cloud-authoritative', failedQueue.context()));
+  queueWriteFails = true;
+  assert.strictEqual(failedQueue.enqueueOperation({ domain: 'progress', type: 'MAIN_LEVEL_COMPLETED',
+    occurredAtClient: 1, payload: { levelKey: '0:0', elapsedMs: 1000 } }).ok, false);
+  assert.deepStrictEqual(failedQueue.rewardDisplayContext().pendingOperations, [],
+    'an operation that cannot be durably queued never enters the display context');
 };

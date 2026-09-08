@@ -14,6 +14,8 @@ const registered = {
 const levelKeys = new Set(require('../../data/catalog-v2.js').levels.map(item => `${item.setIndex}:${item.levelIndex}`));
 const validId = value => typeof value === 'string' && /^[A-Za-z0-9_:-]{1,200}$/.test(value) && !BLOCKED.has(value);
 const validRewardId = value => typeof value === 'string' && REWARD_ID_RE.test(value) && !BLOCKED.has(value.split(':')[1]);
+const validOwnerId = value => typeof value === 'string' && /^player_[A-Za-z0-9_-]{1,120}$/.test(value);
+const validEnvironmentId = value => typeof value === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(value);
 
 function record(value) {
   return !!value && typeof value === 'object' && !Array.isArray(value);
@@ -42,6 +44,45 @@ function clone(value) {
     return result;
   }
   return value;
+}
+
+function validDisplayOwnership(context) {
+  return record(context) && context.storageBlocked === false && context.ownsLocalState === true &&
+    validOwnerId(context.ownerId) && validEnvironmentId(context.environmentId) &&
+    safeInteger(context.bindingEpoch, true) && safeInteger(context.activationSequence, false);
+}
+
+function validDisplayContext(context) {
+  return validDisplayOwnership(context) && context.authorityMode === 'cloud-authoritative' &&
+    context.readOnlyPhase === false &&
+    context.applicationPending === false && context.restorePending === false &&
+    [null, 'finalized'].includes(context.migrationState) && Array.isArray(context.pendingOperations);
+}
+
+function calculatePendingRewardAmount(state, rewardCatalog, context) {
+  if (!validDisplayContext(context)) return null;
+  const ordinary = new Set();
+  const daily = new Set();
+  context.pendingOperations.forEach(operation => {
+    if (!record(operation) || operation.ownerIdAtCreation !== context.ownerId ||
+        operation.environmentIdAtCreation !== context.environmentId ||
+        operation.bindingEpochAtCreation !== context.bindingEpoch || !record(operation.payload)) return;
+    const payload = operation.payload;
+    if (operation.domain === 'progress' && operation.type === 'MAIN_LEVEL_COMPLETED' &&
+        levelKeys.has(payload.levelKey) && state.claimedOrdinary[payload.levelKey] !== true) {
+      ordinary.add(payload.levelKey);
+      return;
+    }
+    if (operation.domain === 'daily' && operation.type === 'DAILY_LEVEL_COMPLETED' &&
+        payload.levelIndex === 1 && payload.levelCount === 2 && validDateKey(payload.dateKey) &&
+        validId(payload.dayId) && validId(payload.levelId) && Array.isArray(payload.levelIds) &&
+        payload.levelIds.length === 2 && payload.levelIds[0] !== payload.levelIds[1] &&
+        payload.levelIds.every(validId) && payload.levelId === payload.levelIds[1] &&
+        !Object.prototype.hasOwnProperty.call(state.claimedDaily, payload.dateKey)) daily.add(payload.dateKey);
+  });
+  const amount = ordinary.size * rewardCatalog.currency.ordinaryFirstClear +
+    daily.size * rewardCatalog.currency.dailyFirstComplete;
+  return safeInteger(amount, false) ? amount : null;
 }
 
 function emptyState() {
@@ -231,6 +272,28 @@ class RewardUnlockService {
   view() {
     return this.state ? { available: true, balance: this.state.balance, error: null }
       : { available: false, balance: null, error: this.loadError || 'unavailable' };
+  }
+
+  displayView(context) {
+    const authoritative = this.view();
+    const fallback = Object.assign({}, authoritative, {
+      pendingRewardAmount: 0,
+      displayBalance: authoritative.balance
+    });
+    if (!authoritative.available || this._authorityMode !== 'cloud-authoritative') return fallback;
+    if (!validDisplayOwnership(context)) return {
+      available: false,
+      balance: null,
+      pendingRewardAmount: 0,
+      displayBalance: null,
+      error: 'ownership-unconfirmed'
+    };
+    const pendingRewardAmount = calculatePendingRewardAmount(this.state, this.catalog, context);
+    if (pendingRewardAmount === null || !safeInteger(authoritative.balance + pendingRewardAmount, false)) return fallback;
+    return Object.assign({}, authoritative, {
+      pendingRewardAmount,
+      displayBalance: authoritative.balance + pendingRewardAmount
+    });
   }
 
   item(rewardId) {

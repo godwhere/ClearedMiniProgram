@@ -6,6 +6,13 @@ const SyncStore = require('../src/services/sync-store.js');
 const App = require('../src/app.js');
 const { setup, revisions, envelope, core } = require('./helpers/cloud-stage4-services.js');
 
+const displayView = fixture => {
+  fixture.rewards.setAuthorityMode('cloud-authoritative');
+  return fixture.rewards.displayView(Object.assign(
+    {}, fixture.store.rewardDisplayContext(), { readOnlyPhase: false }
+  ));
+};
+
 module.exports = async function run() {
   const queued = setup();
   const queuedService = new ProgressSync({ transport: { config: { writeEnabled: false } }, isConfigured: () => true },
@@ -47,8 +54,11 @@ module.exports = async function run() {
   const b = f.store.enqueueOperation({ domain: 'progress', type: 'MAIN_LEVEL_COMPLETED', occurredAtClient: 2,
     payload: { levelKey: '0:1', elapsedMs: 900 } });
   const c = f.store.enqueueOperation({ domain: 'progress', type: 'MAIN_LEVEL_COMPLETED', occurredAtClient: 3,
-    payload: { levelKey: '0:2', elapsedMs: 800 } });
+    payload: { levelKey: '1:0', elapsedMs: 800 } });
   assert(a.ok && b.ok && c.ok);
+  assert.deepStrictEqual(displayView(f), {
+    available: true, balance: 0, pendingRewardAmount: 300, displayBalance: 300, error: null
+  }, 'all three valid catalog reward sources contribute before the partial response');
   const settled = [];
   [a, b, c].forEach(item => service.observeOperation(item.operationId, result => {
     settled.push({ operationId: result.operationId, status: result.status });
@@ -59,8 +69,11 @@ module.exports = async function run() {
   assert.deepStrictEqual(f.store.currentScope().quarantinedOperations.map(item => ({ operationId: item.operationId, code: item.code })),
     [{ operationId: c.operationId, code: 'VALIDATION_FAILED' }]);
   assert(f.progress.isCompleted(0, 0)); assert(f.progress.isCompleted(0, 1), 'retryable local overlay remains visible');
-  assert.strictEqual(f.progress.isCompleted(0, 2), false, 'rejected operation is removed from the optimistic overlay');
+  assert.strictEqual(f.progress.isCompleted(1, 0), false, 'rejected operation is removed from the optimistic overlay');
   assert.strictEqual(f.rewards.view().balance, 100);
+  assert.deepStrictEqual(displayView(f), {
+    available: true, balance: 100, pendingRewardAmount: 100, displayBalance: 200, error: null
+  }, 'the previously displayed valid rejected reward falls away while retryable work remains visible');
   assert.deepStrictEqual(settled, [
     { operationId: a.operationId, status: 'ACKED' },
     { operationId: c.operationId, status: 'REJECTED' }
@@ -68,6 +81,9 @@ module.exports = async function run() {
   const second = await service.pushCloud(f.auth.current(), f.store.context(), f.guard.capture());
   assert(second.ok); assert.strictEqual(f.store.currentScope().pendingOperations.length, 0);
   assert.strictEqual(f.rewards.view().balance, 200); assert.strictEqual(calls.length, 2);
+  assert.deepStrictEqual(displayView(f), {
+    available: true, balance: 200, pendingRewardAmount: 0, displayBalance: 200, error: null
+  }, 'cloud confirmation replaces the pending amount without doubling the display total');
   assert.deepStrictEqual(settled, [
     { operationId: a.operationId, status: 'ACKED' },
     { operationId: c.operationId, status: 'REJECTED' },
@@ -202,6 +218,7 @@ module.exports = async function run() {
     App.prototype.applyCloudCurrencyResult.call({ isCurrentAccount: token => failedWrite.guard.matches(token),
       invalidate() { redraws++; } }, resultScreen, resultAccount, result);
   });
+  assert.strictEqual(displayView(failedWrite).displayBalance, 100);
   const write = failedWrite.platform.setStorage.bind(failedWrite.platform); let syncWrites = 0;
   failedWrite.platform.setStorage = (key, value) => {
     if (key === SyncStore.STORAGE_KEY && ++syncWrites === 2) return false;
@@ -217,6 +234,9 @@ module.exports = async function run() {
   assert(failedWrite.store.currentScope().pendingApplication,
     'the stable receipt remains available for crash recovery');
   assert.strictEqual(failedWrite.rewards.view().balance, 100, 'wallet can be saved before the receipt commit fails');
+  assert.deepStrictEqual(displayView(failedWrite), {
+    available: true, balance: 100, pendingRewardAmount: 0, displayBalance: 100, error: null
+  }, 'an incomplete receipt application never overlays its still-present operation a second time');
   assert.strictEqual(resultScreen.currencyReward.status, 'pending');
   assert.strictEqual(feedbackCount, 0, 'incomplete local application must not announce a settled reward');
 

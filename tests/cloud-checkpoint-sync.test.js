@@ -206,23 +206,47 @@ async function purchaseCheckpoint() {
       // Exercise the real App purchase orchestration without purchasing an
       // actual asset; the existing economy suite owns receipt/balance tests.
       f.app.authorityMode = () => 'cloud-authoritative';
-      assert(f.app.openRewardDialog('theme:desserts'));
+      const displayContext = f.sync.rewardDisplayContext.bind(f.sync);
+      f.sync.rewardDisplayContext = () => Object.assign({}, displayContext(), {
+        authorityMode: 'cloud-authoritative', ownsLocalState: true, readOnlyPhase: false
+      });
+      assert(f.app.rewardUnlocks.setAuthorityMode('cloud-authoritative'));
+      f.app.rewardUnlocks.state.balance = 9900;
+      assert(f.app.rewardUnlocks.write(f.app.rewardUnlocks.state));
       if (scenario !== 'empty') assert(f.sync.enqueueOperation({ domain: 'progress', type: 'MAIN_LEVEL_COMPLETED',
         occurredAtClient: 1, payload: { levelKey: '0:0', elapsedMs: 1000 } }).ok);
+      assert(f.app.openRewardDialog('theme:desserts'));
+      assert.strictEqual(f.app.rewardDialog.primaryEnabled, true, scenario);
+      if (scenario !== 'empty') {
+        assert.strictEqual(f.app.buildModel().currency.displayBalance, 10000, scenario);
+        assert(f.app.rewardDialog.message.includes('余额 10000，其中 100 待同步，购买时联网确认'), scenario);
+      }
       f.app.progressSync.flush = async () => {
         order.push('sync');
         if (scenario === 'account-changed') f.auth.clear('offline');
         if (scenario === 'offline') return { ok: false, reason: 'network' };
+        if (scenario === 'pending') {
+          f.app.rewardUnlocks.state.balance = 10000;
+          f.app.rewardUnlocks.state.claimedOrdinary['0:0'] = true;
+          assert(f.app.rewardUnlocks.write(f.app.rewardUnlocks.state));
+        }
         f.sync.acknowledge(f.sync.currentScope().pendingOperations.map(item => item.operationId));
         return { ok: true };
       };
       f.app.economy.purchase = async () => {
-        order.push('purchase'); return { ok: false, reason: 'insufficient-balance', newRewards: [] };
+        order.push('purchase');
+        if (scenario === 'pending') assert.strictEqual(f.app.rewardUnlocks.view().balance, 10000,
+          'pending earnings are cloud-confirmed before the purchase request');
+        return { ok: false, reason: 'insufficient-balance', newRewards: [] };
       };
       await f.app.requestRewardUnlock();
       assert.deepStrictEqual(order, scenario === 'pending' ? ['sync', 'purchase']
         : scenario === 'empty' ? ['purchase'] : ['sync'], scenario);
       if (scenario === 'offline') assert.strictEqual(f.sync.currentScope().pendingOperations.length, 1);
+      if (scenario === 'offline') {
+        assert.strictEqual(f.app.rewardUnlocks.view().balance, 9900);
+        assert.strictEqual(f.app.rewardUnlocks.owned('theme:desserts'), false);
+      }
     } finally { f.app.dispose(); }
   }
 }

@@ -987,8 +987,10 @@ class CanvasRenderer {
   }
 
   drawCurrency(currency, rect) {
-    const available = currency && currency.available === true && Number.isSafeInteger(currency.balance);
-    const balance = available ? currency.balance : null;
+    const preferred = currency && Number.isSafeInteger(currency.displayBalance) && currency.displayBalance >= 0
+      ? currency.displayBalance : currency && currency.balance;
+    const available = currency && currency.available === true && Number.isSafeInteger(preferred) && preferred >= 0;
+    const balance = available ? preferred : null;
     const label = balance === null ? '--' : balance >= 10000
       ? `${Math.floor(balance / 1000) / 10}万` : String(balance);
     const ctx = this.ctx;

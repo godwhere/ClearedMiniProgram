@@ -342,6 +342,26 @@ class SyncStore {
   isReadOnlyIdentityScope() { return !this.blocked && this.currentScope().readOnlyPhase === true; }
   authorityMode(domain) { return this.state.domainAuthority[domain || 'progress']; }
   authorityModes() { return clone(this.state.domainAuthority); }
+  rewardDisplayContext() {
+    const scope = this.currentScope();
+    const token = this.context();
+    return freeze({
+      ownerId: token.ownerId,
+      bindingEpoch: token.bindingEpoch,
+      activationSequence: token.activationSequence,
+      environmentId: token.environmentId,
+      authorityMode: this.authorityMode('economy'),
+      storageBlocked: this.blocked,
+      ownsLocalState: this.ownsLocalState(),
+      readOnlyPhase: !!(scope && scope.readOnlyPhase),
+      migrationState: scope && scope.migration ? scope.migration.state : null,
+      applicationPending: !!(scope && scope.pendingApplication),
+      restorePending: !!(scope && scope.pendingBackupRestore),
+      pendingOperations: scope ? scope.pendingOperations.filter(item =>
+        item.type === 'MAIN_LEVEL_COMPLETED' || item.type === 'DAILY_LEVEL_COMPLETED'
+      ).map(clone) : []
+    });
+  }
   allowsLocalGameplay() { return this.ownsLocalState() || (this.isReadOnlyIdentityScope() && this.authorityMode('progress') === 'legacy-local'); }
   localContext() {
     const scope = this.scopeFor(this.state.localOwnerId, this.state.localEnvironmentId);

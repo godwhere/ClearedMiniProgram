@@ -51,6 +51,17 @@ function run() {
   assert.strictEqual(currencyFontSize, 17, 'currency amount matches the compact stamina font size');
   assert(bareCurrency.ctx.calls.some(call => call.op === 'fillText' && call.args[0] === '2400'));
 
+  const derivedCurrency = renderer(390);
+  derivedCurrency.renderer.drawCurrency({ available: true, balance: 2400,
+    pendingRewardAmount: 100, displayBalance: 2500 }, { x: 100, y: 40, w: 78, h: 44 });
+  assert(derivedCurrency.ctx.calls.some(call => call.op === 'fillText' && call.args[0] === '2500'),
+    'home currency prefers the derived display balance');
+  const fallbackCurrency = renderer(390);
+  fallbackCurrency.renderer.drawCurrency({ available: true, balance: 2400,
+    displayBalance: -1 }, { x: 100, y: 40, w: 78, h: 44 });
+  assert(fallbackCurrency.ctx.calls.some(call => call.op === 'fillText' && call.args[0] === '2400'),
+    'invalid or absent derived values fall back to the confirmed balance');
+
   [[320, 0, '0'], [375, 9999, '9999'], [390, 10000, '1万'], [390, 100000, '10万']].forEach(entry => {
     const test = renderer(entry[0]);
     test.renderer.render(homeModel(entry[1]), 1);
