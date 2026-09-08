@@ -15,6 +15,7 @@ const tests = [
   ['cloud stage 5 stamina and preferences', require('./cloud-stage5-client.test.js')],
   ['cloud local-first checkpoint sync and request counts', require('./cloud-checkpoint-sync.test.js')],
   ['cloud settlement mode bootstrap routing', require('./cloud-mode-routing.test.js')],
+  ['single settlement bootstrap composition', require('./single-settlement-bootstrap.test.js')],
   ['cloud rollout admission and first save', require('./cloud-rollout.test.js')],
   ['stage 4 private client backup', require('./stage4-client-backup.test.js')],
   ['stage 4 synthetic legacy save', require('./stage4-synthetic-save.test.js')],

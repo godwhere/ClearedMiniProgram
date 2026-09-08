@@ -23,8 +23,6 @@ const AuthService = require('./services/auth-service.js');
 const ProgressSyncService = require('./services/progress-sync-service.js');
 const AuthoritativeStateApplier = require('./services/authoritative-state-applier.js');
 const PreferencesService = require('./services/preferences-service.js');
-const BackupSnapshot = require('./services/backup-snapshot.js');
-const CloudBackupService = require('./services/cloud-backup-service.js');
 const EconomyService = require('./services/economy-service.js');
 const BehaviorService = require('./services/behavior-service.js');
 const EngagementService = require('./services/engagement-service.js');
@@ -46,27 +44,27 @@ function cloudConfigForEnvironment(environmentVersion, loadLocalConfig) {
   if (environmentVersion === 'release') {
     // A formal package uses only the checked-in production lane, never the
     // ignored developer override or the preview runtime boundary.
-    return Object.assign({}, cloudbaseConfig, cloudbaseReleaseConfig);
+    return Object.assign({}, cloudbaseConfig, cloudbaseReleaseConfig, { localBackupEnabled: false });
   }
   if (environmentVersion === 'trial') {
     // Uploaded previews cannot contain the ignored developer override. The
     // checked-in internal lane stays trial-only; server admission is separate.
-    return Object.assign({}, cloudbaseConfig, cloudbaseInternalConfig);
+    return Object.assign({}, cloudbaseConfig, cloudbaseInternalConfig, { localBackupEnabled: false });
   }
   if (environmentVersion === 'develop') {
     try {
       // Keep a literal path so DevTools' unused-file filter includes it.
       // Missing/invalid local overrides are caught below.
       const local = loadLocalConfig ? loadLocalConfig() : require('./config/cloudbase.local.js');
-      return Object.assign({}, cloudbaseConfig, local);
+      return Object.assign({}, cloudbaseConfig, local, { localBackupEnabled: false });
     } catch (error) {
       // A QR preview may report develop even though ignored local files were
       // removed during upload. In that case use the same server-allowlisted
       // internal lane as trial; release can never reach this branch.
-      return Object.assign({}, cloudbaseConfig, cloudbaseInternalConfig);
+      return Object.assign({}, cloudbaseConfig, cloudbaseInternalConfig, { localBackupEnabled: false });
     }
   }
-  return cloudbaseConfig;
+  return Object.assign({}, cloudbaseConfig, { localBackupEnabled: false });
 }
 
 function start() {
@@ -74,7 +72,6 @@ function start() {
   const environmentVersion = platform.getMiniProgramEnvironmentVersion();
   const isDeveloperRuntime = ['develop', 'trial'].includes(environmentVersion);
   const cloudConfig = cloudConfigForEnvironment(environmentVersion);
-  const initialArchive = BackupSnapshot.localArchiveState(platform);
   const subpackages = new SubpackageService(platform, subpackageConfig);
   const progress = new ProgressStore(platform);
   const stamina = new StaminaService(platform, staminaConfig);
@@ -92,14 +89,11 @@ function start() {
   const profile = new ProfileService(platform, api, auth, engagementConfig.profile, behavior);
   const authoritativeApplier = new AuthoritativeStateApplier({ progress, daily: dailyStore,
     rewards: rewardUnlocks, stamina, preferences, syncStore, sessions }, null);
-  const backupSnapshots = new BackupSnapshot({ progress, daily: dailyStore, rewards: rewardUnlocks, stamina, preferences });
-  const cloudBackup = new CloudBackupService(api, auth, syncStore, backupSnapshots, authoritativeApplier, cloudConfig,
-    { initialArchive });
   const economy = new EconomyService(platform, api, auth, syncStore, rewardUnlocks, authoritativeApplier);
   const progressSync = new ProgressSyncService(api, progress, syncStore, auth,
-    Object.assign({}, engagementConfig.progressSync, { localBackupEnabled: cloudConfig.localBackupEnabled === true }), behavior,
+    Object.assign({}, engagementConfig.progressSync, { localBackupEnabled: false }), behavior,
     { daily: dailyStore, rewards: rewardUnlocks, stamina, preferences, sessions, economy,
-      applier: authoritativeApplier, backup: cloudBackup });
+      applier: authoritativeApplier });
   const ads = new AdsService(platform, adConfig, { nextAttemptId: () => syncStore.nextId('adatt_') });
   const rewards = new RewardService(platform, api, auth, syncStore,
     { enabled: engagementConfig.rewards.dailyExtraEntryEnabled === true || engagementConfig.share.rewardsEnabled === true }, behavior);
@@ -124,7 +118,7 @@ function start() {
       platform.isDevTools() === true
   });
   const app = new ClearedApp(platform, {
-    stamina, preferences, rewardUnlocks, syncStore, economy, authoritativeApplier, cloudBackup,
+    stamina, preferences, rewardUnlocks, syncStore, economy, authoritativeApplier,
     progress, dailyStore, auth, progressSync, behavior, ads, engagement, profile, share, rewards, hintAccess,
     subpackages,
     skins,
@@ -148,7 +142,6 @@ function start() {
   preferences.bind({ skins: app.skins, clearEffects: app.clearEffects, audio: app.audio,
     canUse: (kind, itemId) => app.rewardUnlocks.canUse(kind, itemId) });
   authoritativeApplier.accountGuard = app.accountGuard;
-  cloudBackup.accountGuard = app.accountGuard;
   economy.accountGuard = app.accountGuard;
   progressSync.prepareMigrationSnapshot = () => app.prepareLegacyMigration();
   app.start();

@@ -39,10 +39,6 @@
         "type": "file"
       },
       {
-        "value": "THIRD_PARTY_NOTICES.md",
-        "type": "file"
-      },
-      {
         "value": "data/clearedset_train.json",
         "type": "file"
       },
