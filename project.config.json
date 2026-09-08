@@ -3,10 +3,6 @@
   "packOptions": {
     "ignore": [
       {
-        "value": "pages",
-        "type": "folder"
-      },
-      {
         "value": "tests",
         "type": "folder"
       },
@@ -16,22 +12,6 @@
       },
       {
         "value": "src/config/cloudbase.local.js",
-        "type": "file"
-      },
-      {
-        "value": "app.js",
-        "type": "file"
-      },
-      {
-        "value": "app.json",
-        "type": "file"
-      },
-      {
-        "value": "app.wxss",
-        "type": "file"
-      },
-      {
-        "value": "sitemap.json",
         "type": "file"
       },
       {
@@ -59,10 +39,6 @@
         "type": "file"
       },
       {
-        "value": "assets/audio/victory.m4a",
-        "type": "file"
-      },
-      {
         "value": "assets/skins/animals/drafts",
         "type": "folder"
       },
@@ -84,10 +60,6 @@
       },
       {
         "value": ".gitignore",
-        "type": "file"
-      },
-      {
-        "value": "assets/icons/bomb.png",
         "type": "file"
       }
     ],

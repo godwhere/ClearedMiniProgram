@@ -57,7 +57,10 @@ data/                                关卡、解答、难度和每日题面
 src/mechanics/                       Portal、冰封等 data-only 机制声明
 src/skins/ 与 src/effects/           只影响表现的主题和消除效果声明
 assets/                              Logo、音频、图标、预览与主题精灵表
+docs/                                玩法、架构、联网和发布约定
+scripts/                             关卡生成、资源校验与发布前检查工具
 tests/                               规则、服务、渲染、同步和启动回归测试
+.github/workflows/                   持续集成测试
 ```
 
 最新一轮架构调整先从 `src/app.js` 中抽离了两项容易独立验证的职责：`daily-progress-adapter.js` 兼容每日存档的新旧调用形式并统一返回结果，`daily-view-model.js` 把已经解析好的每日状态映射成 Renderer 所需字段。两个模块都不持有 App、Runner、平台或云服务，也不创建第二套每日状态；每日场景、当前 Runner、关卡推进和云待办顺序仍由 App 编排。
@@ -70,7 +73,8 @@ tests/                               规则、服务、渲染、同步和启动�
 - 存档 key、关卡 ID 和机制版本保持稳定；奖励、体力和云端操作使用去重记录，保存失败不会先行发奖或破坏内存状态。
 - 金币仍只有一份云确认钱包；`RewardUnlockService` 额外派生待同步奖励的只读显示合计，App 负责传递，Renderer 只负责绘制，不读取云待办或计算奖励。
 - 原始关卡保存在 JSON 中，提交到小游戏的是生成后的 JavaScript 模块；发布测试会回放正式解答并校验目录、难度和兼容关系。
-- `pages/` 及根目录旧小程序文件只是迁移参考，已从小游戏包中排除。
+- `scripts/theme-extraction/runs/` 只存放本地生成的素材检查结果，已加入 Git 忽略，不再把中间产物提交到仓库。
+- `game.js` 是仓库中唯一的客户端入口；旧小程序的 `pages/` 与根目录旧入口已经删除，不再保留两套并行结构。
 
 更完整的依赖方向和扩展规则见 [玩法拓展架构](docs/gameplay-extension-architecture.md)。
 

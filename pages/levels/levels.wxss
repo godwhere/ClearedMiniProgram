@@ -1,8 +1,0 @@
-.levels-page { padding-top: 24rpx; }
-.set-card { background: #fff; border-radius: 24rpx; padding: 28rpx; margin-bottom: 24rpx; box-shadow: 0 8rpx 24rpx rgba(33, 55, 70, .06); }
-.set-header { display: flex; align-items: center; margin-bottom: 24rpx; }
-.set-dot { width: 26rpx; height: 26rpx; border-radius: 50%; margin-right: 18rpx; }
-.set-name { display: block; font-size: 34rpx; font-weight: 600; }
-.set-count { display: block; color: #7b8993; margin-top: 4rpx; font-size: 24rpx; }
-.level-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 14rpx; }
-.level-button { margin: 0; padding: 0; height: 68rpx; line-height: 68rpx; font-size: 26rpx; color: #234052; background: #edf4f7; border-radius: 14rpx; }

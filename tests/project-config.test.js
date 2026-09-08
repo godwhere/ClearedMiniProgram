@@ -68,6 +68,11 @@ function run() {
   assert(ignored('src/config/cloudbase.local.js'));
   assert(!ignored('src/config/cloudbase.internal.js'));
   assert(ignored('assets/skins/animals/drafts/example.png'));
+  ['pages', 'app.js', 'app.json', 'app.wxss', 'sitemap.json', 'design-qa.md',
+    'assets/audio/victory.m4a', 'assets/icons/bomb.png'].forEach(file => {
+    assert.strictEqual(fs.existsSync(path.join(root, file)), false,
+      `${file} must not return as a parallel or obsolete artifact`);
+  });
   ['docs/package-splitting.md', '.github/workflows/check.yml', 'AGENTS.md',
     '.gitattributes', '.gitignore'].forEach(file => assert(ignored(file), file));
   ['src/bootstrap.js', 'core/game-runner.js', 'data/catalog.js', 'src/skins/classic.js',

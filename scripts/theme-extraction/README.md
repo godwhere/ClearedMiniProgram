@@ -38,6 +38,9 @@ scripts/theme-extraction/runs/<timestamp>/<theme-id>/
   report.json                    mapping, bounds, margin, and review status
 ```
 
+The `runs/` directory contains generated review artifacts and is ignored by Git.
+Only reviewed final sprite sheets belong under `assets/skins/`.
+
 An explicit candidate directory can be used during testing:
 
 ```sh

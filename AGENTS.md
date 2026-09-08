@@ -33,7 +33,7 @@
 - `src/skins/*.js` 和 `src/effects/*.js` 应保持声明式 manifest；注册顺序集中在各自 `index.js`。主题和特效不能改变连线规则，也不能注入平台调用或任意业务回调。
 - `src/mechanics/*.js` 是 data-only 的玩法拓展定义，只能声明稳定 ID、规则版本、资源和试玩内容依赖；不得携带触摸、结算、存档、Canvas、平台或远程脚本回调。
 - 处理玩法拓展时必须区分“关卡来源/进度域”和“棋盘机制”：试玩是否写进度由来源决定，portal 等机制只决定规则与展示。详细迁移边界见 `docs/gameplay-extension-architecture.md`。
-- `pages/` 及根目录 `app.js`、`app.json`、`app.wxss` 是已从小游戏包排除的迁移参考。除非任务明确针对旧小程序，否则新功能只改当前 Canvas 运行时。
+- 旧小程序的 `pages/` 及根目录 `app.js`、`app.json`、`app.wxss` 已删除。除非任务明确要求恢复旧实现，否则不得重新引入平行页面结构；新功能只改当前 Canvas 运行时。
 - scene/action/hit ID、存档 key、关卡 ID 和已发布 manifest ID 都是兼容契约；非必要不要重命名或复用。
 
 ## 实现约束

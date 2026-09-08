@@ -8,8 +8,8 @@
 实施基线已合入 `main@0ad6357d11c96111630c5e66d41f303a4db39b84`，保留其 Portal 混合章节和提示更新。
 下文保留原始设计与验收边界；当前启动注入依照最新 bootstrap，已删除的 Portal 试玩不会重新引入。
 源码预算通过，BGM 保留在主包；使用 `node scripts/check-package-budget.js` 获取当前字节统计。
-素材校验沿用现有 CLI：不传参数时只检查正式精灵表并跳过 drafts；显式扫描 `assets/skins`
-会包含已排除发布的动物旧稿，其尺寸和安全边不合格。正式十张素材使用默认扫描全部通过，未修改校验器或任何 PNG。
+素材校验沿用现有 CLI：不传参数时检查十张正式精灵表；历史动物草稿已从仓库删除。
+正式十张素材使用默认扫描全部通过，未修改校验器或任何正式 PNG。
 
 以上“未修改 PNG”及第 5 节文件清单仅记录首轮分包实施。2026-09-03 后续接入的主包主题小图、
 两张特效缩略图及其严格代码边界，以 [`corridor-preview-assets.md`](corridor-preview-assets.md) 为准。
@@ -311,7 +311,7 @@ pages/**
 2. `root` 必须唯一、互不嵌套并以 `/` 结尾。
 3. 每个 `root` 下必须存在 `game.js`。
 4. 不得把完整 `assets/skins` 目录加入 ignore。
-5. `assets/skins/animals/drafts/` 继续排除。
+5. 主题目录只提交正式精灵表与分包入口；本地草稿目录继续由发布配置排除。
 
 ---
 
@@ -342,13 +342,8 @@ pages/**
 }
 ```
 
-`assets/icons/bomb.png` 只有在全仓搜索确认无运行时引用后才可追加 ignore：
-
-```bash
-rg -n "bomb\.png|assets/icons/bomb" .
-```
-
-`assets/icons/portal.png` 必须保留。
+评估阶段的 `assets/icons/bomb.png` 没有运行时引用，已在后续结构清理中删除；
+正式使用的 `assets/icons/portal.png` 必须保留。
 
 不要为本任务修改 `uploadWithSourceMap`；是否关闭只能根据开发者工具最终报告单独决定。
 
@@ -906,7 +901,7 @@ PASS total             15.50 MiB / 18.00 MiB
 - `src/config/subpackages.js` 与 `game.json` 一致。
 - 每个主题 ID 映射到正确 root。
 - 正式主题目录没有被 ignore。
-- `assets/skins/animals/drafts` 仍被排除。
+- 本地主题草稿路径仍被排除，仓库中不提交历史草稿。
 - Portal 图标未被排除。
 
 ### 15.4 `tests/package-budget.test.js`
@@ -1136,7 +1131,7 @@ Git HTTPS 拉取因本机未配置凭据失败；已通过已连接的 GitHub AP
 - 阶段 A、B、C 均通过当时的 35 组全量测试；阶段 D 最终 36 组测试全部通过。
 - node tests/run.js：通过，新增两组测试均已注册。
 - node scripts/validate-theme-assets.js：正式十张图全部通过（2000×800、10 槽、24px 安全边）。
-- node scripts/validate-theme-assets.js assets/skins：也扫描历史 drafts，动物旧稿失败；该文件原已被发布配置排除，未修改素材或校验器。
+- node scripts/validate-theme-assets.js assets/skins：当前扫描仓库内正式主题素材；历史动物草稿已在后续结构清理中删除。
 - node scripts/check-package-budget.js：全部预算通过，超限/非法配置的非零退出码有回归覆盖。
 - git diff --check：通过。
 - 阶段 B 曾遇到原有 Portal 提示测试中两次 getViewState 的 elapsedMs 相差 1ms；未修改无关测试，复查与最终测试通过。

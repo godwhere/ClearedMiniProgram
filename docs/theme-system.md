@@ -180,12 +180,12 @@ scripts/theme-extraction/
   ThemeExtractor.swift                         # macOS/Vision 批处理工具
   themes.json                                  # 10 套主题、色槽和提取配置
   README.md                                    # 构建、运行和人工覆盖说明
-  runs/20260901-all-v1/<theme-id>/              # 本次候选图集、独立槽位、接触表与报告
+  runs/<run-id>/<theme-id>/                     # 本地生成且 Git 忽略的候选图集与检查报告
 scripts/validate-theme-assets.js                # 正式资源像素合同校验
 tests/theme-assets.test.js                      # 10 套 manifest/正式图集回归测试
 ```
 
-批处理默认只写入 `scripts/theme-extraction/runs/<run-id>/`，不会直接覆盖 `assets/skins`。候选结果必须先检查带编号接触表和 `report.json`，确认色槽、分离细节、透明边缘与视觉重心，再提升为正式资源。本次替换前旧表已按用户确认移出项目，不再作为项目内备份保留。
+批处理默认只写入 Git 忽略的 `scripts/theme-extraction/runs/<run-id>/`，不会直接覆盖 `assets/skins`。候选结果必须先检查带编号接触表和 `report.json`，确认色槽、分离细节、透明边缘与视觉重心，再提升为正式资源。仓库只保留已确认的正式精灵表，不提交候选运行目录或旧表备份。
 
 ## 7. 代码边界矩阵
 
@@ -303,7 +303,7 @@ tests/theme-assets.test.js                      # 10 套 manifest/正式图集�
 已按“大头头像”方向接入一套动物主题素材：
 
 - `assets/skins/animals/animal-sprite-sheet.png`：10 个哺乳动物头像，5×2 正方形精灵单元，透明 RGBA；
-顺序为：熊猫、兔子、狐狸、狮子、老虎、大象、长颈鹿、猴子、河马、小猪。manifest 位于 `src/skins/animals.js`，已注册到 `src/skins/index.js`，并复用通用的底砖、切片、分页和持久化协议。当前运行时 `tileVisuals.scale: 1`；`assets/skins/animals/drafts/` 中的旧全身版本不参与打包；正式真机视觉验收仍待进行。
+顺序为：熊猫、兔子、狐狸、狮子、老虎、大象、长颈鹿、猴子、河马、小猪。manifest 位于 `src/skins/animals.js`，已注册到 `src/skins/index.js`，并复用通用的底砖、切片、分页和持久化协议。当前运行时 `tileVisuals.scale: 1`；仓库只保留这份正式头像精灵表，旧全身草稿已删除。
 
 ## 12. 水果主题（已接入）
 
