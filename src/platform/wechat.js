@@ -14,6 +14,28 @@ class WechatPlatform {
     return this.api.getSystemInfoSync();
   }
 
+  getSystemLanguage() {
+    const hasBaseInfo = !!(this.api && typeof this.api.getAppBaseInfo === 'function');
+    const hasSystemInfo = !!(this.api && typeof this.api.getSystemInfoSync === 'function');
+    try {
+      const info = hasBaseInfo
+        ? this.api.getAppBaseInfo() : null;
+      if (info && typeof info.language === 'string') return info.language;
+    } catch (error) {}
+    try {
+      const info = hasSystemInfo
+        ? this.api.getSystemInfoSync() : null;
+      if (info && typeof info.language === 'string') return info.language;
+    } catch (error) {
+      return null;
+    }
+    // Lightweight legacy hosts used before localization expose neither
+    // official language API. Preserve their established Chinese presentation;
+    // supported WeChat runtimes with an empty/invalid language still return
+    // null and follow the product fallback to English.
+    return hasBaseInfo || hasSystemInfo ? null : 'zh-CN';
+  }
+
   // The Developer Tools simulator identifies itself through the same system
   // information field used by WeChat's official debug flows. Keep detection
   // behind the platform adapter so game rules never read `wx` directly.

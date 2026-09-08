@@ -1,4 +1,6 @@
 const tests = [
+  ['localization catalogs and stable display mappings', require('./localization.test.js')],
+  ['locale resolution and device preference', require('./locale-service.test.js')],
   ['local backup settlement', require('./local-backup-settlement.test.js')],
   ['cloud backup cadence and stale acknowledgements', require('./cloud-backup-service.test.js')],
   ['cloud backup restore and conflicts', require('./cloud-backup-restore.test.js')],

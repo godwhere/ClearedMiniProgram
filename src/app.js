@@ -27,6 +27,24 @@ const completionPolicies = require('./gameplay/completion-policies.js');
 const BoardInputController = require('./gameplay/board-input-controller.js');
 const dailyProgressAdapter = require('./services/daily-progress-adapter.js');
 const buildDailyViewModel = require('./ui/view-models/daily-view-model.js');
+const i18n = require('./i18n/index.js');
+
+function compatibilityLocale() {
+  let locale = 'zh-CN';
+  const shift = offset => {
+    const index = i18n.SUPPORTED_LOCALES.indexOf(locale);
+    const length = i18n.SUPPORTED_LOCALES.length;
+    locale = i18n.SUPPORTED_LOCALES[((index + offset) % length + length) % length];
+    return { ok: true, persisted: false, locale };
+  };
+  return {
+    current() { return locale; },
+    t(key, params) { return i18n.translate(locale, key, params); },
+    displayName(value) { return i18n.localeDisplayName(value === undefined ? locale : value); },
+    previous() { return shift(-1); },
+    next() { return shift(1); }
+  };
+}
 
 // Daily challenge files are introduced independently from the ordinary
 // level/catalog pipeline.  Keep direct app construction (including older
@@ -208,6 +226,7 @@ class ClearedApp {
   constructor(platform, options) {
     const opts = options || {};
     this.platform = platform;
+    this.locale = opts.locale || compatibilityLocale();
     this.subpackages = opts.subpackages || null;
     this.pendingSkinId = null;
     this.skinLoadRequestId = 0;
@@ -371,7 +390,7 @@ class ClearedApp {
         ? opts.onDailyReviveRequested
         : function () {});
 
-    this.renderer = new CanvasRenderer(platform, this.skins, this.clearEffects, this.subpackages);
+    this.renderer = new CanvasRenderer(platform, this.skins, this.clearEffects, this.subpackages, this.locale);
     this.renderer.setInvalidate(() => this.invalidate());
     this.boardInput = new BoardInputController(null, this.renderer);
 
@@ -485,7 +504,7 @@ class ClearedApp {
     const restorePending = this.syncStore && this.syncStore.currentScope && this.syncStore.currentScope().pendingBackupRestore;
     if (this.authorityMode(null, domain) !== 'migration-freeze' && !restorePending) return false;
     if (this.scene !== 'account') this.openAccount();
-    this.accountMessage = restorePending ? '云备份恢复尚未完整保存，完成前不能继续游玩' : '正在迁移本地存档，完成前不能开始新关卡或领取资产';
+    this.accountMessage = this.t(restorePending ? 'account.guard.restorePending' : 'account.guard.migrating');
     this.invalidate();
     return true;
   }
@@ -1064,7 +1083,7 @@ class ClearedApp {
       expectedExits,
       expectedExit: mechanicState.rulesVersion === 1 && expectedExits.length === 1
         ? expectedExits[0] : null,
-      instruction: portalInstructions.forState(mechanicState),
+      instruction: portalInstructions.forState(mechanicState, this.locale),
       lockedEntry: locked && Number.isInteger(locked.entry) ? locked.entry : null
     } : null;
     return {
@@ -1153,7 +1172,12 @@ class ClearedApp {
         (this.scene === 'home' ? !homeDailyEntry.allowed : this.scene === 'dailyResult' &&
           activeDaily && activeDaily.result && activeDaily.result.outcome !== OUTCOME.FAILED && activeDaily.entriesRemaining <= 0)),
       dailyExtraEntryPending: !!this.dailyExtraRequest,
-      dailyRewardMessage: this.dailyRewardMessage && dailyResolution && this.dailyRewardMessage.dateKey === dailyResolution.dateKey ? this.dailyRewardMessage.text : '',
+      dailyRewardMessage: this.dailyRewardMessage && dailyResolution &&
+        this.dailyRewardMessage.dateKey === dailyResolution.dateKey
+        ? (this.dailyRewardMessage.key
+          ? this.t(this.dailyRewardMessage.key)
+          : this.dailyRewardMessage.text)
+        : '',
       // Count only published ordinary levels. Retired catalog coordinates may
       // remain in an upgraded player's save and must not inflate this total.
       completedCount: this.ordinaryCompletedCount(),
@@ -1193,7 +1217,7 @@ class ClearedApp {
       return Object.assign(base, {
         accountStatus: this.auth && this.auth.readOnlyPhase && !(this.cloudBackup && this.cloudBackup.enabled()) ? 'local' : status,
         accountMessage: this.accountMessage || (this.auth && this.auth.readOnlyPhase && !(this.cloudBackup && this.cloudBackup.enabled())
-          ? sync.status === 'cloud-readonly' ? '云身份／只读测试，本地存档未上传' : '云身份测试未连接，仍使用本地存档' : ''),
+          ? this.t(sync.status === 'cloud-readonly' ? 'sync.readOnly' : 'sync.identityOffline') : ''),
         profileSupported: !!(this.profile && this.profile.isSupported()),
         profilePending: this.accountProfilePending,
         syncPending: !!this.accountSyncPending,
@@ -1349,8 +1373,8 @@ class ClearedApp {
         levelIndex: activeLevelIndex,
         ordinaryLevelNumber: ordinaryPosition >= 0 ? ordinaryPosition + 1 : null,
         ordinaryLevelCount: catalog.levels.length,
-        beginnerInstruction: context && context.mechanic.id === 'ice' ? '冰封格需要两次连线\n第一次破冰，第二次消除地板' : ordinaryPosition >= 0 && ordinaryPosition < 5
-          ? (ordinaryPosition === 0 ? '连接两个相同的色块或物体' : '别漏掉空白格，全部消除才能通关哦') : null,
+        beginnerInstruction: context && context.mechanic.id === 'ice' ? this.t('play.iceInstruction') : ordinaryPosition >= 0 && ordinaryPosition < 5
+          ? this.t(ordinaryPosition === 0 ? 'play.firstInstruction' : 'play.clearEveryTileInstruction') : null,
         board: boardView && boardView.board,
         mechanic: boardView ? boardView.mechanic : { portal: null },
         elapsedText: boardView ? boardView.elapsedText : '0:00',
@@ -1358,7 +1382,7 @@ class ClearedApp {
         levelEnteredAt: this.levelEnteredAt,
         clearAnimation: this.clearAnimation,
         hintAvailable: !!boardView && !boardView.terminal && (trial || hintEnabled),
-        hintLabel: trial ? '提示' : base.hintLabel,
+        hintLabel: trial ? this.t('play.hint') : base.hintLabel,
         result: this.result,
         firstClearRewardAmount: rewardConfig.currency.ordinaryFirstClear,
         staminaRefund: context && !trial ? this.stamina.quickClearRefundState(`${context.setIndex}:${activeLevelIndex}`) : null,
@@ -1376,6 +1400,13 @@ class ClearedApp {
 
   invalidate() {
     this.dirty = true;
+  }
+
+  t(key, params) {
+    try {
+      if (this.locale && typeof this.locale.t === 'function') return this.locale.t(key, params);
+    } catch (error) {}
+    return i18n.translate('zh-CN', key, params);
   }
 
   handleBoardInputEvents(events) {
@@ -1969,6 +2000,19 @@ class ClearedApp {
         activeResult.currencyReward.status === 'pending');
     }
     if (action.indexOf('reward:') === 0) return false;
+    if (action === 'account:language:prev' || action === 'account:language:next') {
+      if (this.scene !== 'account') return false;
+      const method = action === 'account:language:next'
+        ? 'next' : 'previous';
+      if (!this.locale || typeof this.locale[method] !== 'function') return false;
+      this.locale[method]();
+      // Transient account feedback is already rendered state, not business
+      // state. Clear it so the newly selected locale is visible immediately.
+      this.accountMessage = '';
+      if (this.profile) this.mountAccountProfile();
+      this.invalidate();
+      return true;
+    }
     if (action === 'home:stamina') {
       if (this.scene !== 'home') return false;
       this.homeStaminaExpanded = !this.homeStaminaExpanded;
@@ -2042,7 +2086,7 @@ class ClearedApp {
       const task = this.platform.openPrivacyContract ? this.platform.openPrivacyContract() : Promise.resolve({ ok: false });
       Promise.resolve(task).then(result => {
         if (!this.isCurrentAccount(account) || this.scene !== 'account' || generation !== this.accountSceneGeneration) return;
-        if (!result.ok) this.accountMessage = '暂时无法打开隐私协议';
+        if (!result.ok) this.accountMessage = this.t('account.privacyOpenFailed');
         this.invalidate();
       }).catch(function () {});
     } else if (action === 'home:dailyChallenge' || action === 'home:daily') {
@@ -2096,7 +2140,7 @@ class ClearedApp {
       const id = action.slice('theme:'.length);
       if (this.rewardUnlocks.canUse('theme', id)) {
         if (!this.setSkin(id) && this.openRewardDialog(`theme:${id}`, 'unlocked')) {
-          this.rewardDialog.state = 'error'; this.rewardDialog.message = '应用保存失败，请重试';
+          this.rewardDialog.state = 'error'; this.rewardDialog.message = this.t('reward.applySaveFailed');
         }
       }
       else this.openRewardDialog(`theme:${id}`);
@@ -2139,7 +2183,7 @@ class ClearedApp {
       const id = action.slice('effect:'.length);
       if (this.rewardUnlocks.canUse('effect', id)) {
         if (!this.setClearEffect(id) && this.openRewardDialog(`effect:${id}`, 'unlocked')) {
-          this.rewardDialog.state = 'error'; this.rewardDialog.message = '应用保存失败，请重试';
+          this.rewardDialog.state = 'error'; this.rewardDialog.message = this.t('reward.applySaveFailed');
         }
       }
       else this.openRewardDialog(`effect:${id}`);
@@ -2316,18 +2360,19 @@ class ClearedApp {
   }
 
   hintButtonLabel(state, context) {
-    if (this.hintRequest) return '处理中';
+    if (this.hintRequest) return this.t('common.processing');
     if (!state) {
       context = this.hintContext();
       state = this.engagement.hintState ? this.engagement.hintState(context) : { mode: 'free' };
     }
-    if (state.action === 'unavailable') return '提示不可用';
-    if (state.mode !== 'share' && state.mode !== 'tiered') return '提示';
-    if (state.action === 'busy') return '处理中';
-    if (state.action === 'retry-save') return '重试保存';
+    if (state.action === 'unavailable') return this.t('hint.unavailable');
+    if (state.mode !== 'share' && state.mode !== 'tiered') return this.t('play.hint');
+    if (state.action === 'busy') return this.t('common.processing');
+    if (state.action === 'retry-save') return this.t('common.retrySave');
     if (context && this.hintFeedback && context.dateKey === this.hintFeedback.dateKey &&
         context.levelKey === this.hintFeedback.levelKey && state.action === this.hintFeedback.action) return this.hintFeedback.label;
-    return { view: '查看提示', free: '免费提示', share: '分享解锁', rewarded: '广告解锁' }[state.action] || '提示不可用';
+    const key = { view: 'hint.view', free: 'hint.free', share: 'hint.shareUnlock', rewarded: 'hint.adUnlock' }[state.action];
+    return this.t(key || 'hint.unavailable');
   }
 
   dailyRewardContext() {
@@ -2367,10 +2412,15 @@ class ClearedApp {
       if (!this.isCurrentAccount(token.account)) return;
       const applied = grant.ok ? this.applyDailyGrant(grant) : grant;
       if (this.dailyExtraRequest !== token || this.scene !== token.scene || this.runSequence !== token.runKey) return;
-      this.dailyRewardMessage = { dateKey: context.dateKey, text: applied.ok ? '已获得一次额外进入机会'
-        : applied.reason === 'closed' ? '未完整观看，未增加次数'
-          : applied.reason === 'DAILY_REWARD_LIMIT_REACHED' ? '今日额外次数已领取'
-            : '暂未增加次数，请稍后重试' };
+      const messageKey = applied.ok ? 'daily.extraAttemptGranted'
+        : applied.reason === 'closed' ? 'daily.extraAttemptVideoIncomplete'
+          : applied.reason === 'DAILY_REWARD_LIMIT_REACHED' ? 'daily.extraAttemptLimitReached'
+            : 'daily.extraAttemptFailed';
+      this.dailyRewardMessage = {
+        dateKey: context.dateKey,
+        key: messageKey,
+        text: this.t(messageKey)
+      };
     }).catch(function () {}).finally(() => {
       if (this.dailyExtraRequest === token) this.dailyExtraRequest = null;
       if (!this.disposed) this.invalidate();
@@ -2405,7 +2455,7 @@ class ClearedApp {
       if (this.boardInput.isActive()) return false;
       const hint = this.resolveCompleteHint(runner);
       if (!hint || !this.createHintPreview(runner, hint, 0)) {
-        this.hintFeedback = Object.assign({}, context, { action: state.action, label: '暂无提示' });
+        this.hintFeedback = Object.assign({}, context, { action: state.action, label: this.t('hint.none') });
         this.audio.playSfx('error');
         this.invalidate();
         return false;
@@ -2425,9 +2475,10 @@ class ClearedApp {
         if (!context || context.dateKey !== this.hintAccess.dateKey()) return false;
         if (result.dateKey !== context.dateKey || result.levelKey !== context.levelKey) return false;
         if (!result.granted && !result.unlocked) {
-          const label = result.reason === 'persist-failed' ? '重试保存'
-            : result.action === 'rewarded' ? (result.reason === 'closed' ? '广告解锁' : '重试广告')
-              : ['not-supported', 'not-configured'].includes(result.reason) ? '分享不可用' : '重试分享';
+          const key = result.reason === 'persist-failed' ? 'common.retrySave'
+            : result.action === 'rewarded' ? (result.reason === 'closed' ? 'hint.adUnlock' : 'hint.retryAd')
+              : ['not-supported', 'not-configured'].includes(result.reason) ? 'hint.shareUnavailable' : 'hint.retryShare';
+          const label = this.t(key);
           this.hintFeedback = Object.assign({}, context, { action: result.action, label });
         }
       }
@@ -2465,10 +2516,10 @@ class ClearedApp {
       rect: accountLayout(this.platform.metrics).profileButton,
       style: { color: skin.colors.text, backgroundColor: skin.colors.levelCell },
       onPending: pending => { if (current()) { this.accountProfilePending = pending; this.invalidate(); } },
-      onSuccess: () => { if (current()) { this.accountMessage = '头像昵称已保存'; this.invalidate(); } },
+      onSuccess: () => { if (current()) { this.accountMessage = this.t('account.profileSaved'); this.invalidate(); } },
       onDenied: result => {
         if (!current()) return;
-        this.accountMessage = result.reason === 'denied' ? '未授权，仍可继续游玩' : '资料暂未保存，请稍后重试';
+        this.accountMessage = this.t(result.reason === 'denied' ? 'account.profileDenied' : 'account.profileSaveFailed');
         this.invalidate();
       }
     });
@@ -2486,34 +2537,34 @@ class ClearedApp {
   cloudAccountMessage(result) {
     if (this.cloudBackup && this.cloudBackup.enabled()) {
       const state = this.cloudBackup.state();
-      if (state.confirmBackup) return '云端已有更新存档；请选择恢复，或确认用本机覆盖';
-      if (state.confirmRestore) return '发现云备份；确认后将替换本机存档';
-      if (state.status === 'backed-up') return '本地保存成功，云备份已是最新';
-      if (state.status === 'backup-pending') return '本地保存成功，云备份待更新';
-      if (state.status === 'restore-pending') return '恢复尚未完整保存，稍后将继续';
-      if (result && result.ok !== true) return '云备份未完成，本地存档保持可用';
-      return '本地保存成功；云端仅用于备份恢复';
+      if (state.confirmBackup) return this.t('sync.backupConflict');
+      if (state.confirmRestore) return this.t('sync.backupFound');
+      if (state.status === 'backed-up') return this.t('sync.backupCurrent');
+      if (state.status === 'backup-pending') return this.t('sync.backupPending');
+      if (state.status === 'restore-pending') return this.t('sync.restorePending');
+      if (result && result.ok !== true) return this.t('sync.backupIncomplete');
+      return this.t('sync.backupLocalPrimary');
     }
-    if (result && result.status === 'local-only') return '云同步尚未开放，继续本地游玩；存档保留在本机';
-    if (result && result.status === 'cloud-paused') return '云写入暂时关闭，云存档和待同步记录已保留';
+    if (result && result.status === 'local-only') return this.t('sync.localOnly');
+    if (result && result.status === 'cloud-paused') return this.t('sync.cloudPaused');
     if (!result || result.ok !== true) {
-      if (result && result.reason === 'account-mismatch') return '当前账号与本地存档绑定的账号不同';
-      if (result && result.reason === 'migration-required') return '检测到本地存档，等待安全迁移';
-      if (result && result.reason === 'migration-snapshot-missing') return '迁移档案不可用，已停止；本地存档未清除';
-      return '云连接未完成，本地进度已保留';
+      if (result && result.reason === 'account-mismatch') return this.t('sync.accountMismatch');
+      if (result && result.reason === 'migration-required') return this.t('sync.migrationRequired');
+      if (result && result.reason === 'migration-snapshot-missing') return this.t('sync.migrationSnapshotMissing');
+      return this.t('sync.connectionIncomplete');
     }
-    if (result.readOnlyPhase) return '云身份／只读测试，本地存档未上传';
-    if (result.status === 'migration-required') return '检测到本地存档，等待安全迁移';
-    if (result.purchaseRecovery && !result.purchaseRecovery.ok) return '购买结果待联网确认，本地余额未变';
-    if (result.status === 'cloud-pending') return '云存档待同步，本地进度已保留';
+    if (result.readOnlyPhase) return this.t('sync.readOnly');
+    if (result.status === 'migration-required') return this.t('sync.migrationRequired');
+    if (result.purchaseRecovery && !result.purchaseRecovery.ok) return this.t('sync.purchasePending');
+    if (result.status === 'cloud-pending') return this.t('sync.cloudPending');
     if (result.role === 'SUPPLEMENTAL') {
       return Array.isArray(result.conflicts) && result.conflicts.length
-        ? `补充存档已合并，${result.conflicts.length}项冲突未导入；原本地存档已保留`
-        : '补充存档已合并；原本地存档已保留';
+        ? this.t('sync.supplementMergedWithConflicts', { count: result.conflicts.length })
+        : this.t('sync.supplementMerged');
     }
     return this.authorityMode(null, 'stamina') === 'cloud-authoritative' &&
       this.authorityMode(null, 'preferences') === 'cloud-authoritative'
-      ? '云存档已同步' : '云存档已同步（体力和偏好保留在本机）';
+      ? this.t('sync.completed') : this.t('sync.completedLocalPreferences');
   }
 
   retryAccountSync() {
@@ -2525,8 +2576,8 @@ class ClearedApp {
       if (!this.isCurrentAccount(token.account) || this.accountSyncPending !== token || this.scene !== 'account' || this.hidden) return;
       this.accountSyncPending = null;
       this.accountMessage = this.auth && this.auth.mode === 'cloud' ? this.cloudAccountMessage(result)
-        : result.ok ? '同步完成' : result.reason === 'account-mismatch'
-          ? '当前账号与本地存档绑定的账号不同' : '当前使用本地存档，可稍后重试';
+        : result.ok ? this.t('sync.done') : result.reason === 'account-mismatch'
+          ? this.t('sync.accountMismatch') : this.t('sync.localRetryLater');
       this.invalidate();
     });
     return true;
@@ -2541,16 +2592,16 @@ class ClearedApp {
     Promise.resolve(task).then(result => {
       if (!this.isCurrentAccount(token.account) || this.accountSyncPending !== token || this.scene !== 'account' || this.hidden) return;
       this.accountSyncPending = null;
-      if (result.ok && result.found) this.accountMessage = '发现云备份；确认后将替换进度、资产、体力和设置';
-      else if (result.ok && result.restored) this.accountMessage = '云备份已恢复到本机';
-      else if (result.ok && result.found === false) this.accountMessage = '云端还没有备份';
-      else if (result.reason === 'restore-confirmation-stale') this.accountMessage = '等待期间本地存档已变化，请重新读取后确认';
-      else if (result.reason === 'backup-version-conflict') this.accountMessage = '云端已有更新存档；可恢复云备份，或确认用本机覆盖';
-      else this.accountMessage = '操作未完成，本地存档保持不变，可稍后重试';
+      if (result.ok && result.found) this.accountMessage = this.t('sync.backupFoundDetailed');
+      else if (result.ok && result.restored) this.accountMessage = this.t('sync.backupRestored');
+      else if (result.ok && result.found === false) this.accountMessage = this.t('sync.noBackup');
+      else if (result.reason === 'restore-confirmation-stale') this.accountMessage = this.t('sync.restoreStale');
+      else if (result.reason === 'backup-version-conflict') this.accountMessage = this.t('sync.backupVersionConflict');
+      else this.accountMessage = this.t('sync.operationFailed');
       this.invalidate();
     }).catch(() => {
       if (this.isCurrentAccount(token.account) && this.accountSyncPending === token) {
-        this.accountSyncPending = null; this.accountMessage = '网络不可用，本地存档保持不变'; this.invalidate();
+        this.accountSyncPending = null; this.accountMessage = this.t('sync.networkUnavailable'); this.invalidate();
       }
     });
     return true;
@@ -2856,35 +2907,43 @@ class ClearedApp {
     const unlocked = status.owned === true;
     const currency = this.rewardDisplayView();
     const balance = Number.isSafeInteger(currency.displayBalance) ? currency.displayBalance : currency.balance;
-    const pendingHint = Number.isSafeInteger(currency.pendingRewardAmount) && currency.pendingRewardAmount > 0
-      ? `，其中 ${currency.pendingRewardAmount} 待同步，购买时联网确认` : '';
-    let message = status.conditionType === 'ordinary_level' ? `通关第 ${status.displayLevel || '?'} 关解锁`
-      : status.conditionType === 'currency' ? `${status.cost} 货币解锁（余额 ${balance === null ? '--' : balance}${pendingHint}）`
-        : status.conditionType === 'rewarded_ad' ? `观看 ${status.requiredCount || 1} 次广告解锁`
-          : status.conditionType === 'share' ? '发起分享后解锁，取消也可能解锁' : '暂未开放';
-    if (status.reason === 'ads-not-enabled') message = '广告奖励尚未开放';
-    if (status.reason === 'ads-not-configured' || status.reason === 'ads-not-supported') message = '广告暂不可用，请稍后再试';
-    if (!currency.available) message = '奖励数据暂不可用，请重试';
-    if (status.action === 'retry-save') message = '已有奖励待保存，请重试保存';
+    const hasPending = Number.isSafeInteger(currency.pendingRewardAmount) && currency.pendingRewardAmount > 0;
+    let message = status.conditionType === 'ordinary_level'
+      ? this.t('gallery.unlockAtLevel', { level: status.displayLevel || '?' })
+      : status.conditionType === 'currency'
+        ? this.t(hasPending ? 'reward.currencyUnlockWithPendingBalance' : 'reward.currencyUnlockWithBalance', {
+          cost: status.cost,
+          balance: balance === null ? '--' : balance,
+          pendingAmount: currency.pendingRewardAmount
+        })
+        : status.conditionType === 'rewarded_ad'
+          ? this.t('gallery.unlockWithAds', { count: status.requiredCount || 1 })
+          : status.conditionType === 'share' ? this.t('reward.shareUnlockUncertain') : this.t('gallery.unavailable');
+    if (status.reason === 'ads-not-enabled') message = this.t('reward.adsDisabled');
+    if (status.reason === 'ads-not-configured' || status.reason === 'ads-not-supported') message = this.t('reward.adsUnavailable');
+    if (!currency.available) message = this.t('reward.dataUnavailable');
+    if (status.action === 'retry-save') message = this.t('reward.pendingSave');
+    const titleKey = `${parts[0] === 'theme' ? 'skin' : 'effect'}.${parts[1]}.name`;
+    const localizedTitle = this.t(titleKey);
     this.rewardDialog = {
       dialogId: ++this.rewardDialogSequence,
       rewardId,
       mode: unlocked ? 'unlocked' : 'condition',
       state: 'idle',
-      title: preview && preview.name ? preview.name : rewardId,
-      message: unlocked ? '已永久解锁' : message,
+      title: localizedTitle === titleKey ? (preview && preview.name ? preview.name : rewardId) : localizedTitle,
+      message: unlocked ? this.t('reward.permanentlyUnlocked') : message,
       primaryAction: unlocked ? 'reward:apply' :
         (['currency', 'rewarded_ad', 'share'].includes(status.conditionType) ? 'reward:unlock' : null),
-      primaryLabel: unlocked ? '立即应用' : status.conditionType === 'currency' ? '确认购买'
-        : status.conditionType === 'rewarded_ad' ? '观看广告' : status.conditionType === 'share' ? '发起分享' : null,
+      primaryLabel: unlocked ? this.t('reward.applyNow') : status.conditionType === 'currency' ? this.t('reward.confirmPurchase')
+        : status.conditionType === 'rewarded_ad' ? this.t('reward.watchAd') : status.conditionType === 'share' ? this.t('reward.startShare') : null,
       primaryEnabled: unlocked || status.actionEnabled,
       secondaryAction: unlocked ? 'reward:later' : 'reward:close',
-      secondaryLabel: unlocked ? '稍后再说' : '关闭',
+      secondaryLabel: unlocked ? this.t('reward.maybeLater') : this.t('common.close'),
       preview
     };
     if (!currency.available || status.action === 'retry-save') {
       this.rewardDialog.primaryAction = 'reward:retry';
-      this.rewardDialog.primaryLabel = !currency.available ? '重试读取' : '重试保存';
+      this.rewardDialog.primaryLabel = this.t(!currency.available ? 'common.retryRead' : 'common.retrySave');
       this.rewardDialog.primaryEnabled = true;
     }
     if (this.pendingSkinId && this.skins.current().id !== this.pendingSkinId) {
@@ -2913,7 +2972,7 @@ class ClearedApp {
     }
     const status = this.rewardUnlocks.status(rewardId);
     dialog.state = 'working';
-    dialog.message = retry ? '正在重试保存…' : '正在处理…';
+    dialog.message = this.t(retry ? 'reward.retryingSave' : 'common.processingEllipsis');
     const generation = ++this.rewardRequestGeneration;
     const account = this.captureAccountContext();
     this.pointer = null;
@@ -2952,15 +3011,16 @@ class ClearedApp {
         this.openRewardDialog(rewardId, 'condition');
       } else {
         this.rewardDialog.state = result && result.reason === 'persist-failed' ? 'retry-save' : 'error';
-        this.rewardDialog.message = result && result.reason === 'insufficient-balance' ? '余额不足'
-          : result && result.reason === 'network-required' ? '需要联网确认购买，余额和主题均未改变'
-            : result && result.reason === 'migration-freeze' ? '云存档迁移中，暂不能购买'
-          : result && result.reason === 'ads-not-enabled' ? '广告奖励尚未开放'
-            : result && result.reason === 'closed' ? '未完整观看，尚未解锁'
-              : result && result.reason === 'busy' ? '另一项操作正在处理'
-                : result && result.reason === 'persist-failed' ? '保存失败，请重试保存' : '暂时无法解锁，请稍后重试';
+        const messageKey = result && result.reason === 'insufficient-balance' ? 'reward.insufficientBalance'
+          : result && result.reason === 'network-required' ? 'reward.purchaseNeedsNetwork'
+            : result && result.reason === 'migration-freeze' ? 'reward.purchaseFrozenForMigration'
+              : result && result.reason === 'ads-not-enabled' ? 'reward.adsDisabled'
+                : result && result.reason === 'closed' ? 'reward.videoIncomplete'
+                  : result && result.reason === 'busy' ? 'reward.operationBusy'
+                    : result && result.reason === 'persist-failed' ? 'reward.saveFailed' : 'reward.unlockFailed';
+        this.rewardDialog.message = this.t(messageKey);
         this.rewardDialog.primaryAction = result && result.reason === 'persist-failed' ? 'reward:retry' : 'reward:unlock';
-        this.rewardDialog.primaryLabel = result && result.reason === 'persist-failed' ? '重试保存' : '重试';
+        this.rewardDialog.primaryLabel = this.t(result && result.reason === 'persist-failed' ? 'common.retrySave' : 'common.retry');
         this.rewardDialog.primaryEnabled = true;
         this.invalidate();
       }
@@ -2980,19 +3040,19 @@ class ClearedApp {
       const applied = this.setClearEffect(item.itemId);
       if (applied) this.dismissRewardDialog();
       else {
-        dialog.state = 'error'; dialog.message = '应用保存失败，请重试'; this.invalidate();
+        dialog.state = 'error'; dialog.message = this.t('reward.applySaveFailed'); this.invalidate();
       }
       return applied;
     }
     dialog.state = 'loading';
-    dialog.message = '正在加载并应用…';
+    dialog.message = this.t('reward.loadingAndApplying');
     const accepted = this.setSkin(item.itemId);
     if (!accepted) {
-      dialog.state = 'error'; dialog.message = '应用失败，请重试'; this.invalidate(); return false;
+      dialog.state = 'error'; dialog.message = this.t('reward.applyFailed'); this.invalidate(); return false;
     }
     if (this.pendingSkinId !== item.itemId && this.rewardDialog && this.rewardDialog.dialogId === dialogId) {
       if (this.skins.current().id === item.itemId) this.dismissRewardDialog();
-      else { dialog.state = 'error'; dialog.message = '应用失败，请重试'; this.invalidate(); }
+      else { dialog.state = 'error'; dialog.message = this.t('reward.applyFailed'); this.invalidate(); }
     }
     return true;
   }
@@ -3086,10 +3146,10 @@ class ClearedApp {
       this.renderer.loadSkinAssets();
       if (selectOnSuccess && this.rewardDialog && this.rewardDialog.rewardId === `theme:${skinId}`) {
         if (selected) this.dismissRewardDialog();
-        else { this.rewardDialog.state = 'error'; this.rewardDialog.message = '应用保存失败，请重试'; }
+        else { this.rewardDialog.state = 'error'; this.rewardDialog.message = this.t('reward.applySaveFailed'); }
       } else if (selectOnSuccess && !selected && this.openRewardDialog(`theme:${skinId}`, 'unlocked')) {
         this.rewardDialog.state = 'error';
-        this.rewardDialog.message = '应用保存失败，请重试';
+        this.rewardDialog.message = this.t('reward.applySaveFailed');
       }
       this.invalidate();
     }).catch(() => {
@@ -3100,7 +3160,7 @@ class ClearedApp {
       if (requestId === this.skinLoadRequestId && this.rewardDialog &&
           this.rewardDialog.rewardId === `theme:${skinId}`) {
         this.rewardDialog.state = 'error';
-        this.rewardDialog.message = '素材加载失败，拥有权已保留';
+        this.rewardDialog.message = this.t('reward.assetLoadFailedOwnershipKept');
       }
       this.invalidate();
     });
@@ -3442,13 +3502,14 @@ class ClearedApp {
       portal.expectedExits = [];
       portal.expectedExit = null;
       portal.lockedEntry = null;
-      portal.instruction = portalInstructions.INITIAL;
+      portal.instruction = portalInstructions.initial(this.locale);
     }
     if (Array.isArray(hint.steps) && hint.steps.length === lines.length) {
       const frames = hint.steps.map((step, index) => Object.assign({}, viewModel, {
-        hintStepLabel: `第 ${index + 1}/${hint.steps.length} 步：${step.breaksIce && step.clearsIce ? '破冰并消除已解冻地板'
-          : step.breaksIce ? '经过冰封格，先破冰'
-          : step.clearsIce ? '再次经过，消除地板' : '连接同色端点'}`,
+        hintStepLabel: this.t(step.breaksIce && step.clearsIce ? 'play.hintStep.breakAndClearIce'
+          : step.breaksIce ? 'play.hintStep.breakIce'
+            : step.clearsIce ? 'play.hintStep.clearIce' : 'play.hintStep.connectEndpoints',
+        { current: index + 1, total: hint.steps.length }),
         board: Object.assign({}, viewModel.board, {
           cells: viewModel.board.cells.map(cell => Object.assign({}, cell, {
             owner: step.remainingLayers[cell.index] === 0 ? 0 : -1,

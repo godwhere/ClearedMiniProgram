@@ -130,6 +130,8 @@ node scripts/generate-level-modules.js
 ## 相关文档
 
 - [玩法拓展架构](docs/gameplay-extension-architecture.md)：规则层、输入、提示、渲染和结算的职责边界。
+- [微信小游戏英文本地化方案](docs/localization.md)：系统语言默认、双语词典、账号页切换器、验证与严格施工边界；本地运行时与自动化检查已完成，开发者工具和真机验收待执行。
+- [独立 App 架构准备方案](docs/app-portability-plan.md)：共享游戏代码、平台适配、独立账号与存档、本地化接入及分阶段施工边界；当前仅为规划。
 - [Portal 机制](docs/portal-mechanic.md)：传送门状态机、分段手势、数据与解答格式。
 - [冰封玩法](docs/ice-trial.md)：两层地板规则、提示流程及主线接入边界。
 - [关卡难度系统](docs/level-difficulty-system.md)：评分方法、排序规则和舒缓关节奏。

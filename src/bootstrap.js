@@ -39,6 +39,7 @@ const RewardService = require('./services/reward-service.js');
 const HintAccessService = require('./services/hint-access-service.js');
 const RewardUnlockService = require('./services/reward-unlock-service.js');
 const rewardConfig = require('./config/rewards.js');
+const LocaleService = require('./services/locale-service.js');
 
 function cloudConfigForEnvironment(environmentVersion, loadLocalConfig) {
   if (environmentVersion === 'release') {
@@ -71,6 +72,7 @@ function start(options) {
   const loadLocalCloudConfig = options && typeof options.loadLocalCloudConfig === 'function'
     ? options.loadLocalCloudConfig : null;
   const platform = new WechatPlatform();
+  const locale = new LocaleService(platform);
   const environmentVersion = platform.getMiniProgramEnvironmentVersion();
   const isDeveloperRuntime = ['develop', 'trial'].includes(environmentVersion);
   const cloudConfig = cloudConfigForEnvironment(environmentVersion, loadLocalCloudConfig);
@@ -88,7 +90,7 @@ function start(options) {
     transport ? { mode: 'cloud', enabled: cloudConfig.identityEnabled === true, clientVersion: backendConfig.clientVersion }
       : Object.assign({}, engagementConfig.auth, { mode: 'legacy-http' }));
   const behavior = new BehaviorService(platform, api, syncStore, engagementConfig.behavior);
-  const profile = new ProfileService(platform, api, auth, engagementConfig.profile, behavior);
+  const profile = new ProfileService(platform, api, auth, engagementConfig.profile, behavior, locale);
   const authoritativeApplier = new AuthoritativeStateApplier({ progress, daily: dailyStore,
     rewards: rewardUnlocks, stamina, preferences, syncStore, sessions }, null);
   const economy = new EconomyService(platform, api, auth, syncStore, rewardUnlocks, authoritativeApplier);
@@ -99,7 +101,7 @@ function start(options) {
   const ads = new AdsService(platform, adConfig, { nextAttemptId: () => syncStore.nextId('adatt_') });
   const rewards = new RewardService(platform, api, auth, syncStore,
     { enabled: engagementConfig.rewards.dailyExtraEntryEnabled === true || engagementConfig.share.rewardsEnabled === true }, behavior);
-  const share = new ShareService(platform, api, auth, syncStore, engagementConfig.share, behavior);
+  const share = new ShareService(platform, api, auth, syncStore, engagementConfig.share, behavior, locale);
   const hintAccess = new HintAccessService(platform, { timeZone: dailyConfig.timeZone });
   const engagement = new EngagementService({ ads, share, rewards, rewardUnlocks, auth, behavior, hintAccess, config: Object.assign({}, adConfig.rules,
     { dailyExtraEntryEnabled: adConfig.rules.dailyExtraEntryEnabled === true && engagementConfig.rewards.dailyExtraEntryEnabled === true }),
@@ -121,7 +123,7 @@ function start(options) {
   });
   const app = new ClearedApp(platform, {
     stamina, preferences, rewardUnlocks, syncStore, economy, authoritativeApplier,
-    progress, dailyStore, auth, progressSync, behavior, ads, engagement, profile, share, rewards, hintAccess,
+    progress, dailyStore, auth, progressSync, behavior, ads, engagement, profile, share, rewards, hintAccess, locale,
     subpackages,
     skins,
     effects,

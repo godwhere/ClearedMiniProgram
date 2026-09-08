@@ -3,6 +3,7 @@ const BoardRenderer = require('./board/board-renderer.js');
 const PortalOverlay = require('./board/portal-overlay.js');
 const portalInstructions = require('./portal-instructions.js');
 const accountLayout = require('./account-layout.js');
+const i18n = require('../i18n/index.js');
 
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
@@ -18,21 +19,37 @@ function formatStaminaCountdown(milliseconds) {
   return `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
 }
 
-function resultRewardFeedback(model, result, claimedText) {
+function resultRewardFeedback(model, result, claimedKey, translate) {
   const reward = result && result.currencyReward;
   if (!reward) return null;
   if (reward.status === 'local-save-failed' || (reward.status === 'pending' &&
       (model.settlementMode !== 'cloud-authoritative' || result.persisted === false))) {
-    return { text: '本地保存未成功，点击重试', retry: true };
+    return { text: translate('reward.localSaveFailed'), retry: true };
   }
-  if (reward.status === 'granted') return { text: `获得 ${reward.amount} 货币`, retry: false };
+  if (reward.status === 'granted') return { text: translate('reward.granted', { amount: reward.amount }), retry: false };
   if (reward.status === 'pending') {
     // Display the configured reward, not an unconfirmed wallet credit.
     const amount = model.firstClearRewardAmount;
-    return { text: Number.isSafeInteger(amount) && amount > 0 ? `首通奖励 ${amount} 货币` : '首通奖励', retry: false };
+    return { text: Number.isSafeInteger(amount) && amount > 0
+      ? translate('reward.firstClearAmount', { amount }) : translate('reward.firstClear'), retry: false };
   }
-  if (reward.status === 'failed') return { text: '奖励未到账', retry: false };
-  return { text: claimedText, retry: false };
+  if (reward.status === 'failed') return { text: translate('reward.failed'), retry: false };
+  return { text: translate(claimedKey), retry: false };
+}
+
+function rewardUnlockStatus(reward, translate) {
+  if (!reward || reward.owned !== false) return '';
+  if (reward.conditionType === 'ordinary_level') {
+    return translate('gallery.unlockAtLevel', { level: reward.displayLevel || '?' });
+  }
+  if (reward.conditionType === 'currency') {
+    return translate('gallery.unlockWithCurrency', { cost: reward.cost || 0 });
+  }
+  if (reward.conditionType === 'rewarded_ad') {
+    return translate('gallery.unlockWithAds', { count: reward.requiredCount || 1 });
+  }
+  if (reward.conditionType === 'share') return translate('gallery.unlockWithShare');
+  return translate('gallery.unavailable');
 }
 
 const PLAY_PROMPT_BAND_HEIGHT = 32;
@@ -40,10 +57,11 @@ const PLAY_PROMPT_CYCLE_MS = 1800;
 const CANVAS_FONT_FAMILY = '-apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif';
 
 class CanvasRenderer {
-  constructor(platform, skinService, clearEffects, subpackages) {
+  constructor(platform, skinService, clearEffects, subpackages, locale) {
     this.platform = platform;
     this.ctx = platform.context;
     this.skinService = skinService;
+    this.locale = locale || null;
     this.subpackages = subpackages || null;
     // Read-only effect queries are injected by the app. The renderer never
     // selects effects or writes settings; a missing service simply renders the
@@ -110,6 +128,19 @@ class CanvasRenderer {
       portalOverlay: this.portalOverlay
     });
     this.loadSkinAssets();
+  }
+
+  t(key, params) {
+    try {
+      if (this.locale && typeof this.locale.t === 'function') return this.locale.t(key, params);
+    } catch (error) {}
+    return i18n.translate('zh-CN', key, params);
+  }
+
+  displayName(kind, id, field, fallback) {
+    const key = `${kind}.${id}.${field || 'name'}`;
+    const value = this.t(key);
+    return value === key ? fallback : value;
   }
 
   setInvalidate(callback) {
@@ -802,7 +833,7 @@ class CanvasRenderer {
     this.text(String(stamina.balance), center - 4, mainY, compact ? 17 : 20,
       { weight: 500, align: 'left', maxWidth: Math.max(1, rect.w / 2) });
     if (options && options.showDetail === false) return;
-    const label = stamina.balance >= stamina.naturalCap ? '体力已满' : formatStaminaCountdown(stamina.remainingMs);
+    const label = stamina.balance >= stamina.naturalCap ? this.t('stamina.full') : formatStaminaCountdown(stamina.remainingMs);
     this.text(label, center, rect.y + (detailsBelow ? rect.h + 10 : 33), compact ? 10 : 11,
       { alpha: 0.78, maxWidth: Math.max(1, rect.w - 4) });
   }
@@ -813,12 +844,12 @@ class CanvasRenderer {
     const skin = this.skinService.current();
     const { width, safeBottom } = this.platform.metrics;
     const stamina = model.stamina;
-    const label = feedback.reason === 'quick-clear-refund' ? `1分钟内通关，体力 +${feedback.amount}`
-      : feedback.reason === 'refund-persist-failed' ? '体力返还待保存'
-      : feedback.reason === 'persist-failed' ? '体力状态保存失败，请重试'
+    const label = feedback.reason === 'quick-clear-refund' ? this.t('stamina.quickClearRefund', { amount: feedback.amount })
+      : feedback.reason === 'refund-persist-failed' ? this.t('stamina.refundSavePending')
+      : feedback.reason === 'persist-failed' ? this.t('stamina.saveFailed')
       : stamina && stamina.recovering && Number.isFinite(stamina.remainingMs)
-        ? `体力不足，${formatStaminaCountdown(stamina.remainingMs)} 后恢复 1 点`
-        : '体力不足，请稍后再试';
+        ? this.t('stamina.insufficientRecovering', { countdown: formatStaminaCountdown(stamina.remainingMs) })
+        : this.t('stamina.insufficient');
     const boxWidth = Math.min(320, width - 32);
     const y = safeBottom - 106;
     this.ctx.save();
@@ -857,7 +888,7 @@ class CanvasRenderer {
     this.drawCurrency(model.currency, currencyRect);
     if (!model.currency || model.currency.available !== true) {
       this.addHit('reward:retry', currencyRect, true);
-      this.text('点击重试', currencyRect.x + currencyRect.w / 2, currencyRect.y + currencyRect.h + 8,
+      this.text(this.t('currency.unavailableRetry'), currencyRect.x + currencyRect.w / 2, currencyRect.y + currencyRect.h + 8,
         9, { alpha: 0.56 });
     }
 
@@ -907,7 +938,7 @@ class CanvasRenderer {
       this.drawFallbackLogo(width / 2, logoY, logoSize * 0.72);
     }
 
-    this.text('清空每一格', width / 2, logoY + logoSize * 0.63, 21, { weight: 300, alpha: 0.78 });
+    this.text(this.t('home.tagline'), width / 2, logoY + logoSize * 0.63, 21, { weight: 300, alpha: 0.78 });
 
     const buttonWidth = Math.min(width - 56, 360);
     // Keep the bottom inset while stacking both rows. The stack is derived
@@ -920,15 +951,18 @@ class CanvasRenderer {
     const dailyEntryRemaining = dailyEntryKnown ? Number(model.dailyEntriesRemaining) : 0;
     const dailyEntryLimit = dailyEntryKnown ? Number(model.dailyEntryLimit) : 0;
     const dailyButtonLabel = dailyEntryKnown && model.dailyDebugUnlimited !== true
-      ? `每日挑战（${Math.max(0, dailyEntryRemaining)}/${Math.max(1, dailyEntryLimit)}）`
-      : '每日挑战';
+      ? this.t('home.dailyChallengeWithAttempts', {
+        remaining: Math.max(0, dailyEntryRemaining),
+        limit: Math.max(1, dailyEntryLimit)
+      })
+      : this.t('home.dailyChallenge');
     // Remaining entries live in the label; only unavailable states need a hint.
     if (dailyEntryKnown && model.dailyDebugUnlimited !== true) {
       const dailyStatus = model.dailyAvailable === false
-        ? '今日暂无关卡'
+        ? this.t('home.noChallengeToday')
         : dailyEntryRemaining > 0
           ? null
-          : '今日次数已用完';
+          : this.t('home.noAttemptsToday');
       if (dailyStatus) this.text(dailyStatus, width / 2, firstY - 13, 11, { alpha: 0.58 });
     }
     const dailyButtonRect = {
@@ -940,11 +974,12 @@ class CanvasRenderer {
     this.button('home:dailyChallenge', dailyButtonRect, dailyButtonLabel, {
       fill: skin.colors.primaryButton,
       stroke: skin.colors.primaryButtonStroke,
-      fontSize: dailyButtonLabel === '每日挑战' ? 19 : Math.min(19, (columnWidth - 16) / 8),
+      fontSize: dailyEntryKnown && model.dailyDebugUnlimited !== true
+        ? Math.min(19, (columnWidth - 16) / 8) : 19,
       enabled: model.dailyAvailable !== false && model.dailyEntryAvailable !== false
     }, model.pressedId);
     if (model.dailyDebugUnlimited === true) {
-      this.text('次数不限', dailyButtonRect.x + dailyButtonRect.w - 8,
+      this.text(this.t('home.unlimitedAttempts'), dailyButtonRect.x + dailyButtonRect.w - 8,
         dailyButtonRect.y + dailyButtonRect.h - 7, 10, {
           align: 'right',
           baseline: 'bottom',
@@ -953,7 +988,7 @@ class CanvasRenderer {
     }
     const galleryAction = model && model.homeMigration === true
       ? 'home:corridor' : 'home:themes';
-    const galleryLabel = model && model.homeMigration === true ? '回廊' : '主题';
+    const galleryLabel = this.t(model && model.homeMigration === true ? 'home.corridor' : 'home.themes');
     this.button(galleryAction, {
       x: buttonX + columnWidth + buttonGap,
       y: firstY,
@@ -970,7 +1005,7 @@ class CanvasRenderer {
       w: buttonWidth,
       h: buttonHeight
     };
-    this.button('home:start', startButtonRect, model.completedCount ? '继续游戏' : '开始游戏', {
+    this.button('home:start', startButtonRect, this.t(model.completedCount ? 'home.continue' : 'home.play'), {
       fill: skin.colors.primaryButton,
       stroke: skin.colors.primaryButtonStroke,
       fontSize: 19
@@ -981,7 +1016,7 @@ class CanvasRenderer {
       });
     if (model.dailyExtraEntryAvailable) this.button('daily:extraEntry', {
       x: buttonX, y: firstY + buttonHeight * 2 + buttonGap + 10, w: buttonWidth, h: 42
-    }, model.dailyExtraEntryPending ? '正在处理' : '看视频，增加一次挑战',
+    }, this.t(model.dailyExtraEntryPending ? 'common.processing' : 'home.watchForExtraAttempt'),
     { fontSize: 15, enabled: !model.dailyExtraEntryPending }, model.pressedId);
     if (model.dailyRewardMessage) this.text(model.dailyRewardMessage, width / 2, firstY - 29, 12, { maxWidth: buttonWidth });
   }
@@ -992,7 +1027,7 @@ class CanvasRenderer {
     const available = currency && currency.available === true && Number.isSafeInteger(preferred) && preferred >= 0;
     const balance = available ? preferred : null;
     const label = balance === null ? '--' : balance >= 10000
-      ? `${Math.floor(balance / 1000) / 10}万` : String(balance);
+      ? this.t('currency.compactTenThousands', { value: Math.floor(balance / 1000) / 10 }) : String(balance);
     const ctx = this.ctx;
     ctx.save();
     ctx.beginPath();
@@ -1069,8 +1104,9 @@ class CanvasRenderer {
     this.iconButton('account:back', layout.backButton, 'back', true, model.pressedId);
     const panel = layout.panel;
     const center = panel.x + panel.w / 2;
-    this.text('账号', center, layout.backButton.y + 22, 22);
-    const space = layout.profileButton.y - panel.y;
+    this.text(this.t('account.title'), center, layout.backButton.y + 22, 22);
+    const languageY = layout.profileButton.y - 48;
+    const space = Math.max(1, languageY - panel.y);
     const avatarSize = Math.min(64, space * 0.32);
     const avatarRect = { x: center - avatarSize / 2, y: panel.y + 6, w: avatarSize, h: avatarSize };
     const profile = model.accountProfile;
@@ -1081,27 +1117,44 @@ class CanvasRenderer {
     if (avatar) {
       this.drawImageContain(avatar, avatarRect);
     } else {
-      this.text('我', center, avatarRect.y + avatarSize / 2, Math.min(24, avatarSize / 2));
+      this.text(this.t('account.avatarFallback'), center, avatarRect.y + avatarSize / 2, Math.min(24, avatarSize / 2));
     }
-    this.text(profile ? profile.nickname : '本地玩家', center, panel.y + space * 0.46, 18, { maxWidth: panel.w - 24 });
-    const status = { local: model.backupMode ? '本地存档' : '本地游玩', syncing: model.backupMode ? '正在处理云备份' : '正在同步',
-      pending: model.backupMode ? '本地已保存，云备份待更新' : '等待同步',
-      synced: model.backupMode ? '本地已保存，云备份最新' : '已同步', error: model.backupMode ? '云备份失败' : '同步失败',
-      'account-mismatch': '账号不一致，已暂停同步' }[model.accountStatus] || '本地游玩';
+    this.text(profile ? profile.nickname : this.t('account.localPlayer'), center, panel.y + space * 0.46, 18, { maxWidth: panel.w - 24 });
+    const statusKey = {
+      local: model.backupMode ? 'account.status.localSave' : 'account.status.localPlay',
+      syncing: model.backupMode ? 'account.status.processingBackup' : 'account.status.syncing',
+      pending: model.backupMode ? 'account.status.backupPending' : 'account.status.syncPending',
+      synced: model.backupMode ? 'account.status.backupCurrent' : 'account.status.synced',
+      error: model.backupMode ? 'account.status.backupFailed' : 'account.status.syncFailed',
+      'account-mismatch': 'account.status.mismatch'
+    }[model.accountStatus] || 'account.status.localPlay';
+    const status = this.t(statusKey);
     this.text(status, center, panel.y + space * 0.65, 15, { maxWidth: panel.w - 24 });
-    this.text(model.accountMessage || '头像昵称为可选资料', center, panel.y + space * 0.84, 12, { maxWidth: panel.w - 24, alpha: 0.7 });
+    this.text(model.accountMessage || this.t('account.profileOptional'), center, panel.y + space * 0.84, 12, { maxWidth: panel.w - 24, alpha: 0.7 });
+    const localeId = this.locale && typeof this.locale.current === 'function'
+      ? this.locale.current() : 'zh-CN';
+    const localeLabel = this.locale && typeof this.locale.displayName === 'function'
+      ? this.locale.displayName(localeId) : i18n.localeDisplayName(localeId);
+    this.iconButton('account:language:prev', { x: center - 92, y: languageY, w: 44, h: 44 },
+      'back', true, model.pressedId);
+    this.text(localeLabel, center, languageY + 22, 14, { weight: 400, maxWidth: 88 });
+    this.iconButton('account:language:next', { x: center + 48, y: languageY, w: 44, h: 44 },
+      'next', true, model.pressedId);
     this.button('account:authorizeProfile', layout.profileButton,
-      model.profilePending ? '正在保存资料' : model.profileSupported ? '授权头像昵称' : '头像昵称暂不可用',
+      this.t(model.profilePending ? 'account.profileSaving'
+        : model.profileSupported ? 'account.profileAuthorize' : 'account.profileUnavailable'),
       { enabled: model.profileSupported === true && !model.profilePending, fontSize: 17 }, model.pressedId);
     const backupAction = model.backupConfirmRestore ? 'account:confirmRestore'
       : model.backupConfirmCommit ? 'account:confirmBackup' : 'account:retrySync';
-    const backupLabel = model.syncPending ? '正在处理…' : model.backupConfirmRestore ? '确认恢复云备份'
-      : model.backupConfirmCommit ? '确认用本机覆盖云备份' : model.backupMode ? '立即备份' : '重试同步';
+    const backupLabel = this.t(model.syncPending ? 'common.processingEllipsis'
+      : model.backupConfirmRestore ? 'account.confirmRestoreBackup'
+        : model.backupConfirmCommit ? 'account.confirmOverwriteBackup'
+          : model.backupMode ? 'account.backupNow' : 'account.retrySync');
     this.button(backupAction, layout.retryButton, backupLabel,
       { enabled: !model.syncPending, fontSize: 17 }, model.pressedId);
-    this.button('account:restoreBackup', layout.restoreButton, '恢复云备份',
+    this.button('account:restoreBackup', layout.restoreButton, this.t('account.restoreBackup'),
       { enabled: model.backupMode === true && !model.syncPending, fontSize: 17 }, model.pressedId);
-    this.button('account:privacy', layout.privacyButton, '隐私协议', { fontSize: 17 }, model.pressedId);
+    this.button('account:privacy', layout.privacyButton, this.t('account.privacy'), { fontSize: 17 }, model.pressedId);
   }
 
   drawFallbackLogo(x, y, size) {
@@ -1339,7 +1392,7 @@ class CanvasRenderer {
     this.iconButton('themes:sound', { x: width - 58, y: topButtonY, w: 44, h: 44 },
       model && model.soundEnabled === false ? 'mute' : 'sound', true,
       model && model.pressedId);
-    this.text('主题', width / 2, headerTop + 27, 25, { weight: 300 });
+    this.text(this.t('gallery.themes'), width / 2, headerTop + 27, 25, { weight: 300 });
     this.text(`${pageIndex + 1} / ${pageCount}`, width / 2, headerTop + 53, 12, { alpha: 0.58 });
 
     const sidePadding = clamp(width * 0.055, 16, 24);
@@ -1391,15 +1444,13 @@ class CanvasRenderer {
       ctx.restore();
 
       const reward = theme.reward || { owned: true };
-      const conditionStatus = reward.owned === false
-        ? reward.conditionType === 'ordinary_level' ? `通关第 ${reward.displayLevel || '?'} 关解锁`
-          : reward.conditionType === 'currency' ? `${reward.cost || 0} 货币解锁`
-            : reward.conditionType === 'rewarded_ad' ? `观看 ${reward.requiredCount || 1} 次广告解锁`
-              : reward.conditionType === 'share' ? '分享解锁' : '暂未开放'
-        : '';
-      const assetStatus = conditionStatus || (theme.assetState === 'idle' ? '点击下载'
-        : theme.assetState === 'loading' ? `下载 ${Math.round(clamp(Number(theme.assetProgress) || 0, 0, 100))}%`
-          : theme.assetState === 'failed' ? '加载失败，点击重试' : '');
+      const conditionStatus = rewardUnlockStatus(reward, (key, params) => this.t(key, params));
+      const assetStatus = conditionStatus || (theme.assetState === 'idle' ? this.t('gallery.download')
+        : theme.assetState === 'loading'
+          ? this.t('gallery.downloading', {
+            percent: Math.round(clamp(Number(theme.assetProgress) || 0, 0, 100))
+          })
+          : theme.assetState === 'failed' ? this.t('gallery.downloadFailed') : '');
       const statusHeight = assetStatus ? 14 : 0;
       const previewRect = {
         x: rect.x + previewPadding,
@@ -1410,7 +1461,7 @@ class CanvasRenderer {
       // The main-package 2x2 preview is visible before the board-art download.
       this.drawThemeElementsPreview(theme, previewRect, skin);
 
-      const name = theme.name || theme.title || theme.id;
+      const name = this.displayName('skin', theme.id, 'name', theme.name || theme.title || theme.id);
       this.text(name, rect.x + rect.w / 2, rect.y + cardHeight - labelHeight * 0.56 - statusHeight,
         clamp(cardWidth * 0.105, 13, 18), { weight: selected ? 500 : 300, maxWidth: rect.w - 18 });
       if (assetStatus) {
@@ -1428,7 +1479,7 @@ class CanvasRenderer {
       'back', pageIndex > 0, model && model.pressedId);
     this.iconButton('themes:next', { x: width / 2 + 40, y: controlY, w: 52, h: 44 },
       'next', pageIndex < pageCount - 1, model && model.pressedId);
-    this.text('左右滑动切换主题', width / 2, controlY + 50, 11, { alpha: 0.42 });
+    this.text(this.t('gallery.swipeThemes'), width / 2, controlY + 50, 11, { alpha: 0.42 });
   }
 
   // --- Corridor / clear-effect galleries ---------------------------------
@@ -1436,8 +1487,8 @@ class CanvasRenderer {
   corridorEntries(model) {
     if (model && Array.isArray(model.corridorEntries)) return model.corridorEntries;
     return [
-      { id: 'themes', name: '主题', action: 'corridor:themes' },
-      { id: 'effects', name: '特效', action: 'corridor:effects' }
+      { id: 'themes', name: this.t('corridor.themes.name'), action: 'corridor:themes' },
+      { id: 'effects', name: this.t('corridor.effects.name'), action: 'corridor:effects' }
     ];
   }
 
@@ -1671,7 +1722,7 @@ class CanvasRenderer {
     this.iconButton('corridor:sound', { x: width - 58, y: topButtonY, w: 44, h: 44 },
       model && model.soundEnabled === false ? 'mute' : 'sound', true,
       model && model.pressedId);
-    this.text('回廊', width / 2, headerTop + 27, 25, { weight: 300 });
+    this.text(this.t('gallery.corridor'), width / 2, headerTop + 27, 25, { weight: 300 });
     this.text(`${pageIndex + 1} / ${pageCount}`, width / 2, headerTop + 53, 12, { alpha: 0.58 });
 
     const sidePadding = clamp(width * 0.055, 16, 24);
@@ -1719,7 +1770,7 @@ class CanvasRenderer {
         h: previewHeight
       };
       this.drawCorridorEntryPreview(entry, previewRect);
-      const name = entry.name || entry.title || entry.id;
+      const name = this.displayName('corridor', entry.id, 'name', entry.name || entry.title || entry.id);
       this.text(name, rect.x + rect.w / 2, rect.y + cardHeight - labelHeight * 0.56,
         clamp(cardWidth * 0.105, 13, 18), { weight: 300, maxWidth: rect.w - 18 });
       this.addHit(String(entry.action), rect, true);
@@ -1731,7 +1782,7 @@ class CanvasRenderer {
         'back', pageIndex > 0, model && model.pressedId);
       this.iconButton('corridor:next', { x: width / 2 + 40, y: controlY, w: 52, h: 44 },
         'next', pageIndex < pageCount - 1, model && model.pressedId);
-      this.text('左右滑动切换功能', width / 2, controlY + 50, 11, { alpha: 0.42 });
+      this.text(this.t('gallery.swipeFeatures'), width / 2, controlY + 50, 11, { alpha: 0.42 });
     }
   }
 
@@ -1763,7 +1814,7 @@ class CanvasRenderer {
     this.iconButton('effects:sound', { x: width - 58, y: topButtonY, w: 44, h: 44 },
       model && model.soundEnabled === false ? 'mute' : 'sound', true,
       model && model.pressedId);
-    this.text('消除特效', width / 2, headerTop + 27, 25, { weight: 300 });
+    this.text(this.t('gallery.clearEffects'), width / 2, headerTop + 27, 25, { weight: 300 });
     this.text(`${pageIndex + 1} / ${pageCount}`, width / 2, headerTop + 53, 12, { alpha: 0.58 });
 
     const sidePadding = clamp(width * 0.055, 16, 24);
@@ -1813,12 +1864,7 @@ class CanvasRenderer {
       }
       ctx.restore();
 
-      const conditionStatus = reward.owned === false
-        ? reward.conditionType === 'ordinary_level' ? `通关第 ${reward.displayLevel || '?'} 关解锁`
-          : reward.conditionType === 'currency' ? `${reward.cost || 0} 货币解锁`
-            : reward.conditionType === 'rewarded_ad' ? `观看 ${reward.requiredCount || 1} 次广告解锁`
-              : reward.conditionType === 'share' ? '分享解锁' : '暂未开放'
-        : '';
+      const conditionStatus = rewardUnlockStatus(reward, (key, params) => this.t(key, params));
       const previewRect = {
         x: rect.x + previewPadding,
         y: rect.y + previewPadding,
@@ -1829,7 +1875,7 @@ class CanvasRenderer {
       if (!image || !this.drawImageContain(image, previewRect, { fit: 'contain' })) {
         this.drawEffectFallbackPreview(previewRect, effect);
       }
-      const name = effect.name || effect.title || effect.id;
+      const name = this.displayName('effect', effect.id, 'name', effect.name || effect.title || effect.id);
       this.text(name, rect.x + rect.w / 2, rect.y + cardHeight - labelHeight * 0.56 - (conditionStatus ? 14 : 0),
         clamp(cardWidth * 0.105, 13, 18), { weight: selected ? 500 : 300, maxWidth: rect.w - 18 });
       if (conditionStatus) this.text(conditionStatus, rect.x + rect.w / 2,
@@ -1846,7 +1892,7 @@ class CanvasRenderer {
         'back', pageIndex > 0, model && model.pressedId);
       this.iconButton('effects:next', { x: width / 2 + 40, y: controlY, w: 52, h: 44 },
         'next', pageIndex < pageCount - 1, model && model.pressedId);
-      this.text('左右滑动切换特效', width / 2, controlY + 50, 11, { alpha: 0.42 });
+      this.text(this.t('gallery.swipeEffects'), width / 2, controlY + 50, 11, { alpha: 0.42 });
     }
   }
 
@@ -1881,7 +1927,7 @@ class CanvasRenderer {
     const headerHeight = 72;
     const controlTop = headerTop + 4;
     this.iconButton('levels:home', { x: 10, y: controlTop, w: 44, h: 44 }, 'home', true, model.pressedId);
-    this.text('选择关卡', width / 2, headerTop + 26, 26, { weight: 300 });
+    this.text(this.t('gallery.selectLevel'), width / 2, headerTop + 26, 26, { weight: 300 });
     this.text(items.length ? `${rangeStart}–${rangeEnd} / ${totalLevels}` : `0 / ${totalLevels}`,
       width / 2, headerTop + 53, 12, { alpha: 0.58 });
     this.drawStaminaStatus(model.stamina,
@@ -1971,7 +2017,7 @@ class CanvasRenderer {
     const controlY = safeBottom - controlsHeight + 8;
     this.iconButton('levels:prev', { x: width / 2 - 92, y: controlY, w: 52, h: 44 }, 'back', pageIndex > 0, model.pressedId);
     this.iconButton('levels:next', { x: width / 2 + 40, y: controlY, w: 52, h: 44 }, 'next', pageIndex < pageCount - 1, model.pressedId);
-    this.text('左右滑动切换关卡 · 难度 1–5 格', width / 2, controlY + 50, 11, { alpha: 0.42 });
+    this.text(this.t('gallery.swipeLevels'), width / 2, controlY + 50, 11, { alpha: 0.42 });
   }
 
   fallbackBoardViewModel(model, level) {
@@ -2157,7 +2203,7 @@ class CanvasRenderer {
     const numberedTitle = hasOrdinaryNumber
       ? `${ordinaryNumber} / ${ordinaryCount}`
       : `${model.levelIndex + 1} / ${(model.set.Games || []).length}`;
-    this.text(model.trial ? '冰封试玩' : numberedTitle, width / 2, topUi + 27, model.trial ? 18 : 24, {
+    this.text(model.trial ? this.t('play.iceTrial') : numberedTitle, width / 2, topUi + 27, model.trial ? 18 : 24, {
       weight: 300,
       maxWidth: width - 220
     });
@@ -2222,7 +2268,7 @@ class CanvasRenderer {
     const hintPreviewActive = !!(model.hintPreview && (model.hintPreview.manual === true || now < model.hintPreview.until));
     const manualPreview = hintPreviewActive && model.hintPreview.manual === true;
     this.button('play:hint', { x: margin, y: rectY, w: buttonWidth, h: rectH },
-      hintPreviewActive ? '隐藏提示' : (model.hintLabel || '提示'), {
+      hintPreviewActive ? this.t('play.hideHint') : (model.hintLabel || this.t('play.hint')), {
       fontSize: 17,
       icon: 'hint',
       enabled: model.hintAvailable !== false,
@@ -2238,13 +2284,13 @@ class CanvasRenderer {
         'next', preview.index < preview.frames.length - 1, model.pressedId);
       this.text(`${preview.index + 1}/${preview.frames.length}`, x + buttonWidth / 2, rectY + rectH / 2,
         12, { maxWidth: buttonWidth - 88 });
-      this.text('左右滑动切换步骤', width / 2, rectY + rectH + 8, 10, { alpha: 0.62 });
+      this.text(this.t('play.swipeHintSteps'), width / 2, rectY + rectH + 8, 10, { alpha: 0.62 });
     } else this.button('play:undo', {
       x: margin + buttonWidth + gap,
       y: rectY,
       w: buttonWidth,
       h: rectH
-    }, '回撤', {
+    }, this.t('play.undo'), {
       fontSize: 17,
       icon: 'undo',
       enabled: model.canUndo === true && !hintPreviewActive,
@@ -2252,7 +2298,7 @@ class CanvasRenderer {
       stroke: skin.colors.primaryButtonStroke
     }, model.pressedId);
     if (hintPreviewActive) {
-      this.text(model.hintStepLabel || '完整通关路径', width / 2, actionTop - (model.hintStepLabel ? 7 : 19), 12,
+      this.text(model.hintStepLabel || this.t('play.fullSolution'), width / 2, actionTop - (model.hintStepLabel ? 7 : 19), 12,
         { alpha: 0.76, maxWidth: width - 24 });
     }
   }
@@ -2352,19 +2398,29 @@ class CanvasRenderer {
     const levelCount = Math.max(1, Number(model && (
       model.dailyLevelCount === undefined ? model.levelCount : model.dailyLevelCount
     )) || 1);
-    const difficulty = challenge && (
-      challenge.DifficultyLabel || challenge.difficultyLabel ||
-      challenge.Difficulty || challenge.difficulty
+    const difficultyId = challenge && (challenge.Difficulty || challenge.difficulty);
+    const difficultyFallback = challenge && (
+      challenge.DifficultyLabel || challenge.difficultyLabel || difficultyId
     );
-    this.text(`每日挑战  ${Math.min(levelIndex + 1, levelCount)} / ${levelCount}`,
+    const difficultyKey = difficultyId ? `difficulty.${difficultyId}` : null;
+    const difficultyValue = difficultyKey ? this.t(difficultyKey) : null;
+    const difficulty = difficultyValue && difficultyValue !== difficultyKey
+      ? difficultyValue : difficultyFallback;
+    this.text(this.t('daily.header', {
+      current: Math.min(levelIndex + 1, levelCount),
+      total: levelCount
+    }),
       width / 2, topUi + 21, 20, { weight: 300, maxWidth: width - 180 });
     const dateKey = model && model.dailyDateKey;
     const entryKnown = model && (model.dailyDebugUnlimited === true ||
       (model.dailyEntriesRemaining !== undefined && model.dailyEntryLimit !== undefined));
     const entryText = entryKnown
       ? (model.dailyDebugUnlimited === true
-        ? '次数不限'
-        : `剩余次数 ${Math.max(0, Number(model.dailyEntriesRemaining) || 0)} / ${Math.max(1, Number(model.dailyEntryLimit) || 1)}`)
+        ? this.t('home.unlimitedAttempts')
+        : this.t('daily.remainingAttempts', {
+          remaining: Math.max(0, Number(model.dailyEntriesRemaining) || 0),
+          limit: Math.max(1, Number(model.dailyEntryLimit) || 1)
+        }))
       : '';
     const specText = `${cols} × ${rows}`;
     this.text(
@@ -2414,7 +2470,7 @@ class CanvasRenderer {
     const rectH = 50;
     const hintPreviewActive = !!(model.hintPreview && now < model.hintPreview.until);
     this.button('daily:hint', { x: margin, y: rectY, w: buttonWidth, h: rectH },
-      hintPreviewActive ? '隐藏提示' : (model.hintLabel || '提示'), {
+      hintPreviewActive ? this.t('play.hideHint') : (model.hintLabel || this.t('play.hint')), {
       fontSize: 17,
       icon: 'hint',
       enabled: model.hintAvailable !== false,
@@ -2426,7 +2482,7 @@ class CanvasRenderer {
       y: rectY,
       w: buttonWidth,
       h: rectH
-    }, '回撤', {
+    }, this.t('play.undo'), {
       fontSize: 17,
       icon: 'undo',
       enabled: model.canUndo === true && !hintPreviewActive,
@@ -2434,7 +2490,7 @@ class CanvasRenderer {
       stroke: skin.colors.primaryButtonStroke
     }, model.pressedId);
     if (hintPreviewActive) {
-      this.text('完整通关路径', width / 2, actionTop - 19, 12, { alpha: 0.76 });
+      this.text(this.t('play.fullSolution'), width / 2, actionTop - 19, 12, { alpha: 0.76 });
     }
   }
 
@@ -2485,20 +2541,22 @@ class CanvasRenderer {
     ctx.globalAlpha = eased;
     this.drawIcon('warning', width / 2, panelY + 47, 40);
     ctx.restore();
-    this.text('挑战失败', width / 2, panelY + 92, 27, { weight: 300, alpha: eased });
-    this.text(`还有 ${Math.max(1, Number(result.remainingCells) || 1)} 个空格未消除`,
+    this.text(this.t('daily.failed'), width / 2, panelY + 92, 27, { weight: 300, alpha: eased });
+    this.text(this.t('daily.remainingTiles', {
+      count: Math.max(1, Number(result.remainingCells) || 1)
+    }),
       width / 2, panelY + 124, 13, { alpha: 0.72 * eased, maxWidth: width - 32 });
-    this.text('连接棋子的同时，需要经过全部格子',
+    this.text(this.t('daily.clearAllTiles'),
       width / 2, panelY + 146, 12, { alpha: 0.68 * eased, maxWidth: width - 32 });
     if (daily) {
-      this.text('重试当前关不会额外消耗次数',
+      this.text(this.t('daily.retryNoExtraAttempt'),
         width / 2, panelY + 168, 11, { alpha: 0.56 * eased, maxWidth: width - 32 });
     }
 
     const backAction = daily ? 'dailyResult:home' : 'result:levels';
     const retryAction = daily ? 'dailyFailure:retry' : 'failure:retry';
-    const backLabel = daily || model.trial ? '返回主页' : '返回选关';
-    const retryLabel = daily ? '重试本关' : '重新开始';
+    const backLabel = this.t(daily || model.trial ? 'daily.backHome' : 'daily.backLevels');
+    const retryLabel = this.t(daily ? 'daily.retryLevel' : 'daily.restart');
     const buttonGap = 10;
     const buttonWidth = Math.min(142, (width - 48 - buttonGap) / 2);
     const buttonX = (width - buttonWidth * 2 - buttonGap) / 2;
@@ -2537,10 +2595,13 @@ class CanvasRenderer {
     const panelY = panel.y;
     this.drawIcon('check', width / 2, panelY + 47, 40);
     const levelCount = Math.max(1, Number(model.dailyLevelCount || (model.levels && model.levels.length) || 1));
-    this.text(`每日挑战完成  ${levelCount} / ${levelCount}`, width / 2, panelY + 92, 27,
+    this.text(this.t('daily.completed', { count: levelCount }), width / 2, panelY + 92, 27,
       { weight: 300, maxWidth: width - 48 });
-    this.text(`用时 ${formatTime(result.elapsedMs || 0)}`, width / 2, panelY + 124, 13, { alpha: 0.72 });
-    const rewardFeedback = resultRewardFeedback(model, result, '今日奖励已领取');
+    this.text(this.t('daily.elapsed', { time: formatTime(result.elapsedMs || 0) }),
+      width / 2, panelY + 124, 13, { alpha: 0.72 });
+    const rewardFeedback = resultRewardFeedback(
+      model, result, 'daily.rewardClaimed', (key, params) => this.t(key, params)
+    );
     if (rewardFeedback) this.text(rewardFeedback.text, width / 2, panelY + 142, 12, { alpha: 0.72 });
     if (rewardFeedback && rewardFeedback.retry) {
       this.addHit('reward:retry', { x: width / 2 - 64, y: panelY + 128, w: 128, h: 28 }, true);
@@ -2552,8 +2613,11 @@ class CanvasRenderer {
         (model.dailyEntriesRemaining !== undefined && model.dailyEntryLimit !== undefined)) {
       this.text(
         model.dailyDebugUnlimited === true
-          ? '次数不限'
-          : `剩余次数 ${Math.max(0, Number(model.dailyEntriesRemaining) || 0)} / ${Math.max(1, Number(model.dailyEntryLimit) || 1)}`,
+          ? this.t('home.unlimitedAttempts')
+          : this.t('daily.remainingAttempts', {
+            remaining: Math.max(0, Number(model.dailyEntriesRemaining) || 0),
+            limit: Math.max(1, Number(model.dailyEntryLimit) || 1)
+          }),
         width / 2,
         panelY + 175,
         11,
@@ -2566,17 +2630,17 @@ class CanvasRenderer {
     const totalWidth = buttonWidth * 2 + gap;
     const x = (width - totalWidth) / 2;
     const y = panelY + panel.h - 72 - extraRows * 52;
-    this.button('dailyResult:home', { x, y, w: buttonWidth, h: 46 }, '返回主页', {
+    this.button('dailyResult:home', { x, y, w: buttonWidth, h: 46 }, this.t('daily.backHome'), {
       fontSize: 15
     }, model.pressedId);
-    this.button('dailyResult:replay', { x: x + buttonWidth + gap, y, w: buttonWidth, h: 46 }, '重玩', {
+    this.button('dailyResult:replay', { x: x + buttonWidth + gap, y, w: buttonWidth, h: 46 }, this.t('daily.replay'), {
       fontSize: 15,
       enabled: model.dailyEntryAvailable !== false && model.dailyCanEnter !== false
     }, model.pressedId);
     if (sharing) this.button('dailyResult:share', { x, y: y + 52, w: totalWidth, h: 44 },
-      '分享挑战', { fontSize: 16, enabled: !model.sharePending }, model.pressedId);
+      this.t('daily.share'), { fontSize: 16, enabled: !model.sharePending }, model.pressedId);
     if (extraEntry) this.button('daily:extraEntry', { x, y: y + (sharing ? 104 : 52), w: totalWidth, h: 44 },
-      model.dailyExtraEntryPending ? '正在处理' : '看视频，增加一次挑战',
+      this.t(model.dailyExtraEntryPending ? 'common.processing' : 'home.watchForExtraAttempt'),
       { fontSize: 15, enabled: !model.dailyExtraEntryPending }, model.pressedId);
     if (model.dailyRewardMessage) this.text(model.dailyRewardMessage, width / 2, panelY + 185, 11, { maxWidth: width - 40 });
   }
@@ -2612,12 +2676,18 @@ class CanvasRenderer {
     const panel = this.drawResultPanel(sharing ? 300 : 246);
     const panelY = panel.y;
     this.drawIcon('check', width / 2, panelY + 47, 40);
-    this.text(model.trial ? '试玩完成' : model.result.newBest ? '新纪录' : '完成',
+    this.text(this.t(model.trial ? 'result.trialCompleted' : model.result.newBest ? 'result.newBest' : 'result.completed'),
       width / 2, panelY + 92, 27, { weight: 300 });
-    const resultText = model.trial ? `用时 ${formatTime(model.result.elapsedMs)} · 不计入主线进度`
-      : `本次 ${formatTime(model.result.elapsedMs)} · 最佳 ${formatTime(model.result.bestMs)}`;
+    const resultText = model.trial
+      ? this.t('result.trialTime', { time: formatTime(model.result.elapsedMs) })
+      : this.t('result.times', {
+        current: formatTime(model.result.elapsedMs),
+        best: formatTime(model.result.bestMs)
+      });
     this.text(resultText, width / 2, panelY + 124, 13, { alpha: 0.72 });
-    const rewardFeedback = resultRewardFeedback(model, model.result, '本关奖励已领取');
+    const rewardFeedback = resultRewardFeedback(
+      model, model.result, 'result.levelRewardClaimed', (key, params) => this.t(key, params)
+    );
     if (rewardFeedback) this.text(rewardFeedback.text, width / 2, panelY + 146, 12, { alpha: 0.68 });
     if (rewardFeedback && rewardFeedback.retry) {
       this.addHit('reward:retry', { x: width / 2 - 64, y: panelY + 132, w: 128, h: 28 }, true);
@@ -2630,12 +2700,12 @@ class CanvasRenderer {
     const x = (width - totalWidth) / 2;
     const y = panelY + panel.h - (sharing ? 118 : 72);
     this.button('result:levels', { x, y, w: buttonWidth, h: 46 },
-      model.trial ? '返回主页' : '选关', { fontSize: 15 }, model.pressedId);
-    this.button('result:replay', { x: x + buttonWidth + gap, y, w: buttonWidth, h: 46 }, '重玩', { fontSize: 15 }, model.pressedId);
+      this.t(model.trial ? 'daily.backHome' : 'result.selectLevel'), { fontSize: 15 }, model.pressedId);
+    this.button('result:replay', { x: x + buttonWidth + gap, y, w: buttonWidth, h: 46 }, this.t('result.replay'), { fontSize: 15 }, model.pressedId);
     if (!model.trial) this.button('result:next', { x: x + (buttonWidth + gap) * 2, y, w: buttonWidth, h: 46 },
-      model.hasNext ? '下一关' : '关卡列表', { fontSize: 15 }, model.pressedId);
+      this.t(model.hasNext ? 'result.nextLevel' : 'result.levelList'), { fontSize: 15 }, model.pressedId);
     if (sharing) this.button('result:share', { x, y: y + 52, w: totalWidth, h: 44 },
-      '分享成绩', { fontSize: 16, enabled: !model.sharePending }, model.pressedId);
+      this.t('result.share'), { fontSize: 16, enabled: !model.sharePending }, model.pressedId);
   }
 
   drawRewardDialog(model) {
@@ -2663,7 +2733,8 @@ class CanvasRenderer {
     }
     this.text(dialog.title || '', width / 2, panel.y + 92, 27, { weight: 300, maxWidth: width - 48 });
     this.text(dialog.message || '', width / 2, panel.y + 124, 13, { alpha: 0.72, maxWidth: width - 32 });
-    this.text(unlocked ? '解锁成功' : '解锁条件', width / 2, panel.y + 146, 12, { alpha: 0.68 });
+    this.text(this.t(unlocked ? 'reward.unlockSucceeded' : 'reward.unlockRequirement'),
+      width / 2, panel.y + 146, 12, { alpha: 0.68 });
     const gap = 10;
     const buttonCount = Number(!!dialog.secondaryAction) + Number(!!dialog.primaryAction);
     if (!buttonCount) return;
@@ -2671,9 +2742,9 @@ class CanvasRenderer {
     const x = (width - buttonWidth * buttonCount - gap * (buttonCount - 1)) / 2;
     const y = panel.y + panel.h - 72;
     if (dialog.secondaryAction) this.button(dialog.secondaryAction,
-      { x, y, w: buttonWidth, h: 46 }, dialog.secondaryLabel || '关闭', { fontSize: 15 }, model.pressedId);
+      { x, y, w: buttonWidth, h: 46 }, dialog.secondaryLabel || this.t('common.close'), { fontSize: 15 }, model.pressedId);
     if (dialog.primaryAction) this.button(dialog.primaryAction,
-      { x: x + (dialog.secondaryAction ? buttonWidth + gap : 0), y, w: buttonWidth, h: 46 }, dialog.primaryLabel || '确定',
+      { x: x + (dialog.secondaryAction ? buttonWidth + gap : 0), y, w: buttonWidth, h: 46 }, dialog.primaryLabel || this.t('common.confirm'),
       { fontSize: 15, enabled: dialog.primaryEnabled !== false && !['working', 'loading'].includes(dialog.state) }, model.pressedId);
   }
 

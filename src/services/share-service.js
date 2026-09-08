@@ -1,6 +1,7 @@
 'use strict';
 
 const ApiClient = require('./api-client.js');
+const i18n = require('../i18n/index.js');
 const STORAGE_KEY = 'cleared:minigame:share-entry:v1';
 const SCENES = new Set(['home', 'ordinary_result', 'daily_result']);
 const shareIdValid = value => typeof value === 'string' && /^shr_[A-Za-z0-9_-]{1,128}$/.test(value);
@@ -15,13 +16,14 @@ function contextData(input) {
 }
 
 class ShareService {
-  constructor(platform, api, auth, syncStore, config, behavior) {
+  constructor(platform, api, auth, syncStore, config, behavior, locale) {
     this.platform = platform;
     this.api = api;
     this.auth = auth;
     this.store = syncStore;
     this.config = config || {};
     this.behavior = behavior || null;
+    this.locale = locale || null;
     this.listener = null;
     this.contextProvider = null;
     this.intent = null;
@@ -44,6 +46,13 @@ class ShareService {
   }
 
   isResultEnabled() { return this.config.resultEnabled === true; }
+
+  t(key, params) {
+    try {
+      if (this.locale && typeof this.locale.t === 'function') return this.locale.t(key, params);
+    } catch (error) {}
+    return i18n.translate('zh-CN', key, params);
+  }
 
   intentContext(context) {
     const body = contextData(context);
@@ -108,7 +117,9 @@ class ShareService {
     const sid = this.config.attributionEnabled === true && current && intent && intent.userId === current.userId &&
       intent.key === JSON.stringify(body) && intent.expiresAt > Date.now() ? intent.shareId : null;
     const query = `sv=1${sid ? `&sid=${encodeURIComponent(sid)}` : ''}&scene=${body.scene}`;
-    return { title: body.scene === 'daily_result' ? '今天的每日挑战，你能解开吗？' : '这一关你能解开吗？',
+    const titleKey = body.scene === 'daily_result' ? 'share.dailyResult'
+      : body.scene === 'ordinary_result' ? 'share.levelResult' : 'share.home';
+    return { title: this.t(titleKey),
       query: query.length <= 256 ? query : `sv=1&scene=${body.scene}` };
   }
 
@@ -123,7 +134,7 @@ class ShareService {
     if (!context || !['play', 'daily'].includes(context.scene)) return Promise.resolve({ initiated: false, reason: 'invalid-context' });
     // Local hint access uses an ordinary screenshot card. It never selects an
     // invitation campaign, changes menu context, or requests a server reward.
-    return this.initiate({ title: '这道题你能解开吗？', query: 'sv=1&scene=home' });
+    return this.initiate({ title: this.t('share.home'), query: 'sv=1&scene=home' });
   }
 
   shareReward(context) {
@@ -131,7 +142,7 @@ class ShareService {
         typeof context.rewardId !== 'string' || !/^(theme|effect):[a-z0-9-]{1,80}$/.test(context.rewardId)) {
       return Promise.resolve({ initiated: false, reason: 'invalid-context' });
     }
-    return this.initiate({ title: '来看看我在 CLEARED! 解锁的新外观', query: 'sv=1&scene=home' });
+    return this.initiate({ title: this.t('share.unlock'), query: 'sv=1&scene=home' });
   }
 
   initiate(payload) {

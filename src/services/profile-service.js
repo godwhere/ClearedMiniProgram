@@ -1,6 +1,7 @@
 'use strict';
 
 const ApiClient = require('./api-client.js');
+const i18n = require('../i18n/index.js');
 
 function normalizeProfile(value) {
   if (!value || typeof value.nickname !== 'string' || typeof value.avatarUrl !== 'string') return null;
@@ -11,12 +12,13 @@ function normalizeProfile(value) {
 }
 
 class ProfileService {
-  constructor(platform, api, auth, config, behavior) {
+  constructor(platform, api, auth, config, behavior, locale) {
     this.platform = platform;
     this.api = api;
     this.auth = auth;
     this.config = config || {};
     this.behavior = behavior || null;
+    this.locale = locale || null;
     this.button = null;
     this.mountOptions = null;
     this.pending = null;
@@ -38,6 +40,20 @@ class ProfileService {
       ? Object.assign({}, this.profile) : null;
   }
 
+  localeId() {
+    try {
+      if (this.locale && typeof this.locale.current === 'function') return this.locale.current();
+    } catch (error) {}
+    return 'zh-CN';
+  }
+
+  t(key, params) {
+    try {
+      if (this.locale && typeof this.locale.t === 'function') return this.locale.t(key, params);
+    } catch (error) {}
+    return i18n.translate('zh-CN', key, params);
+  }
+
   mount(options) {
     this.unmount();
     if (!this.isSupported()) return { ok: false, reason: 'not-supported' };
@@ -49,7 +65,8 @@ class ProfileService {
     this.mountOptions = options;
     const style = options.style || {};
     const button = this.platform.createUserInfoButton({
-      type: 'text', text: '授权头像昵称', lang: 'zh_CN', withCredentials: false,
+      type: 'text', text: this.t('profile.authorizeButton'),
+      lang: this.localeId() === 'zh-CN' ? 'zh_CN' : 'en', withCredentials: false,
       style: { left: rect.x, top: rect.y, width: rect.w, height: rect.h,
         lineHeight: rect.h, borderRadius: 12, fontSize: 17, textAlign: 'center',
         color: style.color || '#333333', backgroundColor: style.backgroundColor || '#ffffff' }
