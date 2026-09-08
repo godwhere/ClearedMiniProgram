@@ -67,11 +67,13 @@ function cloudConfigForEnvironment(environmentVersion, loadLocalConfig) {
   return Object.assign({}, cloudbaseConfig, { localBackupEnabled: false });
 }
 
-function start() {
+function start(options) {
+  const loadLocalCloudConfig = options && typeof options.loadLocalCloudConfig === 'function'
+    ? options.loadLocalCloudConfig : null;
   const platform = new WechatPlatform();
   const environmentVersion = platform.getMiniProgramEnvironmentVersion();
   const isDeveloperRuntime = ['develop', 'trial'].includes(environmentVersion);
-  const cloudConfig = cloudConfigForEnvironment(environmentVersion);
+  const cloudConfig = cloudConfigForEnvironment(environmentVersion, loadLocalCloudConfig);
   const subpackages = new SubpackageService(platform, subpackageConfig);
   const progress = new ProgressStore(platform);
   const stamina = new StaminaService(platform, staminaConfig);

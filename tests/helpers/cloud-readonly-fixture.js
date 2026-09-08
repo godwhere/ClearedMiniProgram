@@ -34,20 +34,19 @@ function fixture(options = {}) {
       if (f.paused.has(call.data.action)) waits.push(call);
       else call.success({ result: f.reply(call.data) });
     } };
-  const oldWx = global.wx; const saved = Object.assign({}, defaults);
-  let localPath; let cachedLocal;
+  const oldWx = global.wx;
+  const testConfig = Object.assign({}, defaults, {
+    enabled: true,
+    env: 'test-fixture',
+    identityEnabled: true,
+    readEnabled: true,
+    timeoutMs: 1000
+  }, options.config);
   try {
-    // A developer's ignored live override must never redirect unit fixtures.
-    localPath = require.resolve('../../src/config/cloudbase.local.js');
-    cachedLocal = require.cache[localPath];
-    require.cache[localPath] = { id: localPath, filename: localPath, loaded: true, exports: {} };
-  } catch (ignored) {}
-  try {
-    Object.assign(defaults, { enabled: true, env: 'test-fixture', identityEnabled: true, readEnabled: true, timeoutMs: 1000 }, options.config);
-    global.wx = native; f.app = bootstrap.start();
+    global.wx = native;
+    f.app = bootstrap.start({ loadLocalCloudConfig: () => testConfig });
   } finally {
-    Object.assign(defaults, saved); global.wx = oldWx;
-    if (localPath) { if (cachedLocal) require.cache[localPath] = cachedLocal; else delete require.cache[localPath]; }
+    global.wx = oldWx;
   }
   f.auth = f.app.auth; f.sessions = f.auth.sessions; f.sync = f.app.syncStore;
   return f;

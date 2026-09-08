@@ -72,6 +72,24 @@ async function run() {
     if (cloudApp) cloudApp.dispose();
     Object.assign(cloudbase, savedCloud); engagement.auth.enabled = savedAuth; global.wx = oldWx;
   }
+
+  // Clean checkouts do not contain the ignored develop override. Tests must be
+  // able to inject one explicitly instead of depending on a machine-local file.
+  let injectedApp; let loadCount = 0;
+  try {
+    const native = fakeApi();
+    native.getAccountInfoSync = () => ({ miniProgram: { envVersion: 'develop' } });
+    global.wx = native;
+    injectedApp = bootstrap.start({ loadLocalCloudConfig: () => {
+      loadCount++;
+      return Object.assign({}, cloudbase, { enabled: true, env: 'injected-test-fixture' });
+    } });
+    assert.strictEqual(loadCount, 1);
+    assert.strictEqual(injectedApp.auth.api.transport.config.env, 'injected-test-fixture');
+  } finally {
+    if (injectedApp) injectedApp.dispose();
+    global.wx = oldWx;
+  }
 }
 run.fakeApi = fakeApi;
 module.exports = run;
