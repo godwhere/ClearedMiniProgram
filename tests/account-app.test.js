@@ -53,7 +53,7 @@ module.exports = async function run() {
   app.start(); app.tick(Date.now()); assert.strictEqual(f.buttons.length, 0);
   assert(app.renderer.hits.some(hit => hit.id === 'home:account'));
   app.performAction('home:account'); app.tick(Date.now());
-  const layout = accountLayout(platform.metrics);
+  const layout = accountLayout(platform.metrics, { profileSupported: true });
   assert.deepStrictEqual(app.renderer.hits.find(hit => hit.id === 'account:authorizeProfile').rect, layout.profileButton);
   assert.strictEqual(f.buttons[0].options.style.left, layout.profileButton.x);
   assert.strictEqual(f.buttons[0].options.style.top, layout.profileButton.y);
@@ -61,7 +61,8 @@ module.exports = async function run() {
   f.platform.metrics = platform.metrics;
   app.tick(Date.now());
   assert.strictEqual(f.buttons[0].destroyed, true);
-  assert.strictEqual(f.buttons[1].options.style.left, accountLayout(platform.metrics).profileButton.x);
+  assert.strictEqual(f.buttons[1].options.style.left,
+    accountLayout(platform.metrics, { profileSupported: true }).profileButton.x);
   // Continue with the latest mounted button after resizing.
   f.buttons.shift();
   f.buttons[0].tap({ profile: null });
@@ -130,4 +131,22 @@ module.exports = async function run() {
   pending.performAction('account:back'); resolve({ ok: false, reason: 'network' });
   await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
   assert.strictEqual(pending.scene, 'home'); assert.strictEqual(pending.accountSyncPending, null);
+
+  const feedbackNow = 1700000000000;
+  const privacyPlatform = new WechatPlatform(fakeApi());
+  privacyPlatform.openPrivacyContract = () => Promise.resolve({ ok: false, reason: 'not-supported' });
+  const privacy = new ClearedApp(privacyPlatform, { clock: () => new Date(feedbackNow) });
+  privacy.performAction('home:account');
+  privacy.performAction('account:privacy');
+  await Promise.resolve(); await Promise.resolve();
+  assert.strictEqual(privacy.accountMessage, '',
+    'privacy failures do not overwrite the player identity area');
+  assert.deepStrictEqual(privacy.buildModel().accountFeedback,
+    { reason: 'privacy-open-failed', until: feedbackNow + 2200 });
+  privacy.tick(feedbackNow + 2199);
+  assert(privacy.buildModel().accountFeedback, 'privacy feedback remains visible before its deadline');
+  privacy.tick(feedbackNow + 2200);
+  assert.strictEqual(privacy.buildModel().accountFeedback, null,
+    'privacy feedback clears itself after the same short interval as stamina feedback');
+  privacy.dispose();
 };

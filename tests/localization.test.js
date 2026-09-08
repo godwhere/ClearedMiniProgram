@@ -12,6 +12,7 @@ const effects = require('../src/effects/index.js');
 const mechanics = require('../src/mechanics/index.js');
 const LocaleService = require('../src/services/locale-service.js');
 const CanvasRenderer = require('../src/ui/canvas-renderer.js');
+const accountLayout = require('../src/ui/account-layout.js');
 const classic = require('../src/skins/classic.js');
 const portalInstructions = require('../src/ui/portal-instructions.js');
 const ShareService = require('../src/services/share-service.js');
@@ -149,7 +150,8 @@ function run() {
   const view = rendererFixture(enLocale);
   view.renderer.drawAccount({
     accountProfile: null,
-    accountStatus: 'local',
+    accountStatus: 'pending',
+    syncNeeded: true,
     backupMode: false,
     profilePending: false,
     profileSupported: false,
@@ -157,13 +159,39 @@ function run() {
   });
   const previousHit = view.renderer.hits.find(hit => hit.id === 'account:language:prev');
   const nextHit = view.renderer.hits.find(hit => hit.id === 'account:language:next');
-  assert.deepStrictEqual(previousHit && previousHit.rect,
-    { x: 103, y: 220, w: 44, h: 44 });
-  assert.deepStrictEqual(nextHit && nextHit.rect,
-    { x: 243, y: 220, w: 44, h: 44 });
+  const accountGeometry = accountLayout(view.renderer.platform.metrics);
+  assert.deepStrictEqual(previousHit && previousHit.rect, accountGeometry.languagePrevious);
+  assert.deepStrictEqual(nextHit && nextHit.rect, accountGeometry.languageNext);
   assert(view.text.includes('Account'));
+  assert(view.text.includes('Language'));
   assert(view.text.includes('English'));
+  assert(view.text.includes('Sync Now'));
+  assert(!view.text.includes('Avatar and nickname unavailable'),
+    'unsupported profile authorization does not occupy an account option row');
+  assert(!view.renderer.hits.some(hit => hit.id === 'account:restoreBackup'),
+    'disabled backup mode does not expose a dead restore control');
   assert(!view.text.some(value => CJK.test(value)), 'the English account screen cannot leak Chinese UI copy');
+  view.renderer.drawAccount({
+    accountProfile: null,
+    accountStatus: 'synced',
+    backupMode: false,
+    profilePending: false,
+    profileSupported: false,
+    syncPending: false
+  });
+  assert(view.text.includes('Synced to Cloud'));
+  assert(!view.renderer.hits.some(hit => hit.id === 'account:retrySync'),
+    'the synced status row does not behave like a retry action');
+  view.renderer.drawAccount({
+    accountProfile: null,
+    accountStatus: 'synced',
+    backupMode: true,
+    profilePending: false,
+    profileSupported: false,
+    syncPending: false
+  });
+  assert(view.renderer.hits.some(hit => hit.id === 'account:restoreBackup'),
+    'restore remains available when the backup mode is enabled');
   view.renderer.drawHome({
     soundEnabled: true,
     accountProfile: null,
@@ -174,6 +202,9 @@ function run() {
     completedCount: 0,
     totalLevels: 1
   });
+  assert(view.text.includes('CLEARED!'), 'the English home screen displays the game title');
+  assert(!view.text.includes('Clear every tile'),
+    'the English home screen no longer uses the literal Chinese-title translation');
   assert(!view.renderer.hits.some(hit => /^home:language:/.test(hit.id)),
     'the language selector belongs only to the account screen');
 

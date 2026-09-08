@@ -260,6 +260,7 @@ class ClearedApp {
     this.accountGeneration = 0;
     this.accountSceneGeneration = 0;
     this.accountMessage = '';
+    this.accountFeedback = null;
     this.accountProfilePending = false;
     this.accountSyncPending = null;
     this.hidden = false;
@@ -571,7 +572,11 @@ class ClearedApp {
       resize: () => {
         this.renderer.ctx = this.platform.context;
         if (this.scene === 'account' && this.profile) {
-          this.profile.handleResize(accountLayout(this.platform.metrics).profileButton);
+          const profileSupported = typeof this.profile.isSupported === 'function' && this.profile.isSupported();
+          this.profile.handleResize(accountLayout(this.platform.metrics, {
+            backupMode: !!(this.cloudBackup && this.cloudBackup.enabled()),
+            profileSupported
+          }).profileButton);
         }
         this.invalidate();
       },
@@ -939,6 +944,7 @@ class ClearedApp {
     const timestamp = Number.isFinite(Number(now)) ? Number(now) : Date.now();
     this.showNextRewardNotice(timestamp);
     this.refreshStamina(timestamp);
+    if (this.accountFeedback && timestamp >= this.accountFeedback.until) this.clearAccountFeedback();
     if (this.hintPreview && this.hintPreview.manual !== true && timestamp >= this.hintPreview.until) {
       this.clearHintPreview(false);
       this.dirty = true;
@@ -1162,6 +1168,7 @@ class ClearedApp {
       rewardDialog: this.rewardDialog ? cloneData(this.rewardDialog) : null,
       stamina: Object.assign({}, this.staminaSnapshot),
       staminaFeedback: this.staminaFeedback ? Object.assign({}, this.staminaFeedback) : null,
+      accountFeedback: this.accountFeedback ? Object.assign({}, this.accountFeedback) : null,
       homeStaminaExpanded: this.scene === 'home' && this.homeStaminaExpanded,
       pressedId: this.pressedId,
       accountProfile: (this.scene === 'home' || this.scene === 'account') && this.profile ? this.profile.current() : null,
@@ -1214,13 +1221,16 @@ class ClearedApp {
           : ['synced', 'cloud-synced', 'backed-up'].includes(sync.status) ? 'synced'
             : ['cloud-pending', 'cloud-paused', 'backup-pending', 'backup-conflict', 'restore-confirmation'].includes(sync.status) ? 'pending'
               : ['error', 'storage-blocked', 'migration-snapshot-missing', 'restore-pending'].includes(sync.status) ? 'error' : 'local';
+      const syncNeeded = Number(sync.pending) > 0 ||
+        ['cloud-pending', 'cloud-paused', 'backup-pending', 'backup-conflict', 'restore-confirmation'].includes(sync.status);
       return Object.assign(base, {
         accountStatus: this.auth && this.auth.readOnlyPhase && !(this.cloudBackup && this.cloudBackup.enabled()) ? 'local' : status,
         accountMessage: this.accountMessage || (this.auth && this.auth.readOnlyPhase && !(this.cloudBackup && this.cloudBackup.enabled())
           ? this.t(sync.status === 'cloud-readonly' ? 'sync.readOnly' : 'sync.identityOffline') : ''),
-        profileSupported: !!(this.profile && this.profile.isSupported()),
+        profileSupported: !!(this.profile && typeof this.profile.isSupported === 'function' && this.profile.isSupported()),
         profilePending: this.accountProfilePending,
         syncPending: !!this.accountSyncPending,
+        syncNeeded,
         backupMode: !!(this.cloudBackup && this.cloudBackup.enabled()),
         backupDirty: !!(backup && backup.dirty),
         backupConfirmRestore: !!(backup && backup.confirmRestore),
@@ -2009,6 +2019,7 @@ class ClearedApp {
       // Transient account feedback is already rendered state, not business
       // state. Clear it so the newly selected locale is visible immediately.
       this.accountMessage = '';
+      this.clearAccountFeedback();
       if (this.profile) this.mountAccountProfile();
       this.invalidate();
       return true;
@@ -2086,9 +2097,12 @@ class ClearedApp {
       const task = this.platform.openPrivacyContract ? this.platform.openPrivacyContract() : Promise.resolve({ ok: false });
       Promise.resolve(task).then(result => {
         if (!this.isCurrentAccount(account) || this.scene !== 'account' || generation !== this.accountSceneGeneration) return;
-        if (!result.ok) this.accountMessage = this.t('account.privacyOpenFailed');
+        if (!result.ok) this.showAccountFeedback('privacy-open-failed', this.clockNow().getTime());
         this.invalidate();
-      }).catch(function () {});
+      }).catch(() => {
+        if (!this.isCurrentAccount(account) || this.scene !== 'account' || generation !== this.accountSceneGeneration) return;
+        this.showAccountFeedback('privacy-open-failed', this.clockNow().getTime());
+      });
     } else if (action === 'home:dailyChallenge' || action === 'home:daily') {
       this.enterDaily();
     } else if (action === 'home:iceTrial' && this.scene === 'home') {
@@ -2312,6 +2326,7 @@ class ClearedApp {
     this.scene = 'account';
     this.accountSceneGeneration++;
     this.accountMessage = '';
+    this.accountFeedback = null;
     this.pointer = null;
     this.pressedId = null;
     this.boardInput.setRunner(null);
@@ -2512,8 +2527,12 @@ class ClearedApp {
     const account = this.captureAccountContext();
     const current = () => this.isCurrentAccount(account) && this.scene === 'account' && !this.hidden && generation === this.accountSceneGeneration;
     const skin = this.skins.current();
+    const profileSupported = typeof this.profile.isSupported === 'function' && this.profile.isSupported();
     const result = this.profile.mount({
-      rect: accountLayout(this.platform.metrics).profileButton,
+      rect: accountLayout(this.platform.metrics, {
+        backupMode: !!(this.cloudBackup && this.cloudBackup.enabled()),
+        profileSupported
+      }).profileButton,
       style: { color: skin.colors.text, backgroundColor: skin.colors.levelCell },
       onPending: pending => { if (current()) { this.accountProfilePending = pending; this.invalidate(); } },
       onSuccess: () => { if (current()) { this.accountMessage = this.t('account.profileSaved'); this.invalidate(); } },
@@ -2531,7 +2550,19 @@ class ClearedApp {
     this.accountSceneGeneration++;
     this.accountSyncPending = null;
     this.accountProfilePending = false;
+    this.accountFeedback = null;
     if (this.profile) this.profile.unmount();
+  }
+
+  showAccountFeedback(reason, now) {
+    this.accountFeedback = { reason, until: now + 2200 };
+    this.invalidate();
+  }
+
+  clearAccountFeedback() {
+    if (!this.accountFeedback) return;
+    this.accountFeedback = null;
+    this.invalidate();
   }
 
   cloudAccountMessage(result) {

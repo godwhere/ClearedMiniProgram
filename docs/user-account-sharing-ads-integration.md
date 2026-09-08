@@ -401,14 +401,16 @@ Content-Type: application/json
 ```text
 home:account
   -> account scene
-       ├─ 显示：本地游玩 / 正在同步 / 已同步 / 同步失败
+       ├─ 放大的头像与玩家昵称卡片
+       ├─ account:language:prev / account:language:next
        ├─ account:authorizeProfile
-       ├─ account:retrySync
+       ├─ account:retrySync（已同步至云端 / 立即同步 / 重试同步）
+       ├─ account:restoreBackup（仅 local-backup 启用时显示）
        ├─ account:privacy
        └─ account:back
 ```
 
-头像昵称必须由用户在账号页主动点击。
+头像昵称必须由用户在账号页主动点击。资料能力默认关闭时，账号页不显示“头像昵称暂不可用”占位行；能力真正开放后才显示授权入口。
 
 首页与账号页都消费 `ProfileService.current()` 提供的当前账号资料，并复用 Renderer 中同一个头像图片缓存。头像 URL 变化或资料清空后，旧图片的迟到回调不能覆盖新状态；加载失败不逐帧重复请求。身份就绪后异步刷新已有资料，不等待资料请求完成才进入游戏，也不在首页创建原生授权按钮。profile 默认开关仍关闭，此时显示默认人像。
 
@@ -427,11 +429,17 @@ src/ui/account-layout.js
 接口：
 
 ```js
-function accountLayout(metrics) {
+function accountLayout(metrics, options) {
   return {
     panel: { x, y, w, h },
-    profileButton: { x, y, w, h },
+    summary: { x, y, w, h },
+    languageRow: { x, y, w, h },
+    languagePrevious: { x, y, w, h },
+    languageValue: { x, y, w, h },
+    languageNext: { x, y, w, h },
+    profileButton: { x, y, w, h }, // 仅资料授权能力可用时
     retryButton: { x, y, w, h },
+    restoreButton: { x, y, w, h }, // 仅 local-backup 模式
     privacyButton: { x, y, w, h }
   };
 }
@@ -469,7 +477,7 @@ isSupported()
 
 只有以后需要自定义隐私 UI 时，才单独新增设计；一旦注册该监听，每条授权路径都必须调用 `resolve({ event: 'agree' })` 或 `resolve({ event: 'disagree' })`。
 
-账号页可提供“隐私协议”入口，但隐私文案、收集目的和平台后台声明必须在提审前完成。
+账号页可提供“隐私协议”入口，但隐私文案、收集目的和平台后台声明必须在提审前完成。平台无法打开协议时，使用与体力反馈相同的底部短时提示，约 2.2 秒后自动消失；失败文案不得写入头像昵称卡片。
 
 ### 8.4 资料保存
 

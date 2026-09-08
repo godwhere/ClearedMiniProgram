@@ -17,7 +17,7 @@ The first implementation supports exactly two locales:
 - `zh-CN`: existing Simplified Chinese product language.
 - `en-US`: natural American English, written for an English-speaking mobile game audience rather than translated word for word.
 
-The account screen gains a compact selector rendered as `‹ 中文 ›` or `‹ English ›`. The two arrows switch languages immediately. In the future standalone App, the equivalent surface is presented as Settings; the current WeChat Mini Game keeps its existing Account title and account responsibilities. Existing scene, action, level, mechanic, reward, storage, and cloud protocol identifiers remain stable.
+The account screen gains a compact settings row rendered as `语言  ‹ 中文 ›` or `Language  ‹ English ›`. The two arrows switch languages immediately. In the future standalone App, the equivalent surface is presented as Settings; the current WeChat Mini Game keeps its existing Account title and account responsibilities. Existing scene, action, level, mechanic, reward, storage, and cloud protocol identifiers remain stable.
 
 ## 2. Locale resolution contract
 
@@ -62,7 +62,7 @@ This key is device-level and account-independent. It must not be added to `Prefe
 ## 3. Account-screen selector contract
 
 - Location: account screen only, within the current safe-area and responsive Canvas layout.
-- Presentation: left arrow, native language name, right arrow — `‹ 中文 ›` or `‹ English ›`.
+- Presentation: a language label plus left arrow, native language name, and right arrow — `语言  ‹ 中文 ›` or `Language  ‹ English ›`; the row uses the same card geometry as the other account actions.
 - Actions: `account:language:prev` and `account:language:next`.
 - Interaction: only the arrow controls change the locale; each arrow has a minimum `44 × 44` logical-pixel hit area.
 - Order: `zh-CN` and `en-US`, wrapping in both directions.
@@ -126,7 +126,7 @@ Initial glossary:
 
 | Chinese concept | `en-US` baseline |
 | --- | --- |
-| 清空每一格 | Clear every tile |
+| 清空每一格（主页游戏名） | CLEARED! |
 | 开始游戏 | Play |
 | 继续游戏 | Continue |
 | 每日挑战 | Daily Challenge |

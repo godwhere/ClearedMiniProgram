@@ -253,7 +253,7 @@ class CanvasRenderer {
         this.drawHome(model, now);
         break;
     }
-    this.drawStaminaFeedback(model, now);
+    if (!this.drawAccountFeedback(model, now)) this.drawStaminaFeedback(model, now);
     if (model.rewardDialog) this.drawRewardDialog(model);
   }
 
@@ -840,9 +840,7 @@ class CanvasRenderer {
 
   drawStaminaFeedback(model, now) {
     const feedback = model.staminaFeedback;
-    if (!feedback || now >= feedback.until) return;
-    const skin = this.skinService.current();
-    const { width, safeBottom } = this.platform.metrics;
+    if (!feedback || now >= feedback.until) return false;
     const stamina = model.stamina;
     const label = feedback.reason === 'quick-clear-refund' ? this.t('stamina.quickClearRefund', { amount: feedback.amount })
       : feedback.reason === 'refund-persist-failed' ? this.t('stamina.refundSavePending')
@@ -850,6 +848,23 @@ class CanvasRenderer {
       : stamina && stamina.recovering && Number.isFinite(stamina.remainingMs)
         ? this.t('stamina.insufficientRecovering', { countdown: formatStaminaCountdown(stamina.remainingMs) })
         : this.t('stamina.insufficient');
+    this.drawFeedbackToast(label);
+    return true;
+  }
+
+  drawAccountFeedback(model, now) {
+    const feedback = model.accountFeedback;
+    if (!feedback || now >= feedback.until) return false;
+    const label = feedback.reason === 'privacy-open-failed'
+      ? this.t('account.privacyOpenFailed') : '';
+    if (!label) return false;
+    this.drawFeedbackToast(label);
+    return true;
+  }
+
+  drawFeedbackToast(label) {
+    const skin = this.skinService.current();
+    const { width, safeBottom } = this.platform.metrics;
     const boxWidth = Math.min(320, width - 32);
     const y = safeBottom - 106;
     this.ctx.save();
@@ -1099,16 +1114,24 @@ class CanvasRenderer {
 
   drawAccount(model) {
     const skin = this.skinService.current();
-    const layout = accountLayout(this.platform.metrics);
+    const layout = accountLayout(this.platform.metrics, {
+      backupMode: model.backupMode === true,
+      profileSupported: model.profileSupported === true
+    });
     this.begin(skin.colors.homeBackground);
     this.iconButton('account:back', layout.backButton, 'back', true, model.pressedId);
     const panel = layout.panel;
     const center = panel.x + panel.w / 2;
     this.text(this.t('account.title'), center, layout.backButton.y + 22, 22);
-    const languageY = layout.profileButton.y - 48;
-    const space = Math.max(1, languageY - panel.y);
-    const avatarSize = Math.min(64, space * 0.32);
-    const avatarRect = { x: center - avatarSize / 2, y: panel.y + 6, w: avatarSize, h: avatarSize };
+    const summary = layout.summary;
+    this.roundedRect(summary.x, summary.y, summary.w, summary.h, 12);
+    this.ctx.fillStyle = skin.colors.secondaryButton;
+    this.ctx.fill();
+    const verticalSummary = summary.h > summary.w * 0.75;
+    const avatarSize = Math.min(80, verticalSummary ? summary.w * 0.38 : summary.h - 32);
+    const avatarRect = verticalSummary
+      ? { x: summary.x + (summary.w - avatarSize) / 2, y: summary.y + 24, w: avatarSize, h: avatarSize }
+      : { x: summary.x + 16, y: summary.y + (summary.h - avatarSize) / 2, w: avatarSize, h: avatarSize };
     const profile = model.accountProfile;
     const avatar = this.ensureAccountAvatar(profile);
     this.roundedRect(avatarRect.x, avatarRect.y, avatarRect.w, avatarRect.h, 12);
@@ -1117,43 +1140,78 @@ class CanvasRenderer {
     if (avatar) {
       this.drawImageContain(avatar, avatarRect);
     } else {
-      this.text(this.t('account.avatarFallback'), center, avatarRect.y + avatarSize / 2, Math.min(24, avatarSize / 2));
+      this.text(this.t('account.avatarFallback'), avatarRect.x + avatarRect.w / 2,
+        avatarRect.y + avatarSize / 2, Math.min(28, avatarSize / 2));
     }
-    this.text(profile ? profile.nickname : this.t('account.localPlayer'), center, panel.y + space * 0.46, 18, { maxWidth: panel.w - 24 });
-    const statusKey = {
-      local: model.backupMode ? 'account.status.localSave' : 'account.status.localPlay',
-      syncing: model.backupMode ? 'account.status.processingBackup' : 'account.status.syncing',
-      pending: model.backupMode ? 'account.status.backupPending' : 'account.status.syncPending',
-      synced: model.backupMode ? 'account.status.backupCurrent' : 'account.status.synced',
-      error: model.backupMode ? 'account.status.backupFailed' : 'account.status.syncFailed',
-      'account-mismatch': 'account.status.mismatch'
-    }[model.accountStatus] || 'account.status.localPlay';
-    const status = this.t(statusKey);
-    this.text(status, center, panel.y + space * 0.65, 15, { maxWidth: panel.w - 24 });
-    this.text(model.accountMessage || this.t('account.profileOptional'), center, panel.y + space * 0.84, 12, { maxWidth: panel.w - 24, alpha: 0.7 });
+    if (verticalSummary) {
+      const summaryCenter = summary.x + summary.w / 2;
+      const nameY = avatarRect.y + avatarRect.h + 28;
+      this.text(profile ? profile.nickname : this.t('account.localPlayer'), summaryCenter, nameY, 21,
+        { maxWidth: summary.w - 24 });
+      if (model.accountMessage) this.text(model.accountMessage, summaryCenter, nameY + 32, 11,
+        { maxWidth: summary.w - 24, alpha: 0.76 });
+    } else {
+      const textX = avatarRect.x + avatarRect.w + 14;
+      const textWidth = Math.max(1, summary.x + summary.w - textX - 14);
+      this.text(profile ? profile.nickname : this.t('account.localPlayer'), textX,
+        summary.y + summary.h * (model.accountMessage ? 0.4 : 0.5), 21,
+        { align: 'left', maxWidth: textWidth });
+      if (model.accountMessage) this.text(model.accountMessage, textX,
+        summary.y + summary.h * 0.68, 11,
+        { align: 'left', maxWidth: textWidth, alpha: 0.76 });
+    }
     const localeId = this.locale && typeof this.locale.current === 'function'
       ? this.locale.current() : 'zh-CN';
     const localeLabel = this.locale && typeof this.locale.displayName === 'function'
       ? this.locale.displayName(localeId) : i18n.localeDisplayName(localeId);
-    this.iconButton('account:language:prev', { x: center - 92, y: languageY, w: 44, h: 44 },
-      'back', true, model.pressedId);
-    this.text(localeLabel, center, languageY + 22, 14, { weight: 400, maxWidth: 88 });
-    this.iconButton('account:language:next', { x: center + 48, y: languageY, w: 44, h: 44 },
-      'next', true, model.pressedId);
-    this.button('account:authorizeProfile', layout.profileButton,
-      this.t(model.profilePending ? 'account.profileSaving'
-        : model.profileSupported ? 'account.profileAuthorize' : 'account.profileUnavailable'),
-      { enabled: model.profileSupported === true && !model.profilePending, fontSize: 17 }, model.pressedId);
+    const languagePressed = model.pressedId === 'account:language:prev' ||
+      model.pressedId === 'account:language:next';
+    this.roundedRect(layout.languageRow.x, layout.languageRow.y,
+      layout.languageRow.w, layout.languageRow.h, skin.layout.buttonRadius);
+    this.ctx.fillStyle = languagePressed ? skin.colors.levelCellPressed : skin.colors.levelCell;
+    this.ctx.fill();
+    this.text(this.t('account.language'), layout.languageRow.x + 18,
+      layout.languageRow.y + layout.languageRow.h / 2, 15, {
+        align: 'left', weight: 400,
+        maxWidth: Math.max(1, layout.languagePrevious.x - layout.languageRow.x - 28)
+      });
+    this.iconButton('account:language:prev', layout.languagePrevious, 'back', true, model.pressedId);
+    this.text(localeLabel, layout.languageValue.x + layout.languageValue.w / 2,
+      layout.languageValue.y + layout.languageValue.h / 2, 14,
+      { weight: 400, maxWidth: layout.languageValue.w });
+    this.iconButton('account:language:next', layout.languageNext, 'next', true, model.pressedId);
+    if (model.profileSupported === true) {
+      this.button('account:authorizeProfile', layout.profileButton,
+        this.t(model.profilePending ? 'account.profileSaving' : 'account.profileAuthorize'),
+        { enabled: !model.profilePending, fontSize: 17 }, model.pressedId);
+    }
     const backupAction = model.backupConfirmRestore ? 'account:confirmRestore'
       : model.backupConfirmCommit ? 'account:confirmBackup' : 'account:retrySync';
-    const backupLabel = this.t(model.syncPending ? 'common.processingEllipsis'
+    const staticSyncState = !model.backupMode &&
+      (model.syncPending || model.accountStatus === 'syncing' || model.accountStatus === 'synced');
+    const backupLabel = this.t(model.syncPending || model.accountStatus === 'syncing'
+      ? 'common.processingEllipsis'
       : model.backupConfirmRestore ? 'account.confirmRestoreBackup'
         : model.backupConfirmCommit ? 'account.confirmOverwriteBackup'
-          : model.backupMode ? 'account.backupNow' : 'account.retrySync');
-    this.button(backupAction, layout.retryButton, backupLabel,
-      { enabled: !model.syncPending, fontSize: 17 }, model.pressedId);
-    this.button('account:restoreBackup', layout.restoreButton, this.t('account.restoreBackup'),
-      { enabled: model.backupMode === true && !model.syncPending, fontSize: 17 }, model.pressedId);
+          : model.backupMode ? 'account.backupNow'
+            : model.accountStatus === 'synced' ? 'account.syncedToCloud'
+              : model.syncNeeded || model.accountStatus === 'pending'
+                ? 'account.syncNow' : 'account.retrySync');
+    if (staticSyncState) {
+      this.roundedRect(layout.retryButton.x, layout.retryButton.y,
+        layout.retryButton.w, layout.retryButton.h, skin.layout.buttonRadius);
+      this.ctx.fillStyle = skin.colors.levelCell;
+      this.ctx.fill();
+      this.text(backupLabel, layout.retryButton.x + layout.retryButton.w / 2,
+        layout.retryButton.y + layout.retryButton.h / 2, 17, { weight: 400, alpha: 0.82 });
+    } else {
+      this.button(backupAction, layout.retryButton, backupLabel,
+        { enabled: !model.syncPending, fontSize: 17 }, model.pressedId);
+    }
+    if (model.backupMode === true) {
+      this.button('account:restoreBackup', layout.restoreButton, this.t('account.restoreBackup'),
+        { enabled: !model.syncPending, fontSize: 17 }, model.pressedId);
+    }
     this.button('account:privacy', layout.privacyButton, this.t('account.privacy'), { fontSize: 17 }, model.pressedId);
   }
 
