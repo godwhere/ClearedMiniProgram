@@ -33,15 +33,18 @@ function run() {
   assert.strictEqual(fs.existsSync(path.join(root, 'game.js')), true);
   assert.strictEqual(gameConfig.deviceOrientation, 'portrait');
   const packages = gameConfig.subpackages;
-  assert.strictEqual(packages.length, 10);
+  assert.strictEqual(packages.length, 11);
   assert.deepStrictEqual(packages, subpackageConfig.packages.map(item => ({ name: item.name, root: item.root })));
   const themeIds = ['gem', 'animals', 'fruits', 'desserts', 'space',
     'ocean', 'spring', 'festival', 'music', 'vehicles'];
-  assert.deepStrictEqual(packages.map(item => item.name), themeIds.map(id => `theme-${id}`));
-  assert.strictEqual(new Set(packages.map(item => item.name)).size, 10);
-  assert.strictEqual(new Set(packages.map(item => item.root)).size, 10);
+  const themePackages = packages.slice(0, themeIds.length);
+  const audioPackage = packages[themeIds.length];
+  assert.deepStrictEqual(themePackages.map(item => item.name), themeIds.map(id => `theme-${id}`));
+  assert.deepStrictEqual(audioPackage, { name: 'audio-bgm', root: 'assets/audio/bgm/' });
+  assert.strictEqual(new Set(packages.map(item => item.name)).size, 11);
+  assert.strictEqual(new Set(packages.map(item => item.root)).size, 11);
   const ignored = source => isIgnored(source, config.packOptions.ignore);
-  packages.forEach((item, index) => {
+  themePackages.forEach((item, index) => {
     assert.strictEqual(item.root, `assets/skins/${themeIds[index]}/`);
     assert.deepStrictEqual(Object.keys(item).sort(), ['name', 'root']);
     assert(!packages.some(other => other !== item && other.root.startsWith(item.root)));
@@ -64,6 +67,18 @@ function run() {
     assert(fs.statSync(path.join(root, sheet)).isFile());
     assert(!ignored(sheet), 'formal theme sheets must ship in their subpackage');
   });
+  const audioRuntime = subpackageConfig.packages[themeIds.length];
+  assert.deepStrictEqual(audioRuntime.themeIds, []);
+  assert.deepStrictEqual(audioRuntime.assetPrefixes, ['assets/audio/bgm/']);
+  const audioEntry = `${audioPackage.root}game.js`;
+  assert(fs.statSync(path.join(root, audioEntry)).isFile());
+  assert(!ignored(audioEntry));
+  const audioSandbox = { module: { exports: null } };
+  vm.runInNewContext(fs.readFileSync(path.join(root, audioEntry), 'utf8'), audioSandbox);
+  assert.deepStrictEqual(Object.keys(audioSandbox), ['module']);
+  assert.strictEqual(JSON.stringify(audioSandbox.module.exports), '{}');
+  assert(fs.statSync(path.join(root, 'assets/audio/bgm/cleared-bgm.m4a')).isFile());
+  assert.strictEqual(fs.existsSync(path.join(root, 'assets/audio/cleared-bgm.m4a')), false);
   assert(!ignored('assets/icons/portal.png'));
   assert(ignored('src/config/cloudbase.local.js'));
   assert(!ignored('src/config/cloudbase.internal.js'));
@@ -75,8 +90,12 @@ function run() {
   });
   ['docs/package-splitting.md', '.github/workflows/check.yml', 'AGENTS.md',
     '.gitattributes', '.gitignore'].forEach(file => assert(ignored(file), file));
+  ['.DS_Store', 'assets/.DS_Store', 'src/.DS_Store'].forEach(file => {
+    assert.strictEqual(ignored(file), true, `${file} is excluded by an exact file rule`);
+    assert.strictEqual(ignored(`${file}/child`), false, `${file} rule must not become a folder prefix`);
+  });
   ['src/bootstrap.js', 'core/game-runner.js', 'data/catalog.js', 'src/skins/classic.js',
-    'assets/audio/cleared-bgm.m4a'].forEach(file => assert(!ignored(file), file));
+    'assets/audio/bgm/cleared-bgm.m4a'].forEach(file => assert(!ignored(file), file));
 
   const runtimeFiles = directory => fs.readdirSync(directory, { withFileTypes: true }).flatMap(entry => {
     const source = path.join(directory, entry.name);

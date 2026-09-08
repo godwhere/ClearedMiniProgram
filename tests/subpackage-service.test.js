@@ -11,16 +11,30 @@ function controlledPlatform() {
 async function run() {
   const platform = controlledPlatform();
   const service = new SubpackageService(platform);
-  config.packages.forEach(item => {
+  const themePackages = config.packages.filter(item => item.themeIds.length > 0);
+  const audioPackage = config.packages.find(item => item.name === 'audio-bgm');
+  assert.strictEqual(themePackages.length, 10);
+  assert(audioPackage);
+  themePackages.forEach(item => {
     assert.strictEqual(service.packageForTheme(item.themeIds[0]), item.name);
     assert.strictEqual(service.packageForAsset(`${item.root}sheet.png`), item.name);
     assert.strictEqual(service.packageForAsset(`${item.root.slice(0, -1)}-other/sheet.png`), null);
     assert.strictEqual(service.isAssetReady(`${item.root}sheet.png`), false);
   });
+  assert.deepStrictEqual(audioPackage.themeIds, []);
+  assert.strictEqual(service.packageForAsset('assets/audio/bgm/cleared-bgm.m4a'), 'audio-bgm');
+  assert.strictEqual(service.packageForTheme('audio-bgm'), null);
+  assert.strictEqual(service.isAssetReady('assets/audio/bgm/cleared-bgm.m4a'), false);
+  const audioLoad = service.ensurePackage('audio-bgm');
+  assert.strictEqual(platform.calls.length, 1);
+  assert.strictEqual(platform.calls[0].name, 'audio-bgm');
+  platform.calls[0].success();
+  assert.strictEqual((await audioLoad).status, 'loaded');
+  assert.strictEqual(service.isAssetReady('assets/audio/bgm/cleared-bgm.m4a'), true);
   assert.strictEqual(service.isAssetReady('assets/logo.png'), true);
   assert.strictEqual(service.packageForTheme('classic'), null);
   assert.strictEqual((await service.ensureTheme('classic')).status, 'loaded');
-  assert.strictEqual(platform.calls.length, 0);
+  assert.strictEqual(platform.calls.length, 1);
   assert.deepStrictEqual(service.getThemeState('gem'), {
     name: 'theme-gem', status: 'idle', progress: 0, totalBytesWritten: 0,
     totalBytesExpectedToWrite: 0, attempts: 0, errorCode: null
@@ -30,28 +44,28 @@ async function run() {
   const promise = service.ensureTheme('gem', value => first.push(value));
   assert.strictEqual(service.ensurePackage('theme-gem', value => second.push(value)), promise);
   service.ensureTheme('gem', () => { throw new Error('observer'); });
-  assert.strictEqual(platform.calls.length, 1);
+  assert.strictEqual(platform.calls.length, 2);
   assert.strictEqual(service.getThemeState('gem').status, 'loading');
-  platform.calls[0].progress({ progress: 37, totalBytesWritten: 37, totalBytesExpectedToWrite: 100 });
+  platform.calls[1].progress({ progress: 37, totalBytesWritten: 37, totalBytesExpectedToWrite: 100 });
   assert.strictEqual(first[first.length - 1].progress, 37);
   assert.strictEqual(second[second.length - 1].totalBytesWritten, 37);
   first[first.length - 1].status = 'loaded';
   assert.strictEqual(service.getThemeState('gem').status, 'loading', 'observers receive snapshots');
-  platform.calls[0].progress({ progress: 150, totalBytesWritten: -1, totalBytesExpectedToWrite: Infinity });
+  platform.calls[1].progress({ progress: 150, totalBytesWritten: -1, totalBytesExpectedToWrite: Infinity });
   assert.strictEqual(service.getThemeState('gem').progress, 100);
   assert.strictEqual(service.getThemeState('gem').totalBytesWritten, 0);
   assert.strictEqual(service.getThemeState('gem').totalBytesExpectedToWrite, 0);
-  platform.calls[0].success();
+  platform.calls[1].success();
   assert.strictEqual((await promise).status, 'loaded');
   assert.strictEqual(service.ensureTheme('gem'), promise, 'success caches the shared promise');
   assert.strictEqual(service.isAssetReady('assets/skins/gem/gem-sprite-sheet.png'), true);
-  platform.calls[0].fail(new Error('late failure'));
+  platform.calls[1].fail(new Error('late failure'));
   assert.strictEqual(service.getThemeState('gem').status, 'loaded');
   assert.strictEqual(new SubpackageService(platform).isPackageReady('theme-gem'), false);
 
   const failed = service.ensureTheme('animals');
   const rejection = assert.rejects(failed, { code: 'SUBPACKAGE_LOAD_FAILED' });
-  platform.calls[1].fail({ errMsg: 'network error with private details', code: 'untrusted' });
+  platform.calls[2].fail({ errMsg: 'network error with private details', code: 'untrusted' });
   await rejection;
   const snapshot = service.getThemeState('animals');
   assert.strictEqual(snapshot.status, 'failed');
@@ -62,10 +76,10 @@ async function run() {
   const retry = service.ensureTheme('animals');
   assert.notStrictEqual(retry, failed);
   assert.strictEqual(service.getThemeState('animals').attempts, 2);
-  platform.calls[1].success();
-  platform.calls[1].progress({ progress: 99 });
-  assert.strictEqual(service.getThemeState('animals').status, 'loading', 'old callbacks cannot settle retry');
   platform.calls[2].success();
+  platform.calls[2].progress({ progress: 99 });
+  assert.strictEqual(service.getThemeState('animals').status, 'loading', 'old callbacks cannot settle retry');
+  platform.calls[3].success();
   await retry;
 
   for (const name of ['missing', '__proto__', 'constructor', 'prototype', null, {}, '../gem']) {

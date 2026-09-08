@@ -61,6 +61,18 @@
       {
         "value": ".gitignore",
         "type": "file"
+      },
+      {
+        "value": ".DS_Store",
+        "type": "file"
+      },
+      {
+        "value": "assets/.DS_Store",
+        "type": "file"
+      },
+      {
+        "value": "src/.DS_Store",
+        "type": "file"
       }
     ],
     "include": []

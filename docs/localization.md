@@ -17,7 +17,7 @@ The first implementation supports exactly two locales:
 - `zh-CN`: existing Simplified Chinese product language.
 - `en-US`: natural American English, written for an English-speaking mobile game audience rather than translated word for word.
 
-The account screen gains a compact settings row rendered as `语言  ‹ 中文 ›` or `Language  ‹ English ›`. The two arrows switch languages immediately. In the future standalone App, the equivalent surface is presented as Settings; the current WeChat Mini Game keeps its existing Account title and account responsibilities. Existing scene, action, level, mechanic, reward, storage, and cloud protocol identifiers remain stable.
+The account screen gains a compact settings row rendered as `语言  ‹ 中文 ›` or `Language  ‹ English ›`. The two arrows switch languages immediately. A future standalone App may reuse the existing Account screen, layout, and general settings interactions; its title is not predetermined to be Settings. The current WeChat Mini Game keeps its existing Account title and account responsibilities. Existing scene, action, level, mechanic, reward, storage, and cloud protocol identifiers remain stable.
 
 ## 2. Locale resolution contract
 
@@ -261,5 +261,7 @@ Manual acceptance must cover both locales on the smallest supported layout and a
 ## 10. Future standalone App boundary
 
 The future App may reuse the semantic keys, American English glossary, and catalog validation approach. It must still create its own platform adapter, physical storage namespace, identity model, online environment, release metadata, and device QA. The WeChat locale key is not migrated or synchronized, and a language choice in one product does not change the other product.
+
+The account-screen changes in `5010d7c` are the user's independent work, not an implementation delivered by the App portability plan. If the App needs an Account screen, reuse that existing layout, rendering, and general interactions as the starting point. Adapt WeChat-specific profile authorization, privacy entry, identity, and cloud operations separately; sharing the page does not share accounts or player data, require a login system, or mandate a Settings rename. See the account reuse contract in the App portability plan.
 
 This plan resolves only the localization seam referenced by [the App portability plan](app-portability-plan.md). It does not authorize App implementation or any change to the current WeChat settlement model.

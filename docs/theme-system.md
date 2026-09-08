@@ -1,7 +1,7 @@
 # 主题系统设计与实现边界
 
 > 设计记录：2026-08-31  
-> 当前状态：主题画廊、分页、宝石/动物/水果/甜点/太空/海洋/春天/节日限定/音乐/交通工具 manifest 与棋盘渲染已接入；十套非经典主题已完成主体重提取并替换为标准精灵表，运行时缩放基线统一为 `1`。尺寸、槽位与透明安全边已有自动校验，模拟器/真机的最终视觉验收仍待进行。
+> 当前状态：主题画廊、分页、宝石/动物/水果/甜点/太空/海洋/春天/节日限定/音乐/交通工具 manifest 与棋盘渲染已接入；十套非经典主题已完成主体重提取并替换为标准精灵表，运行时缩放基线统一为 `1`。通用分包注册表另含 `audio-bgm`，不改变十套主题的 ID、顺序、素材 root 或加载契约。尺寸、槽位与透明安全边已有自动校验，模拟器/真机的最终视觉验收仍待进行。
 
 ## 1. 需求解释与现有主页基线
 
@@ -197,7 +197,7 @@ tests/theme-assets.test.js                      # 10 套 manifest/正式图集�
 | `src/ui/canvas-renderer.js` | 绘制 home/themes/levels/play/result、卡片与命中区域；集中实现 `drawTile` 等外观适配 | 修改存档、切换场景、求解关卡 |
 | `src/app.js` | `themes` 场景、分页/action；以 `pendingSkinId` 和 `skinLoadRequestId` 编排异步选择，成功后才调用 `SkinService.select` | 直接绘制主题素材、改变连线规则 |
 | `src/services/subpackage-service.js` | 进程内状态快照、进度、共享 Promise、并发去重、成功缓存与失败重试 | 选择主题、存档、Canvas、直接访问全局微信 API |
-| `src/config/subpackages.js` | 十个分包的 name/root/themeIds/assetPrefixes 唯一运行时配置 | 回调或业务状态 |
+| `src/config/subpackages.js` | 十个主题包及独立音频包的 name/root/themeIds/assetPrefixes 唯一运行时配置；音频项的 `themeIds` 为空 | 回调或业务状态 |
 | `src/services/progress-store.js` | 沿用 `settings.skinId`，读写和非法 ID 回退 | 新建重复的主题存档字段、升级 schema |
 | `core/game-runner.js` | 主题不介入；普通关卡继续只管理 line/owner/path/撤销/计时 | 读取主题 manifest 或判断主题（每日模式的通用 `blocked` 扩展见每日挑战文档） |
 | `data/*` | **保持不变**；继续提供关卡、palette、solutions | 存放主题资源或主题逻辑 |
@@ -230,7 +230,7 @@ tests/theme-assets.test.js                      # 10 套 manifest/正式图集�
 6. **规则隔离**：切换主题前后 `GameRunner` 的路径、owner、计时和完成结果一致。
 7. **素材像素合同**：`tests/theme-assets.test.js` 必须覆盖全部 10 套非经典主题，确认正式资源为 `2000×800`、包含 10 个非空 `400×400` 槽位，且每槽四边的可见 alpha 距离均不小于 `24px`；任意尺寸错误、空槽或格线串边都应使测试失败。
 8. **回归**：运行 `node tests/run.js`，现有连线、关卡、进度、音频、Canvas 和主题素材测试全部通过。
-9. **分包与预算**：`subpackage-service`、`theme-system`、`project-config`、`package-budget` 测试覆盖并发去重、进度/重试、不支持宿主、原型键防护、快速切换、启动恢复、资源门控、十个配置/入口和预算。运行 `node scripts/check-package-budget.js`，源码预算为主包 3.2 MiB、各分包 3.5 MiB、总包 18 MiB，单包硬门禁严格小于 4 MiB。
+9. **分包与预算**：`subpackage-service`、`theme-system`、`project-config`、`package-budget` 测试覆盖并发去重、进度/重试、不支持宿主、原型键防护、快速切换、启动恢复、资源门控、十个主题配置/入口、一个音频配置/入口和预算。运行 `node scripts/check-package-budget.js`，源码预算为主包 1.6 MiB、各分包 3.5 MiB、总包 18 MiB，单包硬门禁严格小于 4 MiB。
 
 发布前仍需在“详情 -> 本地代码 -> 代码包分析”核实实际包体与主包依赖，确认十张正式 sprite sheet 均归入各自分包，并以微信后台当前上限校验总包。预算脚本只计算源码字节，支持当前 file/folder ignore；出现其他规则类型、非空 include 或发布符号链接时会失败，必须先补齐相应统计语义与测试。Android/iOS 还需验证断网、弱网、下载中切后台、失败重试、快速点击和清理微信缓存后重启。分包方案与 BGM 二级兜底边界见 [`package-splitting.md`](package-splitting.md)。
 

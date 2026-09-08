@@ -76,6 +76,8 @@ function createWxMock() {
     onHide(handler) { this.hide = handler; },
     onShow(handler) { this.show = handler; },
     onWindowResize(handler) { this.windowResize = handler; },
+    onAudioInterruptionBegin(handler) { this.audioInterruptionBegin = handler; },
+    onAudioInterruptionEnd(handler) { this.audioInterruptionEnd = handler; },
     vibrateShort() {},
     audioContexts
   };
@@ -101,7 +103,30 @@ async function run() {
     ]
   });
   assert.deepStrictEqual(movedIds, [7, 3]);
-  const app = new ClearedApp(platform, { solutionCatalog: solutions, stamina: createUnlimitedStaminaFixture() });
+  const appSubpackages = {
+    packageForAsset(source) { return source.startsWith('assets/audio/bgm/') ? 'audio-bgm' : null; },
+    packageForTheme(themeId) { return themeId === 'classic' ? null : `theme-${themeId}`; },
+    isAssetReady() { return true; },
+    isPackageReady(name) { return name === 'audio-bgm'; },
+    getThemeState(themeId) {
+      return { name: themeId === 'classic' ? null : `theme-${themeId}`, status: 'loaded', progress: 100,
+        totalBytesWritten: 0, totalBytesExpectedToWrite: 0, attempts: 0, errorCode: null };
+    },
+    ensureTheme(themeId) { return Promise.resolve(this.getThemeState(themeId)); },
+    ensurePackage() { throw new Error('already loaded fixture'); }
+  };
+  const app = new ClearedApp(platform, {
+    solutionCatalog: solutions,
+    stamina: createUnlimitedStaminaFixture(),
+    subpackages: appSubpackages
+  });
+  assert.strictEqual(app.audio.subpackages, app.subpackages,
+    'the real App audio service receives its existing shared subpackage service');
+  const audioLifecycle = [];
+  const pauseAudio = app.audio.pauseAll.bind(app.audio);
+  const resumeAudio = app.audio.resumeAll.bind(app.audio);
+  app.audio.pauseAll = reason => { audioLifecycle.push(['pause', reason]); return pauseAudio(reason); };
+  app.audio.resumeAll = reason => { audioLifecycle.push(['resume', reason]); return resumeAudio(reason); };
   app.start();
   app.tick(Date.now());
   assert.strictEqual(app.scene, 'home');
@@ -171,10 +196,16 @@ async function run() {
   app.onPointerStart({ x: nextBoard.x + nextBoard.cell / 2, y: nextBoard.y + nextBoard.cell / 2, id: 2 });
   assert.strictEqual(app.runner.selectedLine, 0);
   app.onHide();
+  assert.deepStrictEqual(audioLifecycle[audioLifecycle.length - 1], ['pause', 'background']);
   assert.strictEqual(app.runner.selectedLine, -1, 'backgrounding aborts an active gesture');
   assert(app.runner.pausedAt > 0);
   app.onShow();
+  assert.deepStrictEqual(audioLifecycle[audioLifecycle.length - 1], ['resume', 'background']);
   assert.strictEqual(app.runner.pausedAt, 0);
+  api.audioInterruptionBegin();
+  assert.deepStrictEqual(audioLifecycle[audioLifecycle.length - 1], ['pause', 'interruption']);
+  api.audioInterruptionEnd();
+  assert.deepStrictEqual(audioLifecycle[audioLifecycle.length - 1], ['resume', 'interruption']);
 
   app.tick(Date.now() + 4000);
   const trainingBoard = app.renderer.boardLayout;
@@ -638,6 +669,9 @@ async function run() {
   assert.strictEqual(failedWalletApp.performAction('reward:retry'), true);
   assert.strictEqual(failedWalletApp.rewardUnlocks.view().balance, rewardConfig.currency.ordinaryFirstClear,
     'another retry cannot grant the same first-clear reward twice');
+
+  app.dispose();
+  assert.strictEqual(app.audio.destroyed, true, 'App disposal routes through idempotent audio disposal');
 
 }
 

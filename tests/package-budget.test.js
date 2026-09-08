@@ -9,7 +9,7 @@ function run() {
   const root = path.resolve(__dirname, '..');
   const report = budget.checkProject(root);
   assert.deepStrictEqual(report.errors, []);
-  assert.strictEqual(report.packages.length, 11);
+  assert.strictEqual(report.packages.length, 12, 'main plus ten theme packages and one audio package');
   assert(report.packages.every(row => row.passed));
   assert(report.total.passed);
   assert.strictEqual(report.total.bytes, report.packages.reduce((sum, row) => sum + row.bytes, 0));
@@ -26,10 +26,22 @@ function run() {
   });
   ['game.js', 'src/bootstrap.js', 'core/game-runner.js', 'data/solutions.js',
     'src/skins/classic.js', 'assets/logo.png', 'assets/icons/portal.png',
-    'assets/effects/fade/preview.png', 'assets/audio/cleared-bgm.m4a'].forEach(source => {
+    'assets/effects/fade/preview.png'].forEach(source => {
     assert.strictEqual(budget.packageForFile(source, packages), 'main');
     assert.strictEqual(budget.isIgnored(source, config.packOptions.ignore), false);
   });
+  const bgm = 'assets/audio/bgm/cleared-bgm.m4a';
+  assert.strictEqual(budget.packageForFile(bgm, packages), 'audio-bgm');
+  assert.strictEqual(budget.isIgnored(bgm, config.packOptions.ignore), false);
+  const audioRow = report.packages.find(item => item.name === 'audio-bgm');
+  assert(audioRow.largestFiles.some(file => file.path === bgm));
+  assert.strictEqual(fs.existsSync(path.join(root, 'assets/audio/cleared-bgm.m4a')), false,
+    'the BGM has no duplicate main-package original');
+  Object.values(require('../src/config/audio.js').sfx).forEach(definition => {
+    assert.strictEqual(budget.packageForFile(definition.src, packages), 'main');
+    assert.strictEqual(budget.isIgnored(definition.src, config.packOptions.ignore), false);
+  });
+  assert.strictEqual(budget.BUDGETS.main, Math.floor(1.6 * 1024 * 1024));
   ['none', 'fade'].forEach(id => {
     const preview = `assets/effects/${id}/preview.png`;
     assert.strictEqual(budget.packageForFile(preview, packages), 'main');
@@ -51,6 +63,17 @@ function run() {
   assert.strictEqual(small.packages[0].largestFiles[0].path, 'main.js');
   assert.strictEqual(budget.isIgnored('docs-extra/a', ignore), false);
   assert.strictEqual(budget.isIgnored('readme/child', ignore), false);
+  const exactMetadata = [
+    { type: 'file', value: '.DS_Store' },
+    { type: 'file', value: 'assets/.DS_Store' },
+    { type: 'file', value: 'src/.DS_Store' }
+  ];
+  exactMetadata.forEach(rule => {
+    assert.strictEqual(budget.isIgnored(rule.value, exactMetadata), true);
+    assert.strictEqual(budget.isIgnored(`${rule.value}/child`, exactMetadata), false);
+  });
+  assert.strictEqual(budget.isIgnored('nested/.DS_Store', exactMetadata), false,
+    'metadata exclusion remains an exact approved path list');
 
   const limits = budget.BUDGETS;
   const at = budget.analyzePackageBudget([entry,

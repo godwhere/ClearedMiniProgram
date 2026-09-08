@@ -42,6 +42,10 @@
     {
       "name": "theme-vehicles",
       "root": "assets/skins/vehicles/"
+    },
+    {
+      "name": "audio-bgm",
+      "root": "assets/audio/bgm/"
     }
   ]
 }

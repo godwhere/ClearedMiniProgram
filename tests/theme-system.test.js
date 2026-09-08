@@ -818,7 +818,11 @@ async function flushThemeCallbacks() {
 async function runSubpackageChecks() {
   const platform = Object.assign(createPlatform(), controlledPlatform());
   const subpackages = new SubpackageService(platform);
-  const app = new ClearedApp(platform, { subpackages, stamina: createUnlimitedStaminaFixture() });
+  const app = new ClearedApp(platform, {
+    subpackages,
+    stamina: createUnlimitedStaminaFixture(),
+    audioConfig: { enabledByDefault: false, sfx: {} }
+  });
   app.start();
   app.tick(1000);
   assert.strictEqual(platform.calls.length, 0, 'classic cold start never downloads');

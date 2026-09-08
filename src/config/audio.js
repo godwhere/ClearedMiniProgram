@@ -1,7 +1,7 @@
 module.exports = {
   enabledByDefault: true,
   bgm: {
-    src: 'assets/audio/cleared-bgm.m4a',
+    src: 'assets/audio/bgm/cleared-bgm.m4a',
     volume: 0.28
   },
   sfx: {

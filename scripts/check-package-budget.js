@@ -5,7 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const MIB = 1024 * 1024;
 const BUDGETS = Object.freeze({
-  main: Math.floor(3.2 * MIB), subpackage: Math.floor(3.5 * MIB),
+  main: Math.floor(1.6 * MIB), subpackage: Math.floor(3.5 * MIB),
   total: 18 * MIB, platformHardLimit: 4 * MIB
 });
 

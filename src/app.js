@@ -279,7 +279,9 @@ class ClearedApp {
     this.hintRequest = null;
     this.hintFeedback = null;
     this.runSequence = 0;
-    this.audio = new AudioService(platform, this.progress, opts.audioConfig || audioConfig);
+    this.audio = new AudioService(platform, this.progress, opts.audioConfig || audioConfig, {
+      subpackages: this.subpackages
+    });
     // Daily mode owns a separate service/store pair.  They are deliberately
     // injectable so tests and future remote manifests can control the clock
     // and persistence without leaking daily state into ProgressStore.
@@ -580,8 +582,8 @@ class ClearedApp {
         }
         this.invalidate();
       },
-      audioInterruptBegin: () => this.audio.pauseAll(),
-      audioInterruptEnd: () => this.audio.resumeAll()
+      audioInterruptBegin: () => this.audio.pauseAll('interruption'),
+      audioInterruptEnd: () => this.audio.resumeAll('interruption')
     });
     this.startLoop();
     this.prepareCurrentSkinAssets();
@@ -3670,7 +3672,7 @@ class ClearedApp {
     if (this.renderer && typeof this.renderer.invalidateEffectPreviews === 'function') {
       this.renderer.invalidateEffectPreviews();
     }
-    this.audio.pauseAll();
+    this.audio.pauseAll('background');
     this.progress.save();
     if (this.progressSync) {
       const sync = this.progressSync.atCheckpoint ? this.progressSync.atCheckpoint('hide') : this.progressSync.flush();
@@ -3754,7 +3756,7 @@ class ClearedApp {
     if (this.share) this.share.captureEntry(options || (this.platform.getEnterOptions ? this.platform.getEnterOptions() : {}));
     const runner = this.activeRunner();
     if (runner) runner.resume();
-    this.audio.resumeAll();
+    this.audio.resumeAll('background');
     this.renderer.ctx = this.platform.context;
     this.invalidate();
     this.startLoop();
@@ -3778,7 +3780,7 @@ class ClearedApp {
     if (this.share) this.share.uninstall();
     if (this.unbindPointer) this.unbindPointer();
     this.platform.stopLoop();
-    this.audio.pauseAll();
+    this.audio.dispose();
   }
 }
 

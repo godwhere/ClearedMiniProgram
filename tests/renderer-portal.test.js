@@ -1,6 +1,8 @@
 'use strict';
 
 const assert = require('assert');
+const fs = require('fs');
+const path = require('path');
 const CanvasRenderer = require('../src/ui/canvas-renderer.js');
 const BoardRenderer = require('../src/ui/board/board-renderer.js');
 const PortalOverlay = require('../src/ui/board/portal-overlay.js');
@@ -9,6 +11,7 @@ const classic = require('../src/skins/classic.js');
 const catalog = require('../data/catalog-v2.js');
 const portalSet = catalog.sets[1];
 const portalInstructions = require('../src/ui/portal-instructions.js');
+const { decodePng } = require('../scripts/validate-theme-assets.js');
 
 function createMockContext() {
   const calls = [];
@@ -91,6 +94,15 @@ function renderState(runner, options) {
 }
 
 function run() {
+  const iconPath = path.resolve(__dirname, '../assets/icons/portal.png');
+  const portalIcon = decodePng(fs.readFileSync(iconPath));
+  assert.strictEqual(portalIcon.width, 512);
+  assert.strictEqual(portalIcon.height, 512);
+  assert.strictEqual(portalIcon.colorType, 6, 'the formal Portal icon remains RGBA');
+  assert(Array.from({ length: portalIcon.width * portalIcon.height })
+    .some((_, index) => portalIcon.rgba[index * 4 + 3] < 255),
+  'the formal Portal icon retains transparency');
+
   const ctx = createMockContext();
   let imageRequested = null;
   const platform = {
