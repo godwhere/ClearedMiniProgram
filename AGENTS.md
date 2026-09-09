@@ -67,6 +67,20 @@
 
 ## 文档与交付
 
-- 改变玩法、视觉协议、场景/action 契约、数据/存档结构、发布配置或验收标准时，同步相应 `docs/*.md`；用户可见能力、入口、架构或命令变化时同步 `README.md`。
-- 当前专题文档：`docs/theme-system.md`、`docs/corridor-and-clear-effects.md`、`docs/daily-challenge-mode.md`、`docs/portal-mechanic.md`、`docs/gameplay-extension-architecture.md`。
+- 文档描述当前有效实现和约束，不在 `README.md` 中堆叠实施过程、旧方案或逐次变更记录。
+
+以下修改必须在同一次交付中同步对应 Markdown 文档：
+
+| 修改类型 | 必须同步的文档 |
+| --- | --- |
+| 用户可见玩法、内容数量、功能入口、本地运行命令、顶层架构或当前包体结构 | `README.md` |
+| 棋盘规则、机制协议、关卡/解答格式、关卡来源或进度域 | `docs/gameplay-extension-architecture.md`，并按内容同步 `docs/portal-mechanic.md`、`docs/ice-trial.md`、`docs/daily-challenge-mode.md` 或关卡专题文档 |
+| 主题、消除效果、manifest、精灵表、预览图或素材回退规则 | `docs/theme-system.md` 或 `docs/corridor-and-clear-effects.md` |
+| `game.json` 分包、资源路径、按需加载、`packOptions`、包体预算或预算脚本 | `docs/package-splitting.md`；涉及包体基线或优化取舍时同时更新 `docs/package-size-optimization-plan.md`；用户可见包组成变化时同步 `README.md` |
+| CloudBase 身份、联网、存档、同步、冲突、货币、奖励、购买或体力合同 | `docs/cloudbase-local-first-sync.md`，并按领域同步 `docs/reward-unlock-system.md` 或 `docs/stamina-system.md` |
+| 场景/action、模块职责、依赖方向、入口链路、平台适配或生命周期边界 | 对应架构文档；影响顶层入口或结构时同步 `README.md` |
+| 语言检测、词典、用户语言设置或可见文案协议 | `docs/localization.md`；支持语言或切换入口变化时同步 `README.md` |
+| 发布配置、验证命令或验收标准 | 对应专题文档；用户需要执行的命令变化时同步 `README.md` |
+
+- 一项修改命中多行时，需要同时更新所有对应文档；如果确认无需更新，最终说明中简要写明原因。
 - 最终说明只需交代：改了什么、改在哪里、如何验证、哪些设备或发布检查尚未执行。不要用长篇说明掩盖不必要的实现。
