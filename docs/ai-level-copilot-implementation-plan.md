@@ -1,12 +1,12 @@
 # AI 关卡设计 Copilot：详细实施方案与严格代码边界
 
-> 整理日期：2026-09-14
+> 整理日期：2026-09-15
 >
 > 审阅基线：`d407dd1`
 >
-> 文档状态：Responses API 与 Codex CLI 双提供方的离线实现、Codex 严格配置／宿主扩展隔离、截断 JSONL 分类及运行级硬期限已完成；版本 7 的定向验证、6 例 smoke、24 例 full eval、22 个候选真人审核与最终离线重算均已完成，系统正确性和模型实用性指标达到第 13.5 节建议门槛，开发期本地命令行工具 V1 已完成验收
+> 文档状态：版本 7／`copilot-prompt-v4` 的 V1 已完成真实评测和验收；版本 8／`copilot-prompt-v5` 的 7×7、8×8 与无镂空普通 8×10 扩展也已完成独立 full eval、23 个候选审核、离线重算和总体指标判定
 >
-> 本次授权：按本文第 14 节白名单实施第一版；不修改运行代码、正式关卡、解答、云端、微信配置或发布状态
+> 本次授权：第一版按第 14 节白名单实施；后续大棋盘扩展按第 27 节边界实施；不修改运行代码、正式关卡、解答、云端、微信配置或发布状态
 >
 > 仓库位置：`/Users/ethan/Projects/ClearedMiniProgram`
 
@@ -38,6 +38,8 @@
 
 Portal、冰封格、障碍格、每日挑战、8×8、唯一解证明、自动写入正式关卡和小游戏内 AI 均不属于第一版。
 
+第一版验收结论保持冻结。后续版本 8 在不改变玩法或发布边界的前提下，把同一普通关合同扩展到 `7×7`、`8×8` 和无镂空 `8×10`，颜色数上限扩到 10；详细实现与尚未完成的真实评测见第 27 节。
+
 ## 2. 当前仓库事实
 
 本方案以当前真实代码为准，而不是为一个独立的新项目另建规则体系。
@@ -61,6 +63,7 @@ Portal、冰封格、障碍格、每日挑战、8×8、唯一解证明、自动�
 关联文档：
 
 - [README](../README.md)
+- [V1 作品集案例报告](ai-level-copilot-v1-portfolio-report.md)
 - [玩法拓展架构](gameplay-extension-architecture.md)
 - [关卡难度系统](level-difficulty-system.md)
 - [Portal 关卡设计指南](portal-level-design-guide.md)
@@ -228,9 +231,9 @@ Structured Outputs 只能保证响应符合所给 JSON Schema；它不能证明 
 | --- | --- |
 | `schemaVersion` | 必须严格等于 `1` |
 | `mechanic` | 必须严格等于 `ordinary` |
-| `width` | 只能为 `5` 或 `6` |
-| `height` | 必须等于 `width` |
-| `colorCount` | `4—6` 的整数，且不能超过棋盘可容纳的端点数 |
+| `width` | 与 `height` 组合后只能为 `5×5`、`6×6`、`7×7`、`8×8` 或 `8×10` |
+| `height` | 见上述固定尺寸白名单；不接受 `10×8`、`8×9` 或任意自由尺寸 |
+| `colorCount` | `4—10` 的整数，且不能超过棋盘可容纳的端点数 |
 | `targetGrade` | `1—3` 的整数 |
 | `designIntent` | UTF-8 文本，1—300 个字符；拒绝控制字符 |
 
@@ -345,10 +348,10 @@ solution = paths.map(path => path.cells)
 
 编译出端点题面后生成布局指纹：
 
-1. 对正方形应用 8 种二面体变换：原图、90°／180°／270°旋转、水平／垂直镜像和两条对角线镜像；
+1. 对正方形应用 8 种二面体变换；对 `8×10` 应用保持尺寸不变的原图、180°旋转、水平镜像和垂直镜像；
 2. 每条线内部将两个端点排序，忽略绘制方向；
 3. 对全部端点对排序，忽略颜色编号；
-4. 取 8 个序列中字典序最小者作为 `layoutKey`。
+4. 取全部合法尺寸保持变换中字典序最小者作为 `layoutKey`。
 
 只与 `data/catalog-v2.js` 中相同尺寸的现有普通关比较。Portal 和冰封在相同端点下仍有不同机制，不在第一版普通题的硬重复集合中。
 
@@ -417,7 +420,7 @@ V2 的完整路径加 V4 的真实回放已经构成可解性证明。V5 是独�
 | 单次运行 provider 总调用次数 | 5 | Responses 请求或 `codex exec` 都受同一上限约束 |
 | 单次响应／事件输出 | 256 KiB | HTTP body、Codex JSONL 或最后消息超限立即中止 |
 | 单次 provider 调用超时 | 60 秒 | 与运行总预算的剩余时间取较短值；普通超时进入有限传输重试 |
-| 单次 `max_output_tokens` | 2048 | 足以容纳 6×6 路径，同时限制失控输出 |
+| 单次 `max_output_tokens` | 5×5／6×6 为 2048；大棋盘为 4096 | 为最多 80 格／10 线的结构化路径和必要推理留出余量，同时不放宽原 V1 请求 |
 | 单次运行总时长 | 180 秒 | 流水线向进行中的 HTTPS 请求／Codex 子进程传入同一 deadline／AbortSignal；超限先取消并清理，再以 `RUN_TIME_BUDGET_EXHAUSTED` 失败 |
 
 这些值是第一版安全上限，不开放由模型修改。CLI 若允许覆盖，只能在更小范围内减少预算，不能增大。
@@ -559,7 +562,7 @@ run 级记录包含：
 {
   "model": "<OPENAI_MODEL>",
   "store": false,
-  "instructions": "<copilot-prompt-v4 的固定系统约束>",
+  "instructions": "<copilot-prompt-v5 的固定系统约束>",
   "input": [
     {
       "role": "user",
@@ -583,7 +586,9 @@ run 级记录包含：
 }
 ```
 
-`copilot-prompt-v4` 在不改变模型输出 Schema 的前提下，向每个请求加入由本地代码固定生成的目标等级分数区间、优选区间、普通关精确评分权重和容量感知的难度 1 构造策略。当棋盘面积超过“颜色数 × easy line 最大 8 格”时，优选结构会要求把额外格集中到一条长线，其余线路保持短直，并将端点最短路竞争压到 0；不会再错误要求所有线路同时零绕行。难度失败重试只反馈受控错误码、调整方向、实际分数、各评分因子、简单线路数、路径长度、逐线路绕行／弯折／竞争、整体绕行率、平均弯折、平均竞争色和被拒绝的 `layoutKey`；不会拼接任意错误正文、仓库内容或模型生成的指令。普通关的确定性评分仍只由本地 `evaluate-level-difficulty.js` 决定，模型不能自行宣称命中。
+上例是 5×5／6×6 的原 V1 数值；动态 Schema 的单路径上限超过 36 格时，客户端固定改用 `max_output_tokens: 4096`。
+
+`copilot-prompt-v5` 保留 v4 的目标等级分数区间、优选区间、普通关精确评分权重和容量感知难度 1 策略，并明确加入 row-major 编号及矩形棋盘不可跨行换列的约束。难度失败重试最多反馈 10 条路径的受控统计，覆盖大棋盘全部颜色；不会拼接任意错误正文、仓库内容或模型生成的指令。普通关的确定性评分仍只由本地 `evaluate-level-difficulty.js` 决定，模型不能自行宣称命中。版本 7 的历史 artifact 继续标记 `copilot-prompt-v4`，不得与新版本指标混算。
 
 实际代码不得：
 
@@ -657,6 +662,7 @@ review.json                人工接受／拒绝记录；可后补
 - `runId` 由本地 `crypto.randomUUID()` 生成，不接受模型值；
 - 所有路径由固定根目录与白名单文件名拼接；
 - 拒绝绝对路径、`..`、路径分隔符和符号链接越界；
+- `runs/` 根目录及每个 run／evaluation 目录固定为 `0700`，其中 JSON artifact 固定为 `0600`；访问历史目录时也会收紧目录权限并复核实际 mode；
 - 可更新的 `run.json`／`eval.json` 先写同目录临时文件，再原子 rename；不可覆盖的 attempt、candidate、review 等 artifact 通过原子硬链接提交，目标已存在时必须失败，不能采用“先检查再覆盖”的竞态写法；
 - 序列化前执行秘密字段拦截；
 - 已完成 attempt 文件不得覆盖，重放只能生成新 run；
@@ -722,6 +728,8 @@ Copilot 的 `accepted` 只表示人工愿意保留候选。第一版没有 `publ
 - 不包含任何 Portal、冰封、障碍或唯一解要求。
 
 评测集一旦用于正式比较就不可原位修改。改变 case 时新增 `v2`，并分别报告，不能把不同版本结果混为趋势。
+
+版本 8 另增不可混算的 `scripts/level-copilot/eval-cases-large-v1.json`：7×7、8×8、8×10 各 8 例，合计 24 例；每种尺寸各有 2 例进入固定 6 例 smoke 子集。该评测集只覆盖无镂空普通题，并使用独立 `caseVersion=eval-cases-large-v1`。
 
 ### 13.2 两级评测
 
@@ -797,7 +805,7 @@ Responses usage 中可用的输入、输出和总 token 应原样记录；成功
 | 文件 | 唯一职责 | 禁止职责 |
 | --- | --- | --- |
 | `scripts/level-copilot/contracts.js` | brief 校验、动态响应 Schema、稳定错误码 | 网络、文件写入、Runner、目录读取 |
-| `scripts/level-copilot/candidate.js` | 路径静态校验、题面编译、通用正方形布局指纹 | 网络、文件写入、难度算法、运行时规则 |
+| `scripts/level-copilot/candidate.js` | 路径静态校验、题面编译、正方形／矩形布局指纹 | 网络、文件写入、难度算法、运行时规则 |
 | `scripts/level-copilot/validator.js` | 按固定顺序调用 catalog、Runner、搜索器和难度评估器，汇总报告 | 修改被调用模块、写正式数据、模型调用 |
 | `scripts/level-copilot/prompt.js` | 版本化固定 prompt、brief、目标分数区间和受控失败反馈序列化 | 读取环境、网络、文件写入、拼接任意仓库内容 |
 | `scripts/level-copilot/openai-client.js` | 固定 OpenAI HTTPS 请求、大小／超时限制、响应分类、usage 抽取 | 游戏规则、重试循环、文件写入、可配置任意 host |
@@ -807,6 +815,7 @@ Responses usage 中可用的输入、输出和总 token 应原样记录；成功
 | `scripts/level-copilot/cli.js` | 命令参数、环境检查、依赖装配、退出码和简短输出 | 领域规则、隐式联网、自动发布 |
 | `scripts/level-copilot/eval.js` | 固定 case 批量运行、指标聚合和报告 | CI 自动联网、修改评测集、绕过单 run 预算 |
 | `scripts/level-copilot/eval-cases-v1.json` | 24 个固定、无秘密的评测 brief | 模型响应、正式关卡或可变运行结果 |
+| `scripts/level-copilot/eval-cases-large-v1.json` | 24 个固定的大棋盘评测 brief，与 V1 指标隔离 | 模型响应、正式关卡、镂空每日题或可变运行结果 |
 
 `runs/` 是运行时生成目录，不提交空目录或占位文件。
 
@@ -815,7 +824,7 @@ Responses usage 中可用的输入、输出和总 token 应原样记录；成功
 | 文件 | 覆盖范围 |
 | --- | --- |
 | `tests/level-copilot-contracts.test.js` | brief、动态 Schema、未知字段和边界值 |
-| `tests/level-copilot-candidate.test.js` | 覆盖、重复、相邻、编译和 8 种几何指纹 |
+| `tests/level-copilot-candidate.test.js` | 覆盖、重复、相邻、编译、正方形 8 种与矩形 4 种几何指纹 |
 | `tests/level-copilot-validator.test.js` | Runner、搜索状态、难度、查重和报告 |
 | `tests/level-copilot-client.test.js` | 假 transport、HTTP 分类、超时、限长、refusal、incomplete 和 usage |
 | `tests/level-copilot-codex-client.test.js` | 假子进程、ChatGPT 登录门禁、固定参数／环境清理、JSONL、超时、限长和订阅费用合同 |
@@ -1070,9 +1079,9 @@ node scripts/level-copilot/eval.js \
 
 ### 17.1 合同与候选
 
-- 5×5、6×6 合法 brief；
-- 4、5、6 色边界；
-- 非正方形、7×7、目标 4 级、未知机制和未知字段拒绝；
+- 5×5、6×6、7×7、8×8、8×10 合法 brief；
+- 4—10 色边界；
+- 5×6、7×8、8×9、10×8、目标 4 级、未知机制和未知字段拒绝；
 - 中文／英文 `designIntent`，空字符串、过长文本和控制字符拒绝；
 - 合法全覆盖路径；
 - 严格 Schema 的三个顶层属性全部列入 `required`，`designSummary: null` 合法而缺字段非法；
@@ -1180,10 +1189,9 @@ git diff --check
 
 ## 20. 性能与资源上限
 
-第一版是串行单进程工具：一次只处理一个 run 的一个候选，不做并发模型调用。
+工具保持串行单进程：一次只处理一个 run 的一个候选，不做并发模型调用。
 
-- 棋盘最多 36 格；
-- 候选最多 6 条路径；
+- V1 基线最多 36 格／6 条路径；版本 8 固定尺寸白名单最多 80 格／10 条路径；
 - 搜索器沿用 250000 状态上限；
 - HTTP body、Codex JSONL 和最后消息各受 256 KiB 上限约束；
 - 单次 provider 60 秒与 run 总计 180 秒取较短的剩余时间；同一个运行级取消信号必须实际销毁 HTTPS 请求或终止 Codex 子进程，清理完成前流水线不得返回；
@@ -1235,15 +1243,17 @@ git diff --check
 
 这会是新的算法模块和测试范围，不能塞入第一版的 `candidate.js`。
 
-### 23.2 何时考虑 8×8
+### 23.2 大棋盘扩展
 
-普通 5×5／6×6 达到门槛并积累人工审核数据后，才能评估 8×8。需要重新测量：
+普通 5×5／6×6 已达到 V1 门槛并积累人工审核数据，因此版本 8 已开放 7×7、8×8 和无镂空普通 8×10 的离线链路。新增尺寸仍需要独立重新测量：
 
 - 响应长度和 token 上限；
 - 搜索器 `limit` 比例；
 - 难度 4—5 的命中率；
 - 人工审核时间；
-- 与现有 8×8 大目录的重复率。
+- 与现有 7×7／8×8 大目录的重复率。
+
+在这些真实指标和人工审核完成前，只能声称“大棋盘离线合同与验证链路可用”，不能把 V1 的 5×5／6×6 通过率外推成大棋盘实用性结论。
 
 ### 23.3 何时考虑 Portal 或冰封
 
@@ -1302,6 +1312,11 @@ Portal 与冰封必须分别设计新合同：
 - [x] 完成版本 7 smoke 的 5 个候选真人审核并离线重算指标。
 - [x] 完成版本 7 的 24/24 full eval，并保留逐例 run 映射与批次指标。
 - [x] 完成版本 7 full 评测集的 22 个候选真人审核、离线重算和最终指标判定；开发期本地命令行工具 V1 已完成验收。
+- [x] 完成版本 8 大棋盘固定 6 例真实 Codex smoke，并保留逐例 run 映射与批次指标。
+- [x] 完成版本 8 smoke 的 5 个 reviewable 候选审核与离线重算。
+- [x] 根据 smoke 审核结论确认版本 8 可以进入独立的 24 例 full eval 门禁。
+- [x] 另行授权并完成版本 8 的 24 例 full eval、逐例映射和全部 reviewable 候选离线回放。
+- [x] 审核版本 8 full eval 的 23 个 reviewable 候选，离线重算并完成最终指标判定。
 
 ## 26. 实施结果（2026-09-14）
 
@@ -1474,3 +1489,56 @@ git diff --check
 - 版本 7 full eval 已完成 24/24，22 个 reviewable 候选已经全部真人审核并离线重算；`valid_within_3_rate=100%`、`difficulty_hit_within_3_rate=91.7%`、`human_acceptance_rate=59.1%` 均高于第 13.5 节建议门槛，且没有客户端解析错误、验证器矛盾、正式数据写入或秘密泄漏。两例失败原因已经归入目标难度未命中后发生的 provider 超时／运行总期限；p95 接近 180 秒上限与两组批内重复仍是后续优化信号，但不违反 V1 门槛。开发期本地命令行工具 V1 验收完成。
 - 第一版没有修改小游戏运行包或玩法，按第 21 节边界无需为 Copilot 执行真机玩法验收；微信开发者工具、真机、CloudBase、上传和平台审核状态仍未执行，也不由本地 CLI 验收结论覆盖。
 - S4 正式关卡纳入仍未授权，也没有实现 `publish`、`apply`、`append` 或 `sync` 命令。
+
+## 27. 版本 8 大棋盘扩展（2026-09-14—2026-09-15）
+
+### 27.1 当前能力
+
+- `LevelBriefV1` 的尺寸白名单扩展为 `5×5`、`6×6`、`7×7`、`8×8`、`8×10`；颜色数为 `4—10`，目标难度仍为 `1—3`。
+- `8×10` 固定解释为 `width=8`、`height=10` 的无镂空普通题；不接受转置的 `10×8`、任意 `8×9`，也不接收每日挑战的 `Blocked`／镂空合同。
+- 正方形继续用完整 8 种二面体变换查重；矩形只用保持 `8×10` 尺寸的 4 种变换，端点方向与颜色编号仍被归一化。
+- `GameRunner` 继续作为真实规则回放权威。作者用精确求解器只额外开放 `8×10`，前沿宽度仍不超过 8、默认状态上限仍为 250,000；达到上限只记录 `SOLVER_INCONCLUSIVE`，不谎报无解。
+- 难度评估器额外接收普通 `8×10`，不扩大 Portal／冰封的尺寸合同。
+- `copilot-prompt-v5` 明确 row-major 编号与矩形行边界，把失败反馈从最多 6 条线路扩到最多 10 条；Responses 仅对大于 36 格的棋盘把 `max_output_tokens` 从 2048 提高到 4096，5×5／6×6 保持原值，256 KiB 响应／事件硬上限、调用次数和时间预算均不变。
+- 新增 `eval-cases-large-v1.json`：7×7、8×8、8×10 各 8 例，固定 smoke 为每种尺寸 2 例。原 `eval-cases-v1` 与 V1 指标原样保留。
+
+### 27.2 严格代码边界
+
+本扩展只允许修改：
+
+- `scripts/level-copilot/contracts.js`、`candidate.js`、`prompt.js`、`openai-client.js`、`pipeline.js`、`eval.js`；
+- `scripts/level-copilot/run-store.js`，仅用于把本地 run／evaluation 目录固定为 `0700` 并补充对应安全回归；
+- 新增 `scripts/level-copilot/eval-cases-large-v1.json`；
+- Copilot 对应测试，以及为 8×10 放开作者能力所必需的 `scripts/solve-no-portal.js`、`scripts/evaluate-level-difficulty.js` 和难度测试；
+- `README.md`、本实施方案、V1 作品集报告的历史范围提示和难度专题文档。
+
+禁止修改 `src/**`、`core/**`、`data/**`、CloudBase、微信配置和发布状态。禁止新增自动导入、镂空每日题、Portal、冰封、目标难度 4—5 或小游戏内 AI。
+
+### 27.3 离线与真实 smoke 证据
+
+- 手写行覆盖 fixture 已分别贯穿 7×7、8×8、8×10 的合同、静态覆盖、`GameRunner`、精确求解、难度评估和布局指纹；求解状态数分别为 50、65、81，均为 `solved`。
+- 已对当前目录 166 个正方形题面比较版本 7 与版本 8 的布局指纹，漂移为 0。
+- 两套固定评测集均能加载为 24 例 full／6 例 smoke，caseVersion 独立。
+- 真实 Codex smoke：`evaluationId=74ce757e-0f8c-4ad9-9515-ad0d2965930a`，`status=COMPLETED`，6/6 例均留下 run 映射，实际使用 7/30 次 provider 调用，项目直接 Responses HTTP 调用为 0，总耗时约 5 分 25 秒。
+- 5/6 例达到 `AWAITING_REVIEW`，分别覆盖 1 个 7×7、2 个 8×8 和 2 个 8×10；5 个候选的 Schema、静态规则、正式目录查重、`GameRunner`、精确求解器与目标难度均通过，离线 replay 全部保持 `reviewable`。
+- 余下 `large-v1-7x7-02` 未收到候选：两次 Codex 传输达到单次超时，run 以 `CODEX_EXEC_TIMEOUT` 失败；这不是 Schema、规则、求解器或难度拒绝。
+- 审核结果：5/5 已记录；接受 `large-v1-7x7-01`、`large-v1-8x8-02`、`large-v1-8x10-02`；拒绝 `large-v1-8x8-01`（`reject_intent_mismatch`，相邻端点暗示错误直连）和 `large-v1-8x10-01`（`reject_not_fun`，十条相同横线只有重复操作）。离线重算后的 `human_acceptance_rate=60%`。
+- 最终 smoke 指标：`candidate_received_rate=83.33%`、`valid_within_3_rate=83.33%`、`difficulty_hit_within_3_rate=83.33%`、`reviewable_rate=83.33%`、`unique_reviewable_rate=100%`；p50 为 47.189 秒，p95 为 105.038 秒，总 token 41,005，Codex 订阅路径不估算美元成本。
+- smoke 后安全复核发现 run／evaluation 目录沿用系统缺省 `0755`；`run-store.js` 已修复为根目录和子目录统一 `0700`、历史目录访问时自动收紧。审核后 5 个候选离线 replay 全部保持 `reviewable`；评测目录与 6 个 run 共 29 份 JSON artifact 均为 `0600`，秘密扫描无命中。该修复不改变候选、验证门禁或批次指标。
+- 正式 `data/` 没有工作区差异；`src/**`、`core/**`、CloudBase、微信配置和发布状态均未修改。
+
+版本 8 的 smoke 已证明三种新增尺寸都能由真实 Codex 生成并通过确定性门禁，5 个 reviewable 候选也已完成审核和离线重算。机器门禁命中率 83.33%、人工采纳率 60%，为后续 24 例 full eval 提供了继续依据；full eval 的独立证据与剩余审核门禁见下一节。
+
+### 27.4 24 例 full eval、候选审核与最终判定
+
+- 真实 Codex full eval：`evaluationId=d5628d62-b6f0-4053-bc34-caf04578c144`，`status=COMPLETED`，24/24 例均留下 run 映射，实际使用 36/120 次 provider 调用，项目直接 Responses HTTP 调用为 0，总耗时约 24 分 24 秒。
+- 尺寸分组：7×7 为 8/8 reviewable、15 次调用；8×8 为 7/8 reviewable、12 次调用；8×10 为 8/8 reviewable、9 次调用。合计 23 个 reviewable 候选，全部离线 replay 后仍为 `reviewable`。
+- 唯一失败是 `large-v1-8x8-06`：前两个候选均通过 Schema、静态规则、`GameRunner` 和精确求解器，但实际难度仍为 2、低于目标 3；第三候选在 180 秒总预算末端取消，run 以 `RUN_TIME_BUDGET_EXHAUSTED` 失败。没有客户端解析错误或验证器矛盾。
+- 自动指标：`provider_response_rate=100%`、`candidate_received_rate=100%`、首候选 Schema／静态／运行时通过率均为 100%、`valid_within_3_rate=100%`、`difficulty_hit_within_3_rate=95.83%`、`reviewable_rate=95.83%`。
+- 23 个 reviewable 中有 22 个唯一布局，`unique_reviewable_rate=95.65%`；`large-v1-8x10-01` 与 `large-v1-8x10-04` 产生同一条带式布局。批内重复没有反向覆盖单 run 状态；审核时前者因只有重复操作被拒绝，后者再以 `reject_too_similar` 拒绝。
+- 性能与用量：p50 为 42.146 秒，p95 为 174.742 秒；input 211,986、cached input 50,688、output 27,037、reasoning 21,383、total 239,023 tokens；`tokens_per_reviewable=10,392.30`。Codex 订阅路径不估算美元成本。
+- 23 个 reviewable 候选已经逐例审核并通过既有 `caseId → runId` 清单离线重算：接受 13 例、拒绝 10 例，`human_acceptance_rate=56.52%`。分尺寸为 7×7 接受 5/8（62.50%）、8×8 接受 5/7（71.43%）、8×10 接受 3/8（37.50%）；分目标难度为难度 1 接受 3/6（50.00%）、难度 2 接受 8/9（88.89%）、难度 3 接受 2/8（25.00%）。
+- 拒绝原因包括 7 个 `reject_intent_mismatch`、1 个 `reject_not_fun`、1 个 `reject_too_similar` 和 1 个 `reject_confusing`。主要软质量问题是相邻端点被迫长绕行、独立矩形折返被评分成高难规划，以及 8×10 的条带化重复；这些候选都通过硬门禁，说明人工审核不能由难度分数替代。
+- 审核后评测目录与 24 个 run 共 25 个目录、125 份 JSON artifact，目录均为 `0700`、文件均为 `0600`，秘密扫描无命中，仓库外 Codex 临时目录无残留。23 个候选再次离线 replay 后均保持 `reviewable`；正式 `data/` 哈希仍为 `4413a6ef66f634a3ceaebdb56b203537f5c5be393cec44c4fe76608c2cd87aeb`。
+
+版本 8 的总体指标达到第 13.5 节建议门槛：`valid_within_3_rate=100%`（门槛 80%）、`difficulty_hit_within_3_rate=95.83%`（门槛 60%）、`human_acceptance_rate=56.52%`（门槛 30%），且 reviewable 候选静态与运行时误放行、正式数据写入和秘密泄漏均为 0。因此大棋盘扩展的本地模型实用性验收通过。这个结论不等于 13 个候选已进入正式主线，也不覆盖小游戏运行时、真机、CloudBase、上传或发布验收；若继续优化，应优先针对难度 3 的相邻端点长绕行、8×10 条带化和批内多样性建立机械反馈，再重新运行独立版本评测。

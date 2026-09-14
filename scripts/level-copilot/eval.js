@@ -11,6 +11,8 @@ const { PROVIDERS, Pipeline, LIMITS } = require('./pipeline.js');
 const { normalizeProvider } = require('./cli.js');
 
 const DEFAULT_CASES = path.join(__dirname, 'eval-cases-v1.json');
+const LARGE_BOARD_CASES = path.join(__dirname, 'eval-cases-large-v1.json');
+const ALLOWED_CASE_VERSIONS = new Set(['eval-cases-v1', 'eval-cases-large-v1']);
 const MAX_CALLS_PER_CASE = LIMITS.maxProviderCalls;
 const FULL_CASE_COUNT = 24;
 const SMOKE_CASE_COUNT = 6;
@@ -218,7 +220,7 @@ function loadCases(filename, smokeOnly) {
   let value;
   try { value = JSON.parse(fs.readFileSync(path.resolve(filename), 'utf8')); }
   catch (error) { throw new Error('EVAL_CASES_INVALID'); }
-  if (!value || value.schemaVersion !== 1 || value.caseVersion !== 'eval-cases-v1' ||
+  if (!value || value.schemaVersion !== 1 || !ALLOWED_CASE_VERSIONS.has(value.caseVersion) ||
       !Array.isArray(value.cases) || value.cases.length !== 24 ||
       new Set(value.cases.map(item => item.id)).size !== 24) throw new Error('EVAL_CASES_INVALID');
   value.cases.forEach(item => {
@@ -503,6 +505,7 @@ async function main(argv, dependencies) {
 
 module.exports = {
   DEFAULT_CASES,
+  LARGE_BOARD_CASES,
   MAX_CALLS_PER_CASE,
   MAX_LIVE_CALLS,
   percentile,

@@ -7,6 +7,7 @@ const API_PATH = '/v1/responses';
 const DEFAULT_TIMEOUT_MS = 60000;
 const DEFAULT_MAX_RESPONSE_BYTES = 256 * 1024;
 const DEFAULT_MAX_OUTPUT_TOKENS = 2048;
+const LARGE_BOARD_MAX_OUTPUT_TOKENS = 4096;
 const MAX_RETRY_AFTER_MS = 30000;
 
 class OpenAIClientError extends Error {
@@ -37,6 +38,11 @@ function buildRequestBody(options) {
       !options.schema || typeof options.schema !== 'object') {
     throw new OpenAIClientError('OPENAI_REQUEST_INVALID', { kind: 'configuration' });
   }
+  const pathCells = options.schema && options.schema.properties &&
+    options.schema.properties.paths && options.schema.properties.paths.items &&
+    options.schema.properties.paths.items.properties &&
+    options.schema.properties.paths.items.properties.cells;
+  const largeBoard = pathCells && Number.isInteger(pathCells.maxItems) && pathCells.maxItems > 36;
   return {
     model: options.model,
     store: false,
@@ -45,7 +51,7 @@ function buildRequestBody(options) {
       role: 'user',
       content: [{ type: 'input_text', text: options.inputText }]
     }],
-    max_output_tokens: DEFAULT_MAX_OUTPUT_TOKENS,
+    max_output_tokens: largeBoard ? LARGE_BOARD_MAX_OUTPUT_TOKENS : DEFAULT_MAX_OUTPUT_TOKENS,
     text: {
       format: {
         type: 'json_schema',
@@ -311,6 +317,7 @@ module.exports = {
   DEFAULT_TIMEOUT_MS,
   DEFAULT_MAX_RESPONSE_BYTES,
   DEFAULT_MAX_OUTPUT_TOKENS,
+  LARGE_BOARD_MAX_OUTPUT_TOKENS,
   MAX_RETRY_AFTER_MS,
   OpenAIClient,
   OpenAIClientError,

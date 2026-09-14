@@ -63,26 +63,48 @@ function compileCandidate(brief, input) {
   };
 }
 
-function transformCell(cell, size, transform) {
-  let x = cell % size;
-  let y = Math.floor(cell / size);
-  if (transform >= 4) x = size - 1 - x;
+function transformCell(cell, width, height, transform) {
+  // Preserve the original square-only helper call shape:
+  // transformCell(cell, size, transform).
+  if (transform === undefined) {
+    transform = height;
+    height = width;
+  }
+  if (!Number.isInteger(width) || width < 1 || !Number.isInteger(height) || height < 1 ||
+      !Number.isInteger(cell) || cell < 0 || cell >= width * height ||
+      !Number.isInteger(transform)) throw new Error('Invalid cell transform');
+  let x = cell % width;
+  let y = Math.floor(cell / width);
+  if (width !== height) {
+    if (transform < 0 || transform > 3) throw new Error('Invalid rectangular transform');
+    if (transform === 1 || transform === 3) x = width - 1 - x;
+    if (transform === 2 || transform === 3) y = height - 1 - y;
+    return y * width + x;
+  }
+  if (transform < 0 || transform > 7) throw new Error('Invalid square transform');
+  if (transform >= 4) x = width - 1 - x;
   for (let turn = 0; turn < transform % 4; turn += 1) {
-    const nextX = size - 1 - y;
+    const nextX = width - 1 - y;
     y = x;
     x = nextX;
   }
-  return y * size + x;
+  return y * width + x;
 }
 
 function layoutKey(level) {
-  if (!level || !Number.isInteger(level.Width) || level.Width !== level.Height ||
-      !Array.isArray(level.Lines)) throw new Error('layoutKey requires a square level');
+  if (!level || !Number.isInteger(level.Width) || level.Width < 1 ||
+      !Number.isInteger(level.Height) || level.Height < 1 || !Array.isArray(level.Lines) ||
+      level.Lines.some(line => !line || !Number.isInteger(line.Start) ||
+        !Number.isInteger(line.End) || line.Start < 0 || line.End < 0 ||
+        line.Start >= level.Width * level.Height || line.End >= level.Width * level.Height)) {
+    throw new Error('layoutKey requires a valid rectangular level');
+  }
   const variants = [];
-  for (let transform = 0; transform < 8; transform += 1) {
+  const transformCount = level.Width === level.Height ? 8 : 4;
+  for (let transform = 0; transform < transformCount; transform += 1) {
     const pairs = level.Lines.map(line => [
-      transformCell(line.Start, level.Width, transform),
-      transformCell(line.End, level.Width, transform)
+      transformCell(line.Start, level.Width, level.Height, transform),
+      transformCell(line.End, level.Width, level.Height, transform)
     ].sort((a, b) => a - b).join('-')).sort();
     variants.push(`${level.Width}x${level.Height}:${pairs.join('|')}`);
   }

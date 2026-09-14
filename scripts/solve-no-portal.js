@@ -3,17 +3,22 @@
 const portalValidation = require('../core/portal-validation.js');
 
 // Authoring-only exact path-cover search. The frontier is at most eight cells
-// wide; larger boards or new movement rules require a different content tool.
+// wide and the supported board is at most 80 cells (8x10); wider, taller, or
+// new-movement boards require a different content tool.
 // A state cap returns "limit", never a false claim that a level has no bypass.
 function solveWithoutPortals(level, options) {
   const width = level && level.Width;
   const height = level && level.Height;
   const lines = level && level.Lines;
+  const ordinaryEightByTen = width === 8 && height === 10 &&
+    level.Mechanic === undefined && level.IceCells === undefined &&
+    level.Portals === undefined && level.Blocked === undefined;
+  const dimensionsSupported = Number.isInteger(width) && Number.isInteger(height) &&
+    width >= 1 && height >= 1 && width <= 8 &&
+    (height <= 8 || ordinaryEightByTen);
   const maxStates = options && Number.isInteger(options.maxStates)
     ? Math.max(1, options.maxStates) : 250000;
-  if (!Number.isInteger(width) || !Number.isInteger(height) ||
-      width < 1 || height < 1 || width > 8 || height > 8 ||
-      !Array.isArray(lines) || !lines.length ||
+  if (!dimensionsSupported || !Array.isArray(lines) || !lines.length ||
       lines.some(line => !line || typeof line !== 'object') ||
       (level.Blocked !== undefined && !Array.isArray(level.Blocked))) {
     return { status: 'invalid', paths: null, states: 0 };

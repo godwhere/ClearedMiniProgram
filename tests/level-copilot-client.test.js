@@ -113,7 +113,19 @@ async function run() {
     bendsPerLineMax: 1,
     competingColorsMax: 0
   });
-  assert.strictEqual(prompt.PROMPT_VERSION, 'copilot-prompt-v4');
+  const tenLineFeedback = prompt.safeFeedback({
+    errorCodes: ['DIFFICULTY_TOO_HIGH'],
+    difficulty: {
+      targetGrade: 2, grade: 3, score: 45,
+      lengths: Array.from({ length: 12 }, (_, index) => index + 2),
+      lineMetrics: Array.from({ length: 12 }, (_, index) => ({
+        length: index + 2, detours: 0, bends: 0, competitors: 0, easy: true
+      }))
+    }
+  });
+  assert.strictEqual(tenLineFeedback.difficultySignals.pathLengths.length, 10);
+  assert.strictEqual(tenLineFeedback.difficultySignals.lineSignals.length, 10);
+  assert.strictEqual(prompt.PROMPT_VERSION, 'copilot-prompt-v5');
 
   const schema = contracts.candidateSchema(brief);
   const body = buildRequestBody({
@@ -130,6 +142,13 @@ async function run() {
   assert.strictEqual(body.text.format.type, 'json_schema');
   assert.strictEqual(body.text.format.strict, true);
   assert.deepStrictEqual(body.text.format.schema, schema);
+  const largeBody = buildRequestBody({
+    model: 'explicit-model',
+    instructions: prompt.INSTRUCTIONS,
+    inputText: '{}',
+    schema: contracts.candidateSchema({ width: 8, height: 10, colorCount: 10 })
+  });
+  assert.strictEqual(largeBody.max_output_tokens, 4096);
 
   let captured;
   const client = new OpenAIClient({

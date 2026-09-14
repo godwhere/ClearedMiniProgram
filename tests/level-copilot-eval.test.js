@@ -223,6 +223,16 @@ async function run() {
   assert.deepStrictEqual([5, 6].map(size => full.cases.filter(item => item.brief.width === size).length), [12, 12]);
   assert.deepStrictEqual([1, 2, 3].map(grade => full.cases.filter(item => item.brief.targetGrade === grade).length), [8, 8, 8]);
   assert.deepStrictEqual([4, 5, 6].map(colors => full.cases.filter(item => item.brief.colorCount === colors).length), [8, 8, 8]);
+  const large = evalTools.loadCases(evalTools.LARGE_BOARD_CASES, false);
+  const largeSmoke = evalTools.loadCases(evalTools.LARGE_BOARD_CASES, true);
+  assert.strictEqual(large.caseVersion, 'eval-cases-large-v1');
+  assert.strictEqual(large.cases.length, 24);
+  assert.strictEqual(largeSmoke.cases.length, 6);
+  assert.deepStrictEqual(['7x7', '8x8', '8x10'].map(size => {
+    const [width, height] = size.split('x').map(Number);
+    return large.cases.filter(item => item.brief.width === width && item.brief.height === height).length;
+  }), [8, 8, 8]);
+  assert(large.cases.every(item => item.brief.colorCount >= 4 && item.brief.colorCount <= 10));
   assert.throws(() => evalTools.parseArguments(['--cases', evalTools.DEFAULT_CASES, '--max-calls', '120']),
     /EVAL_ARGUMENT_INVALID/);
   assert.throws(() => evalTools.parseArguments(['--live', '--max-calls', '119']),

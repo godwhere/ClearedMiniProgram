@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "caseVersion": "eval-cases-large-v1",
+  "cases": [
+    { "id": "large-v1-7x7-01", "smoke": true, "brief": { "schemaVersion": 1, "mechanic": "ordinary", "width": 7, "height": 7, "colorCount": 7, "targetGrade": 1, "designIntent": "七乘七入门题，配对清楚，多数线路短而直接。" } },
+    { "id": "large-v1-7x7-02", "smoke": true, "brief": { "schemaVersion": 1, "mechanic": "ordinary", "width": 7, "height": 7, "colorCount": 6, "targetGrade": 2, "designIntent": "保留一个明显起手，中段出现两条温和竞争路线。" } },
+    { "id": "large-v1-7x7-03", "smoke": false, "brief": { "schemaVersion": 1, "mechanic": "ordinary", "width": 7, "height": 7, "colorCount": 5, "targetGrade": 3, "designIntent": "用少色长线形成中心规划，但避免无提示试错。" } },
+    { "id": "large-v1-7x7-04", "smoke": false, "brief": { "schemaVersion": 1, "mechanic": "ordinary", "width": 7, "height": 7, "colorCount": 8, "targetGrade": 1, "designIntent": "端点较多但轮廓整洁，适合作为高压关后的恢复题。" } },
+    { "id": "large-v1-7x7-05", "smoke": false, "brief": { "schemaVersion": 1, "mechanic": "ordinary", "width": 7, "height": 7, "colorCount": 7, "targetGrade": 2, "designIntent": "边缘先打开空间，随后进行一次可恢复的顺序判断。" } },
+    { "id": "large-v1-7x7-06", "smoke": false, "brief": { "schemaVersion": 1, "mechanic": "ordinary", "width": 7, "height": 7, "colorCount": 6, "targetGrade": 3, "designIntent": "难点集中在中心一带，并保留至少一条可读起手。" } },
+    { "id": "large-v1-7x7-07", "smoke": false, "brief": { "schemaVersion": 1, "mechanic": "ordinary", "width": 7, "height": 7, "colorCount": 8, "targetGrade": 2, "designIntent": "多色但不拥挤，边缘和中心各有一次局部选择。" } },
+    { "id": "large-v1-7x7-08", "smoke": false, "brief": { "schemaVersion": 1, "mechanic": "ordinary", "width": 7, "height": 7, "colorCount": 7, "targetGrade": 3, "designIntent": "两条长线争夺中部通道，错误路线应当容易回退。" } },
+    { "id": "large-v1-8x8-01", "smoke": true, "brief": { "schemaVersion": 1, "mechanic": "ordinary", "width": 8, "height": 8, "colorCount": 8, "targetGrade": 1, "designIntent": "八乘八入门题，第一步明确，整体舒展快速。" } },
+    { "id": "large-v1-8x8-02", "smoke": true, "brief": { "schemaVersion": 1, "mechanic": "ordinary", "width": 8, "height": 8, "colorCount": 7, "targetGrade": 2, "designIntent": "包含少量绕行，并让边缘空间参与解题。" } },
+    { "id": "large-v1-8x8-03", "smoke": false, "brief": { "schemaVersion": 1, "mechanic": "ordinary", "width": 8, "height": 8, "colorCount": 6, "targetGrade": 3, "designIntent": "少色长线需要提前分配边缘与中心通道。" } },
+    { "id": "large-v1-8x8-04", "smoke": false, "brief": { "schemaVersion": 1, "mechanic": "ordinary", "width": 8, "height": 8, "colorCount": 10, "targetGrade": 1, "designIntent": "多端点但配对应清楚，不要求反复试探。" } },
+    { "id": "large-v1-8x8-05", "smoke": false, "brief": { "schemaVersion": 1, "mechanic": "ordinary", "width": 8, "height": 8, "colorCount": 8, "targetGrade": 2, "designIntent": "先完成两条短线，再出现一次中段空间判断。" } },
+    { "id": "large-v1-8x8-06", "smoke": false, "brief": { "schemaVersion": 1, "mechanic": "ordinary", "width": 8, "height": 8, "colorCount": 7, "targetGrade": 3, "designIntent": "中心竞争较强，但至少保留一条逻辑线索。" } },
+    { "id": "large-v1-8x8-07", "smoke": false, "brief": { "schemaVersion": 1, "mechanic": "ordinary", "width": 8, "height": 8, "colorCount": 9, "targetGrade": 2, "designIntent": "九色布局保持整洁，以局部选择而非全盘试错制造难度。" } },
+    { "id": "large-v1-8x8-08", "smoke": false, "brief": { "schemaVersion": 1, "mechanic": "ordinary", "width": 8, "height": 8, "colorCount": 10, "targetGrade": 3, "designIntent": "端点密集但分区清晰，需要两次可理解的先后判断。" } },
+    { "id": "large-v1-8x10-01", "smoke": true, "brief": { "schemaVersion": 1, "mechanic": "ordinary", "width": 8, "height": 10, "colorCount": 10, "targetGrade": 1, "designIntent": "无镂空八乘十入门题，纵向较长但配对直接清楚。" } },
+    { "id": "large-v1-8x10-02", "smoke": true, "brief": { "schemaVersion": 1, "mechanic": "ordinary", "width": 8, "height": 10, "colorCount": 9, "targetGrade": 2, "designIntent": "长棋盘中保留明确起手，随后出现温和的上下区域衔接。" } },
+    { "id": "large-v1-8x10-03", "smoke": false, "brief": { "schemaVersion": 1, "mechanic": "ordinary", "width": 8, "height": 10, "colorCount": 8, "targetGrade": 3, "designIntent": "利用纵向空间形成两段规划，避免单纯水平条带。" } },
+    { "id": "large-v1-8x10-04", "smoke": false, "brief": { "schemaVersion": 1, "mechanic": "ordinary", "width": 8, "height": 10, "colorCount": 10, "targetGrade": 1, "designIntent": "作为恢复题，多数线路短直，视觉分区明确。" } },
+    { "id": "large-v1-8x10-05", "smoke": false, "brief": { "schemaVersion": 1, "mechanic": "ordinary", "width": 8, "height": 10, "colorCount": 10, "targetGrade": 2, "designIntent": "上下区域各有一次局部选择，中间连接保持可读。" } },
+    { "id": "large-v1-8x10-06", "smoke": false, "brief": { "schemaVersion": 1, "mechanic": "ordinary", "width": 8, "height": 10, "colorCount": 9, "targetGrade": 3, "designIntent": "两条长线跨越上下区域，需要提前安排中轴通道。" } },
+    { "id": "large-v1-8x10-07", "smoke": false, "brief": { "schemaVersion": 1, "mechanic": "ordinary", "width": 8, "height": 10, "colorCount": 8, "targetGrade": 2, "designIntent": "减少条带感，让边缘和内部空间共同参与一次顺序判断。" } },
+    { "id": "large-v1-8x10-08", "smoke": false, "brief": { "schemaVersion": 1, "mechanic": "ordinary", "width": 8, "height": 10, "colorCount": 10, "targetGrade": 3, "designIntent": "高密度端点分区清楚，中段包含两处相互影响但可恢复的规划。" } }
+  ]
+}

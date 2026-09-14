@@ -29,14 +29,25 @@ function code(result) {
 
 function run() {
   assert.strictEqual(contracts.validateBrief(brief()).ok, true);
-  assert.strictEqual(contracts.validateBrief(brief({ width: 6, height: 6, colorCount: 6, targetGrade: 3,
-    designIntent: '有明显起手，并包含少量绕行。' })).ok, true);
+  for (const dimensions of [
+    { width: 6, height: 6, colorCount: 6 },
+    { width: 7, height: 7, colorCount: 7 },
+    { width: 8, height: 8, colorCount: 8 },
+    { width: 8, height: 10, colorCount: 10 }
+  ]) {
+    assert.strictEqual(contracts.validateBrief(brief(Object.assign({}, dimensions, {
+      targetGrade: 3, designIntent: '有明显起手，并包含少量绕行。'
+    }))).ok, true);
+  }
   assert.strictEqual(code(contracts.validateBrief(brief({ schemaVersion: 2 }))), 'BRIEF_SCHEMA_VERSION_UNSUPPORTED');
   assert.strictEqual(code(contracts.validateBrief(brief({ mechanic: 'portal' }))), 'BRIEF_MECHANIC_UNSUPPORTED');
-  for (const dimensions of [{ width: 7, height: 7 }, { width: 5, height: 6 }, { width: 5.5, height: 5.5 }]) {
+  for (const dimensions of [
+    { width: 5, height: 6 }, { width: 7, height: 8 }, { width: 8, height: 9 },
+    { width: 10, height: 8 }, { width: 5.5, height: 5.5 }
+  ]) {
     assert.strictEqual(code(contracts.validateBrief(brief(dimensions))), 'BRIEF_BOARD_SIZE_UNSUPPORTED');
   }
-  for (const colorCount of [3, 7, 4.5]) {
+  for (const colorCount of [3, 11, 4.5]) {
     assert.strictEqual(code(contracts.validateBrief(brief({ colorCount }))), 'BRIEF_COLOR_COUNT_INVALID');
   }
   for (const targetGrade of [0, 4, 2.5]) {
@@ -50,15 +61,15 @@ function run() {
   assert.strictEqual(code(extraResult), 'BRIEF_UNKNOWN_FIELD');
   assert.deepStrictEqual(extraResult.error.details.fields, ['future']);
 
-  const schema = contracts.candidateSchema(brief({ width: 6, height: 6, colorCount: 6 }));
+  const schema = contracts.candidateSchema(brief({ width: 8, height: 10, colorCount: 10 }));
   assert.strictEqual(schema.additionalProperties, false);
   assert.deepStrictEqual(schema.required, ['schemaVersion', 'paths', 'designSummary']);
   assert.deepStrictEqual(schema.properties.designSummary.type, ['string', 'null']);
-  assert.strictEqual(schema.properties.paths.minItems, 6);
-  assert.strictEqual(schema.properties.paths.maxItems, 6);
+  assert.strictEqual(schema.properties.paths.minItems, 10);
+  assert.strictEqual(schema.properties.paths.maxItems, 10);
   assert.strictEqual(schema.properties.paths.items.additionalProperties, false);
-  assert.strictEqual(schema.properties.paths.items.properties.cells.maxItems, 36);
-  assert.strictEqual(schema.properties.paths.items.properties.cells.items.maximum, 35);
+  assert.strictEqual(schema.properties.paths.items.properties.cells.maxItems, 80);
+  assert.strictEqual(schema.properties.paths.items.properties.cells.items.maximum, 79);
 
   assert.strictEqual(contracts.validateCandidateStructure(brief(), candidate()).ok, true);
   assert.strictEqual(contracts.validateCandidateStructure(brief(),

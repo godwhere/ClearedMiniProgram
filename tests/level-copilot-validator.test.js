@@ -36,6 +36,16 @@ function gradeOneSixBySixCover() {
   };
 }
 
+function rowCover(width, height) {
+  return {
+    schemaVersion: 1,
+    designSummary: `${width} by ${height} row cover.`,
+    paths: Array.from({ length: height }, (_, row) => ({
+      cells: Array.from({ length: width }, (_, column) => row * width + column)
+    }))
+  };
+}
+
 function dependencies(overrides) {
   return Object.assign({ catalog: { levels: [] } }, overrides);
 }
@@ -63,6 +73,27 @@ function run() {
   assert.strictEqual(capacityResult.report.difficulty.score, 19.9);
   assert.strictEqual(capacityResult.report.difficulty.easyLines, 3);
   assert.strictEqual(capacityResult.report.difficulty.competingColors, 0);
+
+  for (const dimensions of [
+    { width: 7, height: 7 },
+    { width: 8, height: 8 },
+    { width: 8, height: 10 }
+  ]) {
+    const large = validator.validateCandidate({
+      schemaVersion: 1,
+      mechanic: 'ordinary',
+      width: dimensions.width,
+      height: dimensions.height,
+      colorCount: dimensions.height,
+      targetGrade: 1,
+      designIntent: 'Large-board deterministic validation fixture.'
+    }, rowCover(dimensions.width, dimensions.height), { dependencies: dependencies() });
+    assert.strictEqual(large.status, 'reviewable', `${dimensions.width}x${dimensions.height}`);
+    assert.strictEqual(large.report.checks.runtime, 'passed');
+    assert.strictEqual(large.report.checks.solver, 'solved');
+    assert.strictEqual(large.report.difficulty.grade, 1);
+    assert(large.layoutKey.startsWith(`${dimensions.width}x${dimensions.height}:`));
+  }
 
   const duplicateCatalog = { levels: [{ setIndex: 1, levelIndex: 2, game: Object.assign({
     Id: 'existing-5x5', Name: 'Existing'

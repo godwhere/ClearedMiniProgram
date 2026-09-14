@@ -121,7 +121,24 @@ function earlyLevelRating() {
   });
   const training = { Width: 5, Height: 1, Lines: [{ Start: 0, End: 4 }] };
   assert.strictEqual(evaluate(training, [[0, 1, 2, 3, 4]]).score, 0);
-  for (const dimensions of [{ Width: 0 }, { Width: 5.5 }, { Width: 8, Height: 10 }]) {
+  const largeRows = Array.from({ length: 10 }, (_, row) =>
+    Array.from({ length: 8 }, (_, column) => row * 8 + column));
+  const large = {
+    Width: 8,
+    Height: 10,
+    Lines: largeRows.map(path => ({ Start: path[0], End: path[path.length - 1] }))
+  };
+  const largeRating = evaluate(large, largeRows);
+  assert.strictEqual(largeRating.grade, 1);
+  assert.strictEqual(largeRating.score, 10);
+  assert.strictEqual(largeRating.easyLines, 10);
+  assert.strictEqual(solveWithoutPortals(large).status, 'solved');
+  assert.strictEqual(solveWithoutPortals(Object.assign({}, large, { Height: 9 })).status, 'invalid');
+  assert.strictEqual(solveWithoutPortals(Object.assign({}, large, { Blocked: [9] })).status, 'invalid');
+  assert.throws(() => evaluate(Object.assign({}, large, { Blocked: [9] }), largeRows), /ordinary\/Portal/);
+  for (const dimensions of [
+    { Width: 0 }, { Width: 5.5 }, { Width: 8, Height: 9 }, { Width: 10, Height: 8 }
+  ]) {
     assert.throws(() => evaluate(Object.assign({}, training, dimensions), [[0, 1, 2, 3, 4]]), /ordinary\/Portal/);
   }
 }

@@ -98,7 +98,7 @@ tests/                               规则、服务、渲染、同步和启动�
 
 ## 开发期关卡 Copilot
 
-仓库包含一个只在开发电脑运行的普通关卡 Copilot。它支持 5×5／6×6、4—6 色和目标难度 1—3 级；模型只生成完整路径候选，本地工具仍会执行覆盖校验、正式目录等价查重、`GameRunner` 回放、精确求解审计和现有难度评估。候选只写入被 Git 和微信包忽略的 `scripts/level-copilot/runs/`，人工接受也不会修改正式关卡、解答、云端或玩家数据。
+仓库包含一个只在开发电脑运行的普通关卡 Copilot。当前输入合同和本地门禁支持 5×5、6×6、7×7、8×8，以及无镂空的普通 8×10 棋盘，允许 4—10 色和目标难度 1—3 级；模型只生成完整路径候选，本地工具仍会执行覆盖校验、正式目录等价查重、`GameRunner` 回放、精确求解审计和现有难度评估。候选只写入被 Git 和微信包忽略的 `scripts/level-copilot/runs/`，其根目录与每个 run／evaluation 目录为 `0700`、JSON artifact 为 `0600`；人工接受也不会修改正式关卡、解答、云端或玩家数据。版本 7 的 V1 真实评测结论覆盖 5×5／6×6；版本 8 的独立大棋盘评测也已完成：24 例真实 Codex full eval 中 23 例进入审核，接受 13 例，最终人工采纳率为 56.52%，通过总体建议门槛。难度 3 和 8×10 的软设计质量仍是后续重点，接受候选也尚未写入正式关卡。
 
 缺省生成命令继续使用 Responses API；Codex CLI 必须显式传入 `--provider codex`，且只接受已确认的 ChatGPT 登录。两条路径失败时不会互相回退；Codex 订阅路径不传模型或 API key，美元成本字段保持不适用。
 
@@ -126,11 +126,15 @@ node scripts/level-copilot/eval.js --live --max-calls 30 --smoke
 node scripts/level-copilot/eval.js --live --max-calls 120
 node scripts/level-copilot/eval.js --provider codex --live --max-calls 30 --smoke
 
+# 大棋盘固定评测集；仍需显式联网，smoke 也是 6 例／最多 30 次 provider 调用
+node scripts/level-copilot/eval.js --cases scripts/level-copilot/eval-cases-large-v1.json \
+  --provider codex --live --max-calls 30 --smoke
+
 # 完成人工 review 后，按持久化的 caseId → runId 清单离线重算指标
 node scripts/level-copilot/eval.js --recompute <evaluationId>
 ```
 
-完整输入合同、失败关闭、评测分母和正式纳入边界见 [AI 关卡设计 Copilot 实施方案](docs/ai-level-copilot-implementation-plan.md)。
+完整输入合同、失败关闭、评测分母和正式纳入边界见 [AI 关卡设计 Copilot 实施方案](docs/ai-level-copilot-implementation-plan.md)；作品集级问题说明、架构、最终指标、典型案例和面试讲解见 [AI 关卡 Copilot V1 案例报告](docs/ai-level-copilot-v1-portfolio-report.md)。
 
 ## 验证
 
@@ -179,6 +183,7 @@ node scripts/generate-level-modules.js
 - [冰封玩法](docs/ice-trial.md)：两层地板规则、提示流程及主线接入边界。
 - [关卡难度系统](docs/level-difficulty-system.md)：评分方法、排序规则和舒缓关节奏。
 - [AI 关卡设计 Copilot 实施方案](docs/ai-level-copilot-implementation-plan.md)：开发期候选生成、确定性门禁、安全落盘、人工审核和固定评测边界。
+- [AI 关卡 Copilot V1 案例报告](docs/ai-level-copilot-v1-portfolio-report.md)：面向作品集和面试的架构、指标、案例、AI 协作边界与后续路线总结。
 - [每日挑战](docs/daily-challenge-mode.md)：日期、次数、镂空棋盘和独立存档。
 - [体力系统](docs/stamina-system.md)：消费、恢复、返还、回滚和跨设备规则。
 - [奖励与货币系统](docs/reward-unlock-system.md)：确认余额、待同步显示、领取去重和购买权限。

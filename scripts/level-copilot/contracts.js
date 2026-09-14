@@ -6,6 +6,15 @@ const BRIEF_FIELDS = [
 ];
 const CANDIDATE_FIELDS = ['schemaVersion', 'paths', 'designSummary'];
 const PATH_FIELDS = ['cells'];
+const SUPPORTED_BOARD_SIZES = Object.freeze([
+  Object.freeze({ width: 5, height: 5 }),
+  Object.freeze({ width: 6, height: 6 }),
+  Object.freeze({ width: 7, height: 7 }),
+  Object.freeze({ width: 8, height: 8 }),
+  Object.freeze({ width: 8, height: 10 })
+]);
+const MIN_COLOR_COUNT = 4;
+const MAX_COLOR_COUNT = 10;
 
 const ERROR_CODES = Object.freeze({
   BRIEF_SCHEMA_VERSION_UNSUPPORTED: 'BRIEF_SCHEMA_VERSION_UNSUPPORTED',
@@ -32,6 +41,10 @@ function unknownFields(value, allowed) {
   return Object.keys(value).filter(key => allowed.indexOf(key) < 0).sort();
 }
 
+function isSupportedBoardSize(width, height) {
+  return SUPPORTED_BOARD_SIZES.some(size => size.width === width && size.height === height);
+}
+
 function validateBrief(input) {
   if (!input || typeof input !== 'object' || Array.isArray(input)) {
     return result(ERROR_CODES.BRIEF_SCHEMA_VERSION_UNSUPPORTED);
@@ -40,10 +53,11 @@ function validateBrief(input) {
   if (unknown.length) return result(ERROR_CODES.BRIEF_UNKNOWN_FIELD, { fields: unknown });
   if (input.schemaVersion !== 1) return result(ERROR_CODES.BRIEF_SCHEMA_VERSION_UNSUPPORTED);
   if (input.mechanic !== 'ordinary') return result(ERROR_CODES.BRIEF_MECHANIC_UNSUPPORTED);
-  if ((input.width !== 5 && input.width !== 6) || input.height !== input.width) {
+  if (!isSupportedBoardSize(input.width, input.height)) {
     return result(ERROR_CODES.BRIEF_BOARD_SIZE_UNSUPPORTED);
   }
-  if (!Number.isInteger(input.colorCount) || input.colorCount < 4 || input.colorCount > 6 ||
+  if (!Number.isInteger(input.colorCount) || input.colorCount < MIN_COLOR_COUNT ||
+      input.colorCount > MAX_COLOR_COUNT ||
       input.colorCount * 2 > input.width * input.height) {
     return result(ERROR_CODES.BRIEF_COLOR_COUNT_INVALID);
   }
@@ -120,6 +134,10 @@ function validateCandidateStructure(brief, input) {
 
 module.exports = {
   ERROR_CODES,
+  SUPPORTED_BOARD_SIZES,
+  MIN_COLOR_COUNT,
+  MAX_COLOR_COUNT,
+  isSupportedBoardSize,
   validateBrief,
   candidateSchema,
   validateCandidateStructure

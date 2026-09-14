@@ -37,6 +37,16 @@ function cover(summary) {
   };
 }
 
+function rowCover(width, height, summary) {
+  return {
+    schemaVersion: 1,
+    paths: Array.from({ length: height }, (_, row) => ({
+      cells: Array.from({ length: width }, (_, column) => row * width + column)
+    })),
+    designSummary: summary
+  };
+}
+
 function api(candidate, id) {
   return {
     candidate,
@@ -118,7 +128,7 @@ async function run() {
     const result = await pipeline.generate({ brief, apiKey: 'unit-test-key', model: 'explicit-model' });
     assert.strictEqual(result.status, 'AWAITING_REVIEW');
     assert.strictEqual(result.exitCode, 0);
-    assert.strictEqual(result.record.implementationVersion, 7);
+    assert.strictEqual(result.record.implementationVersion, 8);
     assert.strictEqual(calls, 2);
     assert.deepStrictEqual(waits, [250]);
     assert.strictEqual(result.record.httpCalls, 2);
@@ -162,6 +172,37 @@ async function run() {
     assert.strictEqual((await read(store, result.runId, 'review-revision-01.json')).decision, 'reject_other');
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
+  }
+
+  const largeRoot = temporaryRoot('large-board');
+  try {
+    const store = new RunStore({ root: path.join(largeRoot, 'runs') });
+    let request = null;
+    const largeBrief = {
+      schemaVersion: 1,
+      mechanic: 'ordinary',
+      width: 8,
+      height: 10,
+      colorCount: 10,
+      targetGrade: 1,
+      designIntent: 'Rectangular pipeline fixture.'
+    };
+    const result = await new Pipeline({
+      client: { async generate(value) {
+        request = value;
+        return api(rowCover(8, 10, 'Ten direct rows.'), 'resp_large');
+      } },
+      store,
+      clock: () => Date.UTC(2026, 8, 14),
+      wait: async () => {}
+    }).generate({ brief: largeBrief, apiKey: 'key', model: 'm' });
+    assert.strictEqual(result.status, 'AWAITING_REVIEW');
+    assert.strictEqual(request.schema.properties.paths.minItems, 10);
+    assert.strictEqual(request.schema.properties.paths.items.properties.cells.maxItems, 80);
+    assert.deepStrictEqual(JSON.parse(request.inputText).brief, largeBrief);
+    assert.strictEqual((await store.readCandidate(result.runId)).level.Height, 10);
+  } finally {
+    fs.rmSync(largeRoot, { recursive: true, force: true });
   }
 
   const billedFailureRoot = temporaryRoot('billed-failure');
@@ -444,9 +485,18 @@ async function run() {
 
   const safetyRoot = temporaryRoot('safety');
   try {
-    const store = new RunStore({ root: path.join(safetyRoot, 'runs') });
+    const storeRoot = path.join(safetyRoot, 'runs');
+    fs.mkdirSync(storeRoot, { mode: 0o755 });
+    fs.chmodSync(storeRoot, 0o755);
+    const store = new RunStore({ root: storeRoot });
     const runId = store.newRunId();
     await store.createRun(brief, { runId, schemaVersion: 1, status: 'CREATED' });
+    assert.strictEqual(fs.statSync(store.root).mode & 0o777, 0o700);
+    assert.strictEqual(fs.statSync(path.join(store.root, runId)).mode & 0o777, 0o700);
+    fs.chmodSync(path.join(store.root, runId), 0o755);
+    await store.readRun(runId);
+    assert.strictEqual(fs.statSync(path.join(store.root, runId)).mode & 0o777, 0o700,
+      'reading a historical run must harden its directory permissions');
     assert.throws(() => store.assertRunId('../escape'), /RUN_STORE_RUN_ID_INVALID/);
     assert.throws(() => store.assertArtifact('../run.json'), /RUN_STORE_ARTIFACT_INVALID/);
     assert.throws(() => assertNoSecrets({ OPENAI_API_KEY: 'value' }), /RUN_STORE_SECRET_DETECTED/);
@@ -499,6 +549,12 @@ async function run() {
     const io = { log: value => output.push(value), error: value => output.push(value) };
     assert.strictEqual(await cliMain(['validate', '--brief', filename], { console: io, env: {} }), 0);
     assert.strictEqual(JSON.parse(output.pop()).status, 'VALID');
+    fs.writeFileSync(filename, JSON.stringify(Object.assign({}, brief, {
+      width: 8, height: 10, colorCount: 10
+    })));
+    assert.strictEqual(await cliMain(['validate', '--brief', filename], { console: io, env: {} }), 0);
+    assert.strictEqual(JSON.parse(output.pop()).status, 'VALID');
+    fs.writeFileSync(filename, JSON.stringify(brief));
     assert.strictEqual(await cliMain(['generate', '--brief', filename, '--live'], { console: io, env: {} }), 3);
     assert.deepStrictEqual(JSON.parse(output.pop()).errorCodes, ['OPENAI_API_KEY_MISSING']);
     fs.writeFileSync(filename, JSON.stringify(Object.assign({}, brief, { mechanic: 'portal' })));

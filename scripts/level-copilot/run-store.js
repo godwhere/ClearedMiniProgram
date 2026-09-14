@@ -6,6 +6,7 @@ const path = require('path');
 const crypto = require('crypto');
 
 const DEFAULT_ROOT = path.join(__dirname, 'runs');
+const PRIVATE_DIRECTORY_MODE = 0o700;
 const RUN_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const ARTIFACT = /^(?:brief|run|candidate|review|eval)\.json$|^attempt-(?:0[1-9]|[1-9][0-9])\.json$|^review-revision-(?:0[1-9]|[1-9][0-9])\.json$/;
 
@@ -131,11 +132,16 @@ class RunStore {
 
   async ensureRoot() {
     if (this.readyRoot) return this.readyRoot;
-    await this.io.mkdir(this.root, { recursive: true });
+    await this.io.mkdir(this.root, { recursive: true, mode: PRIVATE_DIRECTORY_MODE });
     const stat = await this.io.lstat(this.root);
     if (stat.isSymbolicLink() || !stat.isDirectory()) throw new RunStoreError('RUN_STORE_ROOT_UNSAFE');
     const real = await this.io.realpath(this.root);
     if (path.resolve(real) !== this.root) throw new RunStoreError('RUN_STORE_ROOT_UNSAFE');
+    await this.io.chmod(real, PRIVATE_DIRECTORY_MODE);
+    const hardenedStat = await this.io.lstat(real);
+    if ((hardenedStat.mode & 0o777) !== PRIVATE_DIRECTORY_MODE) {
+      throw new RunStoreError('RUN_STORE_ROOT_UNSAFE');
+    }
     this.readyRoot = real;
     return real;
   }
@@ -145,11 +151,16 @@ class RunStore {
     const root = await this.ensureRoot();
     const directory = path.join(root, runId);
     if (path.dirname(directory) !== root) throw new RunStoreError('RUN_STORE_PATH_ESCAPE');
-    if (create) await this.io.mkdir(directory, { recursive: false });
+    if (create) await this.io.mkdir(directory, { recursive: false, mode: PRIVATE_DIRECTORY_MODE });
     const stat = await this.io.lstat(directory);
     if (stat.isSymbolicLink() || !stat.isDirectory()) throw new RunStoreError('RUN_STORE_PATH_UNSAFE');
     const real = await this.io.realpath(directory);
     if (path.dirname(real) !== root || real !== directory) throw new RunStoreError('RUN_STORE_PATH_ESCAPE');
+    await this.io.chmod(real, PRIVATE_DIRECTORY_MODE);
+    const hardenedStat = await this.io.lstat(real);
+    if ((hardenedStat.mode & 0o777) !== PRIVATE_DIRECTORY_MODE) {
+      throw new RunStoreError('RUN_STORE_PATH_UNSAFE');
+    }
     return real;
   }
 

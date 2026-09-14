@@ -5,7 +5,7 @@ const contracts = require('./contracts.js');
 const validator = require('./validator.js');
 const prompt = require('./prompt.js');
 
-const IMPLEMENTATION_VERSION = 7;
+const IMPLEMENTATION_VERSION = 8;
 const PROVIDERS = Object.freeze({
   RESPONSES: 'responses-api',
   CODEX: 'codex-cli'
