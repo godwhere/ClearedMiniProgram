@@ -64,6 +64,9 @@ function run() {
   const runtime = files.concat(javascriptFiles(SRC_DIR),
     javascriptFiles(path.join(SRC_DIR, '..', 'data')),
     javascriptFiles(path.join(SRC_DIR, '..', 'assets')), path.join(SRC_DIR, '..', 'game.js'));
+  const root = path.join(SRC_DIR, '..');
+  const copilotDir = path.join(root, 'scripts', 'level-copilot');
+  const copilotFiles = javascriptFiles(copilotDir).sort();
   for (const name of ['cloudfunctions', 'functions', 'server']) {
     assert(!fs.existsSync(path.join(SRC_DIR, '..', name)), 'client repository must not contain server implementations');
   }
@@ -80,7 +83,57 @@ function run() {
     if (file !== path.join(SRC_DIR, 'services', 'api-client.js')) {
       assert(!/['"]\/v1\/|\bAuthorization\b/.test(source), `${file} must consume named API contracts`);
     }
+    dependencies(source).forEach(dependency => {
+      if (!dependency.startsWith('.')) return;
+      const resolved = path.resolve(path.dirname(file), dependency);
+      assert(resolved !== copilotDir && resolved.indexOf(`${copilotDir}${path.sep}`) !== 0,
+        `${file} cannot depend on the authoring-only level Copilot`);
+    });
   });
+  assert.strictEqual(copilotFiles.length, 10, 'the level Copilot file boundary must remain explicit');
+  const builtins = new Set(['child_process', 'crypto', 'fs', 'https', 'os', 'path']);
+  copilotFiles.forEach(file => {
+    const name = path.basename(file);
+    const source = fs.readFileSync(file, 'utf8');
+    assert(!/\bwx\s*(?:\.|\[)|\bCanvas(?:RenderingContext2D)?\s*[.(]|\bCloudBase\b/.test(source),
+      `${name} cannot depend on game runtime surfaces`);
+    assert(!/src\/services|src\/platform|src\/ui/.test(source), `${name} cannot depend on runtime services or UI`);
+    assert(!/\b(?:eval\s*\(|Function\s*\(|vm\b)/.test(source),
+      `${name} cannot execute generated content`);
+    if (name === 'codex-client.js') {
+      assert(dependencies(source).includes('child_process'),
+        'only the Codex provider may launch the authenticated local Codex CLI');
+    } else {
+      assert(!/\bchild_process\b/.test(source), `${name} cannot launch child processes`);
+    }
+    assert(!/\brequire\s*\(\s*[^'"\s]/.test(source), `${name} cannot use dynamic require`);
+    dependencies(source).forEach(dependency => {
+      assert(dependency.startsWith('.') || builtins.has(dependency),
+        `${name} cannot add third-party dependency ${dependency}`);
+    });
+    if (name !== 'openai-client.js') {
+      assert(!/api\.openai\.com|\bAuthorization\b/.test(source),
+        `${name} cannot own the OpenAI network boundary`);
+      assert(!dependencies(source).includes('https'), `${name} cannot use Node HTTPS`);
+    }
+    if (name !== 'run-store.js') {
+      assert(!/\.(?:writeFile|mkdir|link|rename|unlink)\s*\(/.test(source),
+        `${name} cannot write authoring artifacts`);
+    }
+  });
+  const validatorDependencies = dependencies(fs.readFileSync(path.join(copilotDir, 'validator.js'), 'utf8'));
+  assert.deepStrictEqual(validatorDependencies, [
+    './candidate.js',
+    '../../data/catalog-v2.js',
+    '../../core/game-runner.js',
+    '../solve-no-portal.js',
+    '../evaluate-level-difficulty.js'
+  ], 'validator may only read the candidate helpers and existing deterministic authorities');
+  assert(fs.readFileSync(path.join(root, '.gitignore'), 'utf8').split(/\r?\n/)
+    .includes('/scripts/level-copilot/runs/'), 'local Copilot runs must be ignored by Git');
+  const projectConfig = JSON.parse(fs.readFileSync(path.join(root, 'project.config.json'), 'utf8'));
+  assert(projectConfig.packOptions.ignore.some(entry => entry.type === 'folder' && entry.value === 'scripts'),
+    'the complete authoring tool directory must stay outside the WeChat package');
   const cloudTransport = path.join(SRC_DIR, 'services', 'cloud-function-transport.js');
   runtime.filter(file => file !== cloudTransport && file !== path.join(SRC_DIR, 'platform', 'wechat.js')).forEach(file => {
     const source = fs.readFileSync(file, 'utf8');

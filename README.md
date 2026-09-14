@@ -96,6 +96,42 @@ tests/                               规则、服务、渲染、同步和启动�
 
 开发者工具模拟器会开放全部主线关卡，方便检查内容；其他运行环境仍按正常顺序解锁。具体差异见 [开发者工具说明](docs/dev-tools.md)。
 
+## 开发期关卡 Copilot
+
+仓库包含一个只在开发电脑运行的普通关卡 Copilot。它支持 5×5／6×6、4—6 色和目标难度 1—3 级；模型只生成完整路径候选，本地工具仍会执行覆盖校验、正式目录等价查重、`GameRunner` 回放、精确求解审计和现有难度评估。候选只写入被 Git 和微信包忽略的 `scripts/level-copilot/runs/`，人工接受也不会修改正式关卡、解答、云端或玩家数据。
+
+缺省生成命令继续使用 Responses API；Codex CLI 必须显式传入 `--provider codex`，且只接受已确认的 ChatGPT 登录。两条路径失败时不会互相回退；Codex 订阅路径不传模型或 API key，美元成本字段保持不适用。
+
+Codex 生成会在仓库外新建一次性的 `0700` 工作目录，并通过 `--strict-config`、忽略用户／项目配置与规则、禁用项目文档来固定配置边界。真实 `HOME` 不会传入；子进程只收到 `PATH`、用于既有 ChatGPT 登录定位的 `CODEX_HOME`、固定 locale，以及都指向本次隔离目录的 `HOME`／`TMPDIR`。调用层会显式关闭 Apps、技能发现与技能指令、MCP、插件、hook、shell、浏览器／电脑操作、图像、memory、Web、subagent 和请求类工具。正常结束时 JSONL 必须完整解析；超时、取消或输出超限时只审计终止前的完整事件前缀，再返回真实终止原因。任何已完成事件中的非纯推理／最终消息活动都会失败关闭，事件正文不会写入 artifact。该边界防止普通用户和项目配置改变生成路径，但不宣称能绕过操作系统或组织管理员强制的 Codex 配置；若受管策略拒绝固定限制或仍注入禁止活动，运行应失败而不是放宽限制。单次 provider 仍限 60 秒，流水线还会把 180 秒总预算的剩余时间作为取消信号传入 Responses 请求或 Codex 子进程，先到者生效并在清理完成后返回。
+
+```sh
+# 离线验证 brief
+node scripts/level-copilot/cli.js validate --brief path/to/brief.json
+
+# Responses API（旧命令语义不变）；两个环境变量都必须由当前进程提供
+OPENAI_API_KEY=... OPENAI_MODEL=... \
+  node scripts/level-copilot/cli.js generate --brief path/to/brief.json --live
+
+# Codex CLI；只使用已确认的 ChatGPT 登录，不读取 API key 或模型环境变量
+codex login status
+node scripts/level-copilot/cli.js generate \
+  --brief path/to/brief.json --live --provider codex
+
+# 离线重放候选，或记录一次人工决定
+node scripts/level-copilot/cli.js replay --run <runId>
+node scripts/level-copilot/cli.js review --run <runId> --decision accepted --reason "clear opening"
+
+# 显式串行在线评测；为每例预留流水线最坏 5 次 provider 调用，不会由测试或 CI 自动调用
+node scripts/level-copilot/eval.js --live --max-calls 30 --smoke
+node scripts/level-copilot/eval.js --live --max-calls 120
+node scripts/level-copilot/eval.js --provider codex --live --max-calls 30 --smoke
+
+# 完成人工 review 后，按持久化的 caseId → runId 清单离线重算指标
+node scripts/level-copilot/eval.js --recompute <evaluationId>
+```
+
+完整输入合同、失败关闭、评测分母和正式纳入边界见 [AI 关卡设计 Copilot 实施方案](docs/ai-level-copilot-implementation-plan.md)。
+
 ## 验证
 
 Node.js 只用于测试和离线工具，不是小游戏运行依赖。
@@ -108,7 +144,7 @@ node scripts/check-package-budget.js
 git diff --check
 ```
 
-当前测试入口包含 97 组回归测试，覆盖棋盘规则、Portal 与冰封回放、现有 168 关目录数据、触摸采样、Canvas 渲染、每日存档兼容和页面字段映射、进度与体力、待同步金币显示、奖励去重、主题/BGM 分包、CloudBase 配置选择、单一结算入口、同步冲突和小游戏启动烟雾流程。
+当前测试入口包含 104 组回归测试，覆盖棋盘规则、Portal 与冰封回放、现有 168 关目录数据、触摸采样、Canvas 渲染、每日存档兼容和页面字段映射、进度与体力、待同步金币显示、奖励去重、主题/BGM 分包、CloudBase 配置选择、单一结算入口、同步冲突、小游戏启动烟雾流程，以及关卡 Copilot 的离线合同、Responses／Codex 客户端、验证流水线、并发安全落盘和评测指标。
 
 修改 `data/clearedset*.json` 后，需要运行下面的命令更新提交到工程中的关卡模块：
 
@@ -142,6 +178,7 @@ node scripts/generate-level-modules.js
 - [Portal 机制](docs/portal-mechanic.md)：传送门状态机、分段手势、数据与解答格式。
 - [冰封玩法](docs/ice-trial.md)：两层地板规则、提示流程及主线接入边界。
 - [关卡难度系统](docs/level-difficulty-system.md)：评分方法、排序规则和舒缓关节奏。
+- [AI 关卡设计 Copilot 实施方案](docs/ai-level-copilot-implementation-plan.md)：开发期候选生成、确定性门禁、安全落盘、人工审核和固定评测边界。
 - [每日挑战](docs/daily-challenge-mode.md)：日期、次数、镂空棋盘和独立存档。
 - [体力系统](docs/stamina-system.md)：消费、恢复、返还、回滚和跨设备规则。
 - [奖励与货币系统](docs/reward-unlock-system.md)：确认余额、待同步显示、领取去重和购买权限。

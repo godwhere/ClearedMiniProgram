@@ -3,3 +3,4 @@ project.private.config.json
 src/config/cloudbase.local.js
 /assets/skins/animals/drafts/
 /scripts/theme-extraction/runs/
+/scripts/level-copilot/runs/

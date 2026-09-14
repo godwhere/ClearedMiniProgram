@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "caseVersion": "eval-cases-v1",
+  "cases": [
+    { "id": "v1-5x5-01", "smoke": true, "brief": { "schemaVersion": 1, "mechanic": "ordinary", "width": 5, "height": 5, "colorCount": 4, "targetGrade": 1, "designIntent": "提供一个明显起手，整体适合作为入门恢复题。" } },
+    { "id": "v1-5x5-02", "smoke": true, "brief": { "schemaVersion": 1, "mechanic": "ordinary", "width": 5, "height": 5, "colorCount": 5, "targetGrade": 2, "designIntent": "起手清楚，中段包含一次容易理解的绕行。" } },
+    { "id": "v1-5x5-03", "smoke": true, "brief": { "schemaVersion": 1, "mechanic": "ordinary", "width": 5, "height": 5, "colorCount": 6, "targetGrade": 3, "designIntent": "让中心区域出现较多线路竞争，但避免纯试错。" } },
+    { "id": "v1-5x5-04", "smoke": false, "brief": { "schemaVersion": 1, "mechanic": "ordinary", "width": 5, "height": 5, "colorCount": 5, "targetGrade": 1, "designIntent": "多数线路短而直观，保留一个轻微转折。" } },
+    { "id": "v1-5x5-05", "smoke": false, "brief": { "schemaVersion": 1, "mechanic": "ordinary", "width": 5, "height": 5, "colorCount": 6, "targetGrade": 2, "designIntent": "端点分布清楚，边缘与中心各有一处选择。" } },
+    { "id": "v1-5x5-06", "smoke": false, "brief": { "schemaVersion": 1, "mechanic": "ordinary", "width": 5, "height": 5, "colorCount": 4, "targetGrade": 3, "designIntent": "用较长线路形成两处竞争，仍需有可读起手。" } },
+    { "id": "v1-5x5-07", "smoke": false, "brief": { "schemaVersion": 1, "mechanic": "ordinary", "width": 5, "height": 5, "colorCount": 6, "targetGrade": 1, "designIntent": "做一题节奏轻快的章节缓冲关。" } },
+    { "id": "v1-5x5-08", "smoke": false, "brief": { "schemaVersion": 1, "mechanic": "ordinary", "width": 5, "height": 5, "colorCount": 4, "targetGrade": 2, "designIntent": "一条明显起手线打开空间，后续需要一次顺序判断。" } },
+    { "id": "v1-5x5-09", "smoke": false, "brief": { "schemaVersion": 1, "mechanic": "ordinary", "width": 5, "height": 5, "colorCount": 5, "targetGrade": 3, "designIntent": "中心端点略密集，难点集中在一个可理解区域。" } },
+    { "id": "v1-5x5-10", "smoke": false, "brief": { "schemaVersion": 1, "mechanic": "ordinary", "width": 5, "height": 5, "colorCount": 4, "targetGrade": 1, "designIntent": "线路轮廓清晰，不要求玩家反复试探。" } },
+    { "id": "v1-5x5-11", "smoke": false, "brief": { "schemaVersion": 1, "mechanic": "ordinary", "width": 5, "height": 5, "colorCount": 5, "targetGrade": 2, "designIntent": "包含少量绕行，并让边缘空间参与解题。" } },
+    { "id": "v1-5x5-12", "smoke": false, "brief": { "schemaVersion": 1, "mechanic": "ordinary", "width": 5, "height": 5, "colorCount": 6, "targetGrade": 3, "designIntent": "保持小棋盘可读性，同时增加线路先后竞争。" } },
+    { "id": "v1-6x6-01", "smoke": true, "brief": { "schemaVersion": 1, "mechanic": "ordinary", "width": 6, "height": 6, "colorCount": 4, "targetGrade": 1, "designIntent": "大部分空间可直接理解，适合作为六乘六入门题。" } },
+    { "id": "v1-6x6-02", "smoke": true, "brief": { "schemaVersion": 1, "mechanic": "ordinary", "width": 6, "height": 6, "colorCount": 6, "targetGrade": 2, "designIntent": "有一条明显起手，随后出现少量中段绕行。" } },
+    { "id": "v1-6x6-03", "smoke": true, "brief": { "schemaVersion": 1, "mechanic": "ordinary", "width": 6, "height": 6, "colorCount": 5, "targetGrade": 3, "designIntent": "利用更大空间形成多条竞争路线，但保留逻辑线索。" } },
+    { "id": "v1-6x6-04", "smoke": false, "brief": { "schemaVersion": 1, "mechanic": "ordinary", "width": 6, "height": 6, "colorCount": 5, "targetGrade": 1, "designIntent": "作为高压关后的恢复题，线路应舒展清楚。" } },
+    { "id": "v1-6x6-05", "smoke": false, "brief": { "schemaVersion": 1, "mechanic": "ordinary", "width": 6, "height": 6, "colorCount": 4, "targetGrade": 2, "designIntent": "用两条较长线路制造温和的空间规划。" } },
+    { "id": "v1-6x6-06", "smoke": false, "brief": { "schemaVersion": 1, "mechanic": "ordinary", "width": 6, "height": 6, "colorCount": 6, "targetGrade": 3, "designIntent": "中部竞争较强，难点不要分散到整个棋盘。" } },
+    { "id": "v1-6x6-07", "smoke": false, "brief": { "schemaVersion": 1, "mechanic": "ordinary", "width": 6, "height": 6, "colorCount": 6, "targetGrade": 1, "designIntent": "端点虽多但配对应清晰，整体快速可解。" } },
+    { "id": "v1-6x6-08", "smoke": false, "brief": { "schemaVersion": 1, "mechanic": "ordinary", "width": 6, "height": 6, "colorCount": 5, "targetGrade": 2, "designIntent": "开局消除一条短线后，留下明确的空间顺序。" } },
+    { "id": "v1-6x6-09", "smoke": false, "brief": { "schemaVersion": 1, "mechanic": "ordinary", "width": 6, "height": 6, "colorCount": 4, "targetGrade": 3, "designIntent": "少色长线布局，要求提前规划边缘与中心通道。" } },
+    { "id": "v1-6x6-10", "smoke": false, "brief": { "schemaVersion": 1, "mechanic": "ordinary", "width": 6, "height": 6, "colorCount": 4, "targetGrade": 1, "designIntent": "减少无意义弯折，让玩家容易识别第一步。" } },
+    { "id": "v1-6x6-11", "smoke": false, "brief": { "schemaVersion": 1, "mechanic": "ordinary", "width": 6, "height": 6, "colorCount": 6, "targetGrade": 2, "designIntent": "多色但保持整洁，包含一处局部线路竞争。" } },
+    { "id": "v1-6x6-12", "smoke": false, "brief": { "schemaVersion": 1, "mechanic": "ordinary", "width": 6, "height": 6, "colorCount": 5, "targetGrade": 3, "designIntent": "需要两次先后顺序判断，并给出可恢复的逻辑线索。" } }
+  ]
+}
