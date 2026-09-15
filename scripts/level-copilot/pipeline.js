@@ -5,7 +5,7 @@ const contracts = require('./contracts.js');
 const validator = require('./validator.js');
 const prompt = require('./prompt.js');
 
-const IMPLEMENTATION_VERSION = 8;
+const IMPLEMENTATION_VERSION = 15;
 const PROVIDERS = Object.freeze({
   RESPONSES: 'responses-api',
   CODEX: 'codex-cli'
@@ -16,6 +16,7 @@ const LIMITS = Object.freeze({
   maxProviderCalls: 5,
   maxHttpCalls: 5,
   maxProviderCallDurationMs: 60000,
+  maxPortalProviderCallDurationMs: 120000,
   maxDurationMs: 180000
 });
 const RUN_TRANSITIONS = Object.freeze({
@@ -215,6 +216,8 @@ class Pipeline {
         LIMITS.maxProviderCalls),
       maxProviderCallDurationMs: boundedLimit(
         limits.maxProviderCallDurationMs, LIMITS.maxProviderCallDurationMs),
+      maxPortalProviderCallDurationMs: boundedLimit(
+        limits.maxPortalProviderCallDurationMs, LIMITS.maxPortalProviderCallDurationMs),
       maxDurationMs: boundedLimit(limits.maxDurationMs, LIMITS.maxDurationMs)
     };
   }
@@ -317,13 +320,17 @@ class Pipeline {
           deadlineController.abort();
         }, remainingTimeMs);
         try {
+          const providerCallDurationMs = checked.value.mechanic === 'portal'
+            ? this.limits.maxPortalProviderCallDurationMs
+            : this.limits.maxProviderCallDurationMs;
           const request = {
             instructions: prompt.INSTRUCTIONS,
             inputText: prompt.buildInput(checked.value, previousReports),
-            schema: contracts.candidateSchema(checked.value),
+            schema: contracts.generationSchema(checked.value),
+            mechanic: checked.value.mechanic,
             signal: deadlineController.signal,
             remainingTimeMs,
-            timeoutMs: Math.min(this.limits.maxProviderCallDurationMs, remainingTimeMs)
+            timeoutMs: Math.min(providerCallDurationMs, remainingTimeMs)
           };
           if (providerId === PROVIDERS.RESPONSES) {
             request.apiKey = options.apiKey;
@@ -409,7 +416,11 @@ class Pipeline {
           previousCandidates.get(candidateHash), checked.value.targetGrade);
       } else {
         try {
-          validated = this.validateCandidate(checked.value, generated.candidate, { previousLayoutKeys });
+          validated = this.validateCandidate(checked.value, generated.candidate, {
+            previousLayoutKeys,
+            maxOptimizationDurationMs: Math.max(0,
+              this.limits.maxDurationMs - (this.clock() - started))
+          });
         } catch (error) {
           const validatorFailedAttempt = {
             schemaVersion: 1,

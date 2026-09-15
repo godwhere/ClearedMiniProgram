@@ -281,6 +281,7 @@ v1 兼容继续由不进入小游戏包的测试 fixture 验证，不能为测�
 - `tests/renderer-portal.test.js`：提示位置/呼吸、棋盘不跳位、纯数字标题、选关页不叠加 Portal 徽标、LOCKED 入口居中放大/选中高亮、无 P1、多出口高亮和资源回退；
 - `tests/portal-publishing.test.js`：26 个主线 Portal 题、无逐关说明与残留试玩解、历史 63–67 内容质量门槛、高成本无门解、三门未用门 fixture、v1 兼容 fixture 和逐段回放；
 - `tests/mixed-chapter.test.js`：68–97 的 19 普通/11 Portal 混排、6–9 色、双门、无凑数短线、完整提示、对称去重、无门分类与一/二色廉价旁路排除；93–97 另检查反向/变序回放、逐格完整提示与追加解锁衔接；
+- `tests/level-copilot-*.test.js`：开发期版本 15 的连续 seed Schema、长 seed 安全切分、有界尾段重连与 `P1` 编译、Portal 感知对称查重、共享校验、逐段 Runner 回放、必需／高成本可选分类、廉价旁路与搜索不确定失败关闭、2—5 级评分和独立评测集；该工具不进入小游戏包，也不改变本节运行时协议；
 - `node tests/run.js` 必须全量通过，现有普通关行为不得回归。
 - `Portals` 缺省或空数组时，现有无 Portal 普通关卡必须保持原有规则、输入、计时、撤销与完成判定语义；新增普通 Portal 关卡使用独立的 v2 分段解答。
 

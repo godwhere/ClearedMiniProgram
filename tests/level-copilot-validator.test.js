@@ -2,6 +2,8 @@
 
 const assert = require('assert');
 const validator = require('../scripts/level-copilot/validator.js');
+const catalog = require('../data/catalog-v2.js');
+const portalSolutions = require('../data/portal-solutions.js');
 
 const brief = {
   schemaVersion: 1,
@@ -48,6 +50,73 @@ function rowCover(width, height) {
 
 function dependencies(overrides) {
   return Object.assign({ catalog: { levels: [] } }, overrides);
+}
+
+function portalFixture(id) {
+  const level = catalog.levels.find(entry => entry.game.Id === id).game;
+  const answer = portalSolutions.ByLevelId[id];
+  return {
+    brief: {
+      schemaVersion: 1,
+      mechanic: 'portal',
+      width: level.Width,
+      height: level.Height,
+      colorCount: level.Lines.length,
+      targetGrade: level.Difficulty,
+      designIntent: 'Portal validation fixture.'
+    },
+    candidate: {
+      schemaVersion: 1,
+      portalCells: level.Portals[0].Cells.slice(),
+      paths: answer.map(line => ({
+        segments: line.Segments.map(segment => ({ cells: segment.Cells.slice() }))
+      })),
+      designSummary: null
+    }
+  };
+}
+
+function portalSeed() {
+  return {
+    schemaVersion: 1,
+    paths: Array.from({ length: 8 }, (_, row) => ({
+      cells: Array.from({ length: 8 }, (_, column) => row * 8 + column)
+    })),
+    designSummary: 'Continuous rows for deterministic host splitting.'
+  };
+}
+
+function longGradeFivePortalSeed() {
+  const fixture = portalFixture('portal-8x8-02');
+  const portalSegments = fixture.candidate.paths[0].segments;
+  const bridge = fixture.candidate.paths[3].segments[0].cells;
+  return {
+    brief: fixture.brief,
+    candidate: {
+      schemaVersion: 1,
+      paths: [
+        { cells: portalSegments[0].cells.concat(bridge, portalSegments[1].cells) },
+        { cells: fixture.candidate.paths[1].segments[0].cells.slice() },
+        { cells: fixture.candidate.paths[2].segments[0].cells.slice() },
+        { cells: fixture.candidate.paths[4].segments[0].cells.slice() }
+      ],
+      designSummary: 'Long grade-five seed fixture.'
+    }
+  };
+}
+
+function optimizableGradeFivePortalSeed() {
+  return {
+    schemaVersion: 1,
+    paths: [
+      { cells: [19, 18, 17, 9, 10, 11, 3, 2, 1, 0, 8, 16, 24, 25, 26, 27,
+        35, 34, 33, 32, 40, 41, 42, 43] },
+      { cells: [4, 5, 6, 7, 15, 14, 13, 12, 20, 21, 22, 23, 31, 30] },
+      { cells: [28, 29, 37, 36, 44, 45, 46, 38, 39, 47, 55, 54, 53] },
+      { cells: [63, 62, 61, 60, 52, 51, 50, 49, 48, 56, 57, 58, 59] }
+    ],
+    designSummary: 'Valid seed that needs bounded tail exchange to reach grade five.'
+  };
 }
 
 function run() {
@@ -175,6 +244,116 @@ function run() {
   const staticFailure = validator.validateCandidate(brief, bad, { dependencies: dependencies() });
   assert.strictEqual(staticFailure.report.errorCodes[0], 'CANDIDATE_COVERAGE_MISSING');
   assert.strictEqual(staticFailure.report.checks.runtime, 'pending');
+
+  for (const [id, classification, grade] of [
+    ['recovery-8x8-40', 'required', 2],
+    ['portal-8x8-01', 'required', 4],
+    ['portal-8x8-02', 'optional_complex', 5]
+  ]) {
+    const fixture = portalFixture(id);
+    const portalResult = validator.validateCandidate(fixture.brief, fixture.candidate, {
+      dependencies: dependencies()
+    });
+    assert.strictEqual(portalResult.status, 'reviewable', id);
+    assert.strictEqual(portalResult.report.checks.runtime, 'passed');
+    assert.strictEqual(portalResult.report.checks.solver, 'solved');
+    assert.strictEqual(portalResult.report.solver.classification, classification);
+    assert.strictEqual(portalResult.report.difficulty.grade, grade);
+    assert(portalResult.layoutKey.includes('@'));
+  }
+
+  const portal = portalFixture('recovery-8x8-40');
+  const acceptedPortal = validator.validateCandidate(portal.brief, portal.candidate, {
+    dependencies: dependencies()
+  });
+  const portalDuplicate = validator.validateCandidate(portal.brief, portal.candidate, {
+    dependencies: dependencies({ catalog: { levels: [{
+      setIndex: 4,
+      levelIndex: 0,
+      game: Object.assign({ Id: 'existing-portal', Name: 'Existing Portal' },
+        acceptedPortal.level)
+    }] } })
+  });
+  assert.strictEqual(portalDuplicate.report.errorCodes[0], 'LAYOUT_DUPLICATE');
+
+  const portalValidationFailure = validator.validateCandidate(portal.brief, portal.candidate, {
+    dependencies: dependencies({
+      portalValidation: { validatePortalLevel: () => ({ ok: false, errors: ['fixture-error'] }) }
+    })
+  });
+  assert.strictEqual(portalValidationFailure.report.errorCodes[0], 'PORTAL_VALIDATION_FAILED');
+  assert.deepStrictEqual(portalValidationFailure.report.details.errors, ['fixture-error']);
+
+  const solved = { status: 'solved', paths: [[0, 1]], states: 1 };
+  const cheapBypass = validator.validateCandidate(portal.brief, portal.candidate, {
+    dependencies: dependencies({ solveWithoutPortals: () => solved })
+  });
+  assert.strictEqual(cheapBypass.status, 'rejected');
+  assert.strictEqual(cheapBypass.report.errorCodes[0], 'PORTAL_BYPASS_TOO_CHEAP');
+  assert.strictEqual(cheapBypass.report.retryable, true);
+
+  const inconclusivePortal = validator.validateCandidate(portal.brief, portal.candidate, {
+    dependencies: dependencies({
+      solveWithoutPortals: () => ({ status: 'limit', paths: null, states: 250001 })
+    })
+  });
+  assert.strictEqual(inconclusivePortal.status, 'rejected');
+  assert.strictEqual(inconclusivePortal.report.errorCodes[0], 'PORTAL_BYPASS_INCONCLUSIVE');
+
+  const invalidPortalSolver = validator.validateCandidate(portal.brief, portal.candidate, {
+    dependencies: dependencies({
+      solveWithoutPortals: () => ({ status: 'invalid', paths: null, states: 0 })
+    })
+  });
+  assert.strictEqual(invalidPortalSolver.status, 'failed');
+  assert.strictEqual(invalidPortalSolver.report.errorCodes[0], 'SOLVER_INVALID');
+
+  const seedBrief = {
+    schemaVersion: 1,
+    mechanic: 'portal',
+    width: 8,
+    height: 8,
+    colorCount: 9,
+    targetGrade: 2,
+    designIntent: 'Portal seed expansion fixture.'
+  };
+  const expandedSeed = validator.validateCandidate(seedBrief, portalSeed(), {
+    dependencies: dependencies({
+      solveWithoutPortals: () => ({ status: 'unsatisfiable', paths: null, states: 10 }),
+      evaluateDifficulty: () => ({ grade: 2, score: 30 })
+    })
+  });
+  assert.strictEqual(expandedSeed.status, 'reviewable');
+  assert.strictEqual(expandedSeed.level.Mechanic, 'portal');
+  assert.strictEqual(expandedSeed.level.Lines.length, 9);
+  assert.strictEqual(expandedSeed.solution.filter(line => line.Segments.length === 2).length, 1);
+  assert.strictEqual(expandedSeed.report.solver.classification, 'required');
+
+  const longSeed = longGradeFivePortalSeed();
+  assert(longSeed.candidate.paths[0].cells.length > Math.floor(64 * 0.35));
+  const expandedLongSeed = validator.validateCandidate(longSeed.brief, longSeed.candidate, {
+    dependencies: dependencies()
+  });
+  assert.strictEqual(expandedLongSeed.status, 'reviewable');
+  assert.strictEqual(expandedLongSeed.report.difficulty.grade, 5);
+  assert.strictEqual(expandedLongSeed.report.solver.classification, 'optional_complex');
+
+  const optimizedSeed = validator.validateCandidate({
+    schemaVersion: 1,
+    mechanic: 'portal',
+    width: 8,
+    height: 8,
+    colorCount: 5,
+    targetGrade: 5,
+    designIntent: 'Optimizer fixture.'
+  }, optimizableGradeFivePortalSeed());
+  assert.strictEqual(optimizedSeed.status, 'reviewable');
+  assert.strictEqual(optimizedSeed.report.difficulty.grade, 5);
+  assert.strictEqual(optimizedSeed.report.solver.classification, 'required');
+  assert.strictEqual(optimizedSeed.report.portalSeedOptimization.method, 'bounded_tail_exchange');
+  assert.strictEqual(optimizedSeed.report.portalSeedOptimization.depth, 5);
+  assert(optimizedSeed.report.portalSeedOptimization.evaluatedSeedCount <=
+    validator.PORTAL_SEED_SEARCH_LIMITS.maxSeeds);
 }
 
 module.exports = run;

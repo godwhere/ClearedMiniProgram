@@ -263,6 +263,26 @@ async function run() {
   assert.strictEqual(fs.existsSync(generationDirectories[1]), false);
   fs.rmSync(isolationRoot, { recursive: true, force: true });
 
+  let extendedTimeout = null;
+  await new CodexClient({
+    timeoutMs: 120000,
+    executor: async request => {
+      if (request.args[0] === 'login') {
+        return processResult({ stdout: 'Logged in using ChatGPT\n' });
+      }
+      extendedTimeout = request.timeoutMs;
+      fs.writeFileSync(outputPath(request), JSON.stringify(candidate), { mode: 0o600 });
+      return processResult({ stdout: events(null, 'agent_message') });
+    }
+  }).generate({
+    instructions: prompt.INSTRUCTIONS,
+    inputText: prompt.buildInput(brief, []),
+    schema: contracts.candidateSchema(brief),
+    timeoutMs: 120000,
+    remainingTimeMs: 180000
+  });
+  assert.strictEqual(extendedTimeout, 120000);
+
   const failedTurn = await failure(new CodexClient({
     executor: async request => request.args[0] === 'login'
       ? processResult({ stdout: 'Logged in using ChatGPT\n' })

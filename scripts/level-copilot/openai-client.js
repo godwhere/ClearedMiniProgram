@@ -5,6 +5,7 @@ const https = require('https');
 const API_HOST = 'api.openai.com';
 const API_PATH = '/v1/responses';
 const DEFAULT_TIMEOUT_MS = 60000;
+const MAX_TIMEOUT_MS = 120000;
 const DEFAULT_MAX_RESPONSE_BYTES = 256 * 1024;
 const DEFAULT_MAX_OUTPUT_TOKENS = 2048;
 const LARGE_BOARD_MAX_OUTPUT_TOKENS = 4096;
@@ -38,11 +39,16 @@ function buildRequestBody(options) {
       !options.schema || typeof options.schema !== 'object') {
     throw new OpenAIClientError('OPENAI_REQUEST_INVALID', { kind: 'configuration' });
   }
-  const pathCells = options.schema && options.schema.properties &&
+  const pathProperties = options.schema && options.schema.properties &&
     options.schema.properties.paths && options.schema.properties.paths.items &&
-    options.schema.properties.paths.items.properties &&
-    options.schema.properties.paths.items.properties.cells;
+    options.schema.properties.paths.items.properties;
+  const pathCells = pathProperties && (pathProperties.cells ||
+    pathProperties.segments && pathProperties.segments.items &&
+    pathProperties.segments.items.properties &&
+    pathProperties.segments.items.properties.cells);
   const largeBoard = pathCells && Number.isInteger(pathCells.maxItems) && pathCells.maxItems > 36;
+  const portal = options.mechanic === 'portal' ||
+    !!(options.schema.properties && options.schema.properties.portalCells);
   return {
     model: options.model,
     store: false,
@@ -55,7 +61,7 @@ function buildRequestBody(options) {
     text: {
       format: {
         type: 'json_schema',
-        name: 'cleared_ordinary_path_cover_v1',
+        name: portal ? 'cleared_portal_path_cover_v1' : 'cleared_ordinary_path_cover_v1',
         strict: true,
         schema: options.schema
       }
@@ -260,7 +266,7 @@ class OpenAIClient {
   constructor(options) {
     const input = options || {};
     this.transport = input.transport || defaultTransport;
-    this.timeoutMs = Math.min(DEFAULT_TIMEOUT_MS,
+    this.timeoutMs = Math.min(MAX_TIMEOUT_MS,
       Number.isInteger(input.timeoutMs) && input.timeoutMs > 0 ? input.timeoutMs : DEFAULT_TIMEOUT_MS);
     this.maxResponseBytes = Math.min(DEFAULT_MAX_RESPONSE_BYTES,
       Number.isInteger(input.maxResponseBytes) && input.maxResponseBytes > 0
@@ -282,10 +288,12 @@ class OpenAIClient {
         method: 'POST',
         apiKey: options.apiKey,
         body,
-        timeoutMs: Number.isInteger(options.remainingTimeMs) && options.remainingTimeMs > 0
-          ? Math.min(this.timeoutMs, options.remainingTimeMs)
-          : Number.isInteger(options.timeoutMs) && options.timeoutMs > 0
-            ? Math.min(this.timeoutMs, options.timeoutMs) : this.timeoutMs,
+        timeoutMs: Math.min(
+          this.timeoutMs,
+          Number.isInteger(options.timeoutMs) && options.timeoutMs > 0
+            ? options.timeoutMs : this.timeoutMs,
+          Number.isInteger(options.remainingTimeMs) && options.remainingTimeMs > 0
+            ? options.remainingTimeMs : this.timeoutMs),
         maxResponseBytes: this.maxResponseBytes,
         signal: options.signal
       });

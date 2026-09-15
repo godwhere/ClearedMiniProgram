@@ -125,7 +125,56 @@ async function run() {
   });
   assert.strictEqual(tenLineFeedback.difficultySignals.pathLengths.length, 10);
   assert.strictEqual(tenLineFeedback.difficultySignals.lineSignals.length, 10);
-  assert.strictEqual(prompt.PROMPT_VERSION, 'copilot-prompt-v5');
+  assert.strictEqual(prompt.PROMPT_VERSION, 'copilot-prompt-v10');
+  const portalBrief = {
+    schemaVersion: 1,
+    mechanic: 'portal',
+    width: 8,
+    height: 8,
+    colorCount: 5,
+    targetGrade: 5,
+    designIntent: 'High-order Portal fixture.'
+  };
+  const portalInput = JSON.parse(prompt.buildInput(portalBrief, []));
+  assert.strictEqual(portalInput.task, 'generate_complete_portal_path_cover');
+  assert.strictEqual(portalInput.portalPolicy.portalCellCount, 2);
+  assert.strictEqual(portalInput.portalPolicy.seedPathCount, 4);
+  assert.strictEqual(portalInput.portalPolicy.maximumCheapBypassReroutedColors, 2);
+  assert.strictEqual(portalInput.portalPolicy.seedDifficultySignals, undefined);
+  assert.deepStrictEqual(portalInput.portalPolicy.seedConstructionHints, {
+    preferredSeedPathLengths: [24, 14, 13, 13],
+    splittablePathIndex: 0,
+    shape: 'winding_interlocking_regions',
+    avoid: 'parallel_equal_stripes'
+  });
+  const fourColorGradeFive = JSON.parse(prompt.buildInput(
+    Object.assign({}, portalBrief, { colorCount: 4 }), []));
+  assert.deepStrictEqual(
+    fourColorGradeFive.portalPolicy.seedConstructionHints.preferredSeedPathLengths,
+    [24, 20, 20]);
+  const sixColorGradeFive = JSON.parse(prompt.buildInput(
+    Object.assign({}, portalBrief, { colorCount: 6 }), []));
+  assert.deepStrictEqual(
+    sixColorGradeFive.portalPolicy.seedConstructionHints.preferredSeedPathLengths,
+    [24, 10, 10, 10, 10]);
+  assert.deepStrictEqual(portalInput.difficultyTarget, {
+    scoreMinInclusive: 75,
+    scoreMaxExclusive: 101,
+    preferredScoreMinInclusive: 76,
+    preferredScoreMaxInclusive: 86,
+    grade: 5
+  });
+  const gradeFourPortalInput = JSON.parse(prompt.buildInput(
+    Object.assign({}, portalBrief, { targetGrade: 4 }), []));
+  assert.deepStrictEqual(gradeFourPortalInput.portalPolicy.seedDifficultySignals, {
+    minimumFinalScore: 63,
+    easyLinesMax: 0,
+    pathFactorMin: 22,
+    competingColorsMin: 1.2
+  });
+  const gradeThreePortalInput = JSON.parse(prompt.buildInput(
+    Object.assign({}, portalBrief, { targetGrade: 3 }), []));
+  assert.strictEqual(gradeThreePortalInput.portalPolicy.seedDifficultySignals, undefined);
 
   const schema = contracts.candidateSchema(brief);
   const body = buildRequestBody({
@@ -141,6 +190,7 @@ async function run() {
   assert.strictEqual(body.previous_response_id, undefined);
   assert.strictEqual(body.text.format.type, 'json_schema');
   assert.strictEqual(body.text.format.strict, true);
+  assert.strictEqual(body.text.format.name, 'cleared_ordinary_path_cover_v1');
   assert.deepStrictEqual(body.text.format.schema, schema);
   const largeBody = buildRequestBody({
     model: 'explicit-model',
@@ -149,6 +199,17 @@ async function run() {
     schema: contracts.candidateSchema({ width: 8, height: 10, colorCount: 10 })
   });
   assert.strictEqual(largeBody.max_output_tokens, 4096);
+  const portalBody = buildRequestBody({
+    model: 'explicit-model',
+    instructions: prompt.INSTRUCTIONS,
+    inputText: prompt.buildInput(portalBrief, []),
+    schema: contracts.generationSchema(portalBrief),
+    mechanic: 'portal'
+  });
+  assert.strictEqual(portalBody.max_output_tokens, 4096);
+  assert.strictEqual(portalBody.text.format.name, 'cleared_portal_path_cover_v1');
+  assert.strictEqual(portalBody.text.format.schema.properties.paths.minItems, 4);
+  assert.strictEqual(portalBody.text.format.schema.properties.portalCells, undefined);
 
   let captured;
   const client = new OpenAIClient({
@@ -170,6 +231,19 @@ async function run() {
   assert.strictEqual(captured.method, 'POST');
   assert.strictEqual(JSON.parse(captured.body).store, false);
   assert(!captured.body.includes('sk-test-never-log'));
+
+  let extendedTimeout = null;
+  await new OpenAIClient({
+    timeoutMs: 120000,
+    transport: async request => {
+      extendedTimeout = request.timeoutMs;
+      return { statusCode: 200, headers: {}, body: JSON.stringify(response()) };
+    }
+  }).generate({
+    apiKey: 'secret', model: 'm', instructions: 'i', inputText: '{}', schema,
+    timeoutMs: 120000, remainingTimeMs: 180000
+  });
+  assert.strictEqual(extendedTimeout, 120000);
 
   let calls = 0;
   const missingKey = await errorCode(new OpenAIClient({ transport: async () => { calls++; } }).generate({

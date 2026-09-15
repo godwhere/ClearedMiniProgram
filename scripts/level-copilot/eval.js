@@ -12,7 +12,10 @@ const { normalizeProvider } = require('./cli.js');
 
 const DEFAULT_CASES = path.join(__dirname, 'eval-cases-v1.json');
 const LARGE_BOARD_CASES = path.join(__dirname, 'eval-cases-large-v1.json');
-const ALLOWED_CASE_VERSIONS = new Set(['eval-cases-v1', 'eval-cases-large-v1']);
+const PORTAL_CASES = path.join(__dirname, 'eval-cases-portal-v1.json');
+const ALLOWED_CASE_VERSIONS = new Set([
+  'eval-cases-v1', 'eval-cases-large-v1', 'eval-cases-portal-v1'
+]);
 const MAX_CALLS_PER_CASE = LIMITS.maxProviderCalls;
 const FULL_CASE_COUNT = 24;
 const SMOKE_CASE_COUNT = 6;
@@ -375,9 +378,11 @@ async function main(argv, dependencies) {
     const pricing = options.pricing
       ? JSON.parse(fs.readFileSync(path.resolve(options.pricing), 'utf8')) : null;
     if (providerId === PROVIDERS.RESPONSES) validatePricing(pricing, model);
+    const timeoutMs = fixture.cases.some(item => item.brief.mechanic === 'portal')
+      ? LIMITS.maxPortalProviderCallDurationMs : LIMITS.maxProviderCallDurationMs;
     const baseClient = deps.client || (providerId === PROVIDERS.CODEX
-      ? new CodexClient(Object.assign({}, deps.codexClientOptions, { env }))
-      : new OpenAIClient());
+      ? new CodexClient(Object.assign({ timeoutMs }, deps.codexClientOptions, { env }))
+      : new OpenAIClient(Object.assign({ timeoutMs }, deps.openAIClientOptions)));
     let calls = 0;
     const client = { async generate(input) {
       if (calls >= options.maxCalls) {
@@ -506,6 +511,7 @@ async function main(argv, dependencies) {
 module.exports = {
   DEFAULT_CASES,
   LARGE_BOARD_CASES,
+  PORTAL_CASES,
   MAX_CALLS_PER_CASE,
   MAX_LIVE_CALLS,
   percentile,

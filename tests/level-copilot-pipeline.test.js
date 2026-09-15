@@ -9,6 +9,7 @@ const { RunStore, assertNoSecrets } = require('../scripts/level-copilot/run-stor
 const {
   Pipeline,
   PROVIDERS,
+  LIMITS,
   RUN_TRANSITIONS,
   ATTEMPT_TRANSITIONS,
   transition,
@@ -128,7 +129,7 @@ async function run() {
     const result = await pipeline.generate({ brief, apiKey: 'unit-test-key', model: 'explicit-model' });
     assert.strictEqual(result.status, 'AWAITING_REVIEW');
     assert.strictEqual(result.exitCode, 0);
-    assert.strictEqual(result.record.implementationVersion, 8);
+    assert.strictEqual(result.record.implementationVersion, 15);
     assert.strictEqual(calls, 2);
     assert.deepStrictEqual(waits, [250]);
     assert.strictEqual(result.record.httpCalls, 2);
@@ -200,9 +201,56 @@ async function run() {
     assert.strictEqual(request.schema.properties.paths.minItems, 10);
     assert.strictEqual(request.schema.properties.paths.items.properties.cells.maxItems, 80);
     assert.deepStrictEqual(JSON.parse(request.inputText).brief, largeBrief);
+    assert.strictEqual(request.timeoutMs, 60000);
     assert.strictEqual((await store.readCandidate(result.runId)).level.Height, 10);
   } finally {
     fs.rmSync(largeRoot, { recursive: true, force: true });
+  }
+
+  const portalTimeoutRoot = temporaryRoot('portal-timeout');
+  try {
+    const store = new RunStore({ root: path.join(portalTimeoutRoot, 'runs') });
+    let request = null;
+    const portalBrief = {
+      schemaVersion: 1,
+      mechanic: 'portal',
+      width: 8,
+      height: 8,
+      colorCount: 6,
+      targetGrade: 3,
+      designIntent: 'Portal timeout fixture.'
+    };
+    const validationReport = {
+      schemaVersion: 1,
+      status: 'reviewable',
+      retryable: false,
+      errorCodes: [],
+      warnings: [],
+      checks: { schema: 'passed', staticRules: 'passed', duplicate: 'passed',
+        runtime: 'passed', solver: 'solved', difficulty: 'passed' },
+      difficulty: { targetGrade: 3, actualGrade: 3, grade: 3, score: 50 }
+    };
+    const result = await new Pipeline({
+      client: { async generate(value) { request = value; return api({}, 'portal_timeout'); } },
+      store,
+      validateCandidate: () => ({
+        status: 'reviewable',
+        report: validationReport,
+        level: { Mechanic: 'portal', Width: 8, Height: 8, Lines: [] },
+        solution: [],
+        layoutKey: '8x8:portal-timeout@1,2'
+      }),
+      clock: () => Date.UTC(2026, 8, 15),
+      wait: async () => {}
+    }).generate({ brief: portalBrief, apiKey: 'key', model: 'm' });
+    assert.strictEqual(result.status, 'AWAITING_REVIEW');
+    assert.strictEqual(request.timeoutMs, LIMITS.maxPortalProviderCallDurationMs);
+    assert.strictEqual(request.remainingTimeMs, LIMITS.maxDurationMs);
+    assert.strictEqual(request.mechanic, 'portal');
+    assert.strictEqual(request.schema.properties.paths.minItems, 5);
+    assert.strictEqual(request.schema.properties.portalCells, undefined);
+  } finally {
+    fs.rmSync(portalTimeoutRoot, { recursive: true, force: true });
   }
 
   const billedFailureRoot = temporaryRoot('billed-failure');
@@ -557,10 +605,14 @@ async function run() {
     fs.writeFileSync(filename, JSON.stringify(brief));
     assert.strictEqual(await cliMain(['generate', '--brief', filename, '--live'], { console: io, env: {} }), 3);
     assert.deepStrictEqual(JSON.parse(output.pop()).errorCodes, ['OPENAI_API_KEY_MISSING']);
-    fs.writeFileSync(filename, JSON.stringify(Object.assign({}, brief, { mechanic: 'portal' })));
-    assert.strictEqual(await cliMain(['generate', '--brief', filename, '--live'], { console: io, env: {} }), 2,
-      'brief validation must precede API configuration and networking');
-    assert.deepStrictEqual(JSON.parse(output.pop()).errorCodes, ['BRIEF_MECHANIC_UNSUPPORTED']);
+    fs.writeFileSync(filename, JSON.stringify(Object.assign({}, brief, {
+      mechanic: 'portal', width: 8, height: 8, colorCount: 6, targetGrade: 3
+    })));
+    assert.strictEqual(await cliMain(['validate', '--brief', filename], { console: io, env: {} }), 0);
+    assert.strictEqual(JSON.parse(output.pop()).status, 'VALID');
+    assert.strictEqual(await cliMain(['generate', '--brief', filename, '--live'], { console: io, env: {} }), 3,
+      'a valid Portal brief must reach provider configuration without networking');
+    assert.deepStrictEqual(JSON.parse(output.pop()).errorCodes, ['OPENAI_API_KEY_MISSING']);
   } finally {
     fs.rmSync(cliRoot, { recursive: true, force: true });
   }

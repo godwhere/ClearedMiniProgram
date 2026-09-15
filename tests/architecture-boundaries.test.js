@@ -126,6 +126,7 @@ function run() {
     './candidate.js',
     '../../data/catalog-v2.js',
     '../../core/game-runner.js',
+    '../../core/portal-validation.js',
     '../solve-no-portal.js',
     '../evaluate-level-difficulty.js'
   ], 'validator may only read the candidate helpers and existing deterministic authorities');

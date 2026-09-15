@@ -7,7 +7,7 @@ const validator = require('./validator.js');
 const { OpenAIClient } = require('./openai-client.js');
 const { CodexClient } = require('./codex-client.js');
 const { RunStore } = require('./run-store.js');
-const { PROVIDERS, Pipeline, replayRun, reviewRun } = require('./pipeline.js');
+const { PROVIDERS, LIMITS, Pipeline, replayRun, reviewRun } = require('./pipeline.js');
 
 function normalizeProvider(value) {
   if (value === undefined || value === 'responses') return PROVIDERS.RESPONSES;
@@ -109,9 +109,11 @@ async function main(argv, dependencies) {
         ] });
         return 3;
       }
+      const timeoutMs = checked.value.mechanic === 'portal'
+        ? LIMITS.maxPortalProviderCallDurationMs : LIMITS.maxProviderCallDurationMs;
       const defaultClient = providerId === PROVIDERS.CODEX
-        ? new CodexClient(Object.assign({}, deps.codexClientOptions, { env }))
-        : new OpenAIClient();
+        ? new CodexClient(Object.assign({ timeoutMs }, deps.codexClientOptions, { env }))
+        : new OpenAIClient(Object.assign({ timeoutMs }, deps.openAIClientOptions));
       const pipeline = deps.pipeline || new Pipeline({
         client: deps.client || defaultClient,
         store

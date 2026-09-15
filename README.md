@@ -98,11 +98,11 @@ tests/                               规则、服务、渲染、同步和启动�
 
 ## 开发期关卡 Copilot
 
-仓库包含一个只在开发电脑运行的普通关卡 Copilot。当前输入合同和本地门禁支持 5×5、6×6、7×7、8×8，以及无镂空的普通 8×10 棋盘，允许 4—10 色和目标难度 1—3 级；模型只生成完整路径候选，本地工具仍会执行覆盖校验、正式目录等价查重、`GameRunner` 回放、精确求解审计和现有难度评估。候选只写入被 Git 和微信包忽略的 `scripts/level-copilot/runs/`，其根目录与每个 run／evaluation 目录为 `0700`、JSON artifact 为 `0600`；人工接受也不会修改正式关卡、解答、云端或玩家数据。版本 7 的 V1 真实评测结论覆盖 5×5／6×6；版本 8 的独立大棋盘评测也已完成：24 例真实 Codex full eval 中 23 例进入审核，接受 13 例，最终人工采纳率为 56.52%，通过总体建议门槛。难度 3 和 8×10 的软设计质量仍是后续重点，接受候选也尚未写入正式关卡。
+仓库包含一个只在开发电脑运行的关卡 Copilot。普通题支持 5×5、6×6、7×7、8×8 和无镂空 8×10、4—10 色、目标难度 1—3；版本 15 另支持 5×5 至 8×8 正方形的双门 Portal v2 候选、目标难度 2—5，颜色数仍为 4—10 且每条最终线路至少 4 格。Portal 8×10、冰封、障碍和多门网络仍不支持。普通题由模型生成完整路径；Portal 先让模型生成少一色的连续完整覆盖，再由本地代码枚举一条路径上的两个切点，固定编译为一条双段 P1 路径和一条中间普通路径。未切分路径和切分后的两条最终线路都不得超过棋盘 35%；唯一待切分 seed 可以更长，但只有拆分结果全部合规才会继续。5 级若首个合法 seed 分数不足，本地还会在深度 5、beam 100、最多 1600 个 seed、最多 20 秒内做有界尾段重连，且在报告中记录是否启用、深度和评估数量。所有最终候选仍须执行覆盖与机制合同校验、正式目录等价查重、`GameRunner` 逐段回放、精确求解／Portal 旁路审计和现有难度评估；禁用 Portal 后若只重排传送线或传送线加任意一色就能完成，会作为廉价旁路拒绝。候选只写入被 Git 和微信包忽略的 `scripts/level-copilot/runs/`，其根目录与每个 run／evaluation 目录为 `0700`、JSON artifact 为 `0600`；人工接受也不会修改正式关卡、解答、云端或玩家数据。版本 7 的 V1 真实评测结论覆盖 5×5／6×6；版本 8 的独立大棋盘评测也已完成：24 例真实 Codex full eval 中 23 例进入审核，接受 13 例，最终人工采纳率为 56.52%，通过总体建议门槛。Portal 版本 15 使用独立评测集，不能与旧指标混算：固定 smoke 为 6/6 reviewable，24 例 full 为 23/24 reviewable、22/23 布局唯一；唯一超时案例随后一次定向复验成功。Portal 候选尚未完成人工审核，也没有写入正式关卡。
 
 缺省生成命令继续使用 Responses API；Codex CLI 必须显式传入 `--provider codex`，且只接受已确认的 ChatGPT 登录。两条路径失败时不会互相回退；Codex 订阅路径不传模型或 API key，美元成本字段保持不适用。
 
-Codex 生成会在仓库外新建一次性的 `0700` 工作目录，并通过 `--strict-config`、忽略用户／项目配置与规则、禁用项目文档来固定配置边界。真实 `HOME` 不会传入；子进程只收到 `PATH`、用于既有 ChatGPT 登录定位的 `CODEX_HOME`、固定 locale，以及都指向本次隔离目录的 `HOME`／`TMPDIR`。调用层会显式关闭 Apps、技能发现与技能指令、MCP、插件、hook、shell、浏览器／电脑操作、图像、memory、Web、subagent 和请求类工具。正常结束时 JSONL 必须完整解析；超时、取消或输出超限时只审计终止前的完整事件前缀，再返回真实终止原因。任何已完成事件中的非纯推理／最终消息活动都会失败关闭，事件正文不会写入 artifact。该边界防止普通用户和项目配置改变生成路径，但不宣称能绕过操作系统或组织管理员强制的 Codex 配置；若受管策略拒绝固定限制或仍注入禁止活动，运行应失败而不是放宽限制。单次 provider 仍限 60 秒，流水线还会把 180 秒总预算的剩余时间作为取消信号传入 Responses 请求或 Codex 子进程，先到者生效并在清理完成后返回。
+Codex 生成会在仓库外新建一次性的 `0700` 工作目录，并通过 `--strict-config`、忽略用户／项目配置与规则、禁用项目文档来固定配置边界。真实 `HOME` 不会传入；子进程只收到 `PATH`、用于既有 ChatGPT 登录定位的 `CODEX_HOME`、固定 locale，以及都指向本次隔离目录的 `HOME`／`TMPDIR`。调用层会显式关闭 Apps、技能发现与技能指令、MCP、插件、hook、shell、浏览器／电脑操作、图像、memory、Web、subagent 和请求类工具。正常结束时 JSONL 必须完整解析；超时、取消或输出超限时只审计终止前的完整事件前缀，再返回真实终止原因。任何已完成事件中的非纯推理／最终消息活动都会失败关闭，事件正文不会写入 artifact。该边界防止普通用户和项目配置改变生成路径，但不宣称能绕过操作系统或组织管理员强制的 Codex 配置；若受管策略拒绝固定限制或仍注入禁止活动，运行应失败而不是放宽限制。ordinary 单次 provider 保持 60 秒；Portal 因 8×8 分段完整覆盖输出增加到 120 秒，但每个 run 的总预算仍为 180 秒。流水线会把两者中更短的剩余时间作为取消信号传入 Responses 请求或 Codex 子进程，并在清理完成后返回。
 
 ```sh
 # 离线验证 brief
@@ -128,6 +128,10 @@ node scripts/level-copilot/eval.js --provider codex --live --max-calls 30 --smok
 
 # 大棋盘固定评测集；仍需显式联网，smoke 也是 6 例／最多 30 次 provider 调用
 node scripts/level-copilot/eval.js --cases scripts/level-copilot/eval-cases-large-v1.json \
+  --provider codex --live --max-calls 30 --smoke
+
+# 双门 Portal 固定评测集；full 为 24 例／最多 120 次 provider 调用
+node scripts/level-copilot/eval.js --cases scripts/level-copilot/eval-cases-portal-v1.json \
   --provider codex --live --max-calls 30 --smoke
 
 # 完成人工 review 后，按持久化的 caseId → runId 清单离线重算指标

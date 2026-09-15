@@ -233,6 +233,15 @@ async function run() {
     return large.cases.filter(item => item.brief.width === width && item.brief.height === height).length;
   }), [8, 8, 8]);
   assert(large.cases.every(item => item.brief.colorCount >= 4 && item.brief.colorCount <= 10));
+  const portal = evalTools.loadCases(evalTools.PORTAL_CASES, false);
+  const portalSmoke = evalTools.loadCases(evalTools.PORTAL_CASES, true);
+  assert.strictEqual(portal.caseVersion, 'eval-cases-portal-v1');
+  assert.strictEqual(portal.cases.length, 24);
+  assert.strictEqual(portalSmoke.cases.length, 6);
+  assert(portal.cases.every(item => item.brief.mechanic === 'portal' &&
+    item.brief.width === 8 && item.brief.height === 8));
+  assert.deepStrictEqual([2, 3, 4, 5].map(grade =>
+    portal.cases.filter(item => item.brief.targetGrade === grade).length), [6, 6, 6, 6]);
   assert.throws(() => evalTools.parseArguments(['--cases', evalTools.DEFAULT_CASES, '--max-calls', '120']),
     /EVAL_ARGUMENT_INVALID/);
   assert.throws(() => evalTools.parseArguments(['--live', '--max-calls', '119']),

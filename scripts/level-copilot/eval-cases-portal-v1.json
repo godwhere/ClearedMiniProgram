@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "caseVersion": "eval-cases-portal-v1",
+  "cases": [
+    { "id": "portal-v1-g2-01", "smoke": true, "brief": { "schemaVersion": 1, "mechanic": "portal", "width": 8, "height": 8, "colorCount": 8, "targetGrade": 2, "designIntent": "双门恢复题，入口明显，传送后线路仍然短而清楚。" } },
+    { "id": "portal-v1-g2-02", "smoke": true, "brief": { "schemaVersion": 1, "mechanic": "portal", "width": 8, "height": 8, "colorCount": 9, "targetGrade": 2, "designIntent": "多色但不拥挤，Portal 只制造一次容易理解的区域衔接。" } },
+    { "id": "portal-v1-g2-03", "smoke": false, "brief": { "schemaVersion": 1, "mechanic": "portal", "width": 8, "height": 8, "colorCount": 8, "targetGrade": 2, "designIntent": "保留两条明显起手，门两侧分区清晰，适合作为机制复习题。" } },
+    { "id": "portal-v1-g2-04", "smoke": false, "brief": { "schemaVersion": 1, "mechanic": "portal", "width": 8, "height": 8, "colorCount": 9, "targetGrade": 2, "designIntent": "端点较多但配对直观，传送线路不要承担大面积填充。" } },
+    { "id": "portal-v1-g2-05", "smoke": false, "brief": { "schemaVersion": 1, "mechanic": "portal", "width": 8, "height": 8, "colorCount": 8, "targetGrade": 2, "designIntent": "边缘先打开空间，再通过双门完成一次可恢复的换区。" } },
+    { "id": "portal-v1-g2-06", "smoke": false, "brief": { "schemaVersion": 1, "mechanic": "portal", "width": 8, "height": 8, "colorCount": 9, "targetGrade": 2, "designIntent": "作为高压关后的缓冲，Portal 关系一眼可读且没有廉价旁路。" } },
+
+    { "id": "portal-v1-g3-01", "smoke": true, "brief": { "schemaVersion": 1, "mechanic": "portal", "width": 8, "height": 8, "colorCount": 7, "targetGrade": 3, "designIntent": "门两侧各有一次局部空间判断，至少保留一条明确起手。" } },
+    { "id": "portal-v1-g3-02", "smoke": true, "brief": { "schemaVersion": 1, "mechanic": "portal", "width": 8, "height": 8, "colorCount": 8, "targetGrade": 3, "designIntent": "传送线路与两条普通线路共享中部通道，但错误路线容易回退。" } },
+    { "id": "portal-v1-g3-03", "smoke": false, "brief": { "schemaVersion": 1, "mechanic": "portal", "width": 8, "height": 8, "colorCount": 6, "targetGrade": 3, "designIntent": "少色长线形成温和竞争，双门连接两个轮廓清楚的区域。" } },
+    { "id": "portal-v1-g3-04", "smoke": false, "brief": { "schemaVersion": 1, "mechanic": "portal", "width": 8, "height": 8, "colorCount": 7, "targetGrade": 3, "designIntent": "边缘与中心各承担一部分规划，Portal 线路不固定为第一色。" } },
+    { "id": "portal-v1-g3-05", "smoke": false, "brief": { "schemaVersion": 1, "mechanic": "portal", "width": 8, "height": 8, "colorCount": 8, "targetGrade": 3, "designIntent": "多色布局保持整洁，通过一次换区形成两步顺序判断。" } },
+    { "id": "portal-v1-g3-06", "smoke": false, "brief": { "schemaVersion": 1, "mechanic": "portal", "width": 8, "height": 8, "colorCount": 7, "targetGrade": 3, "designIntent": "中段存在可理解的线路竞争，传送前后都有局部线索。" } },
+
+    { "id": "portal-v1-g4-01", "smoke": true, "brief": { "schemaVersion": 1, "mechanic": "portal", "width": 8, "height": 8, "colorCount": 6, "targetGrade": 4, "designIntent": "双门重组内外区域，三条以上线路共同影响中轴空间。" } },
+    { "id": "portal-v1-g4-02", "smoke": false, "brief": { "schemaVersion": 1, "mechanic": "portal", "width": 8, "height": 8, "colorCount": 5, "targetGrade": 4, "designIntent": "少色但线路均衡，Portal 线穿越两个竞争区域而非单纯缩短。" } },
+    { "id": "portal-v1-g4-03", "smoke": false, "brief": { "schemaVersion": 1, "mechanic": "portal", "width": 8, "height": 8, "colorCount": 7, "targetGrade": 4, "designIntent": "中心瓶颈需要提前分配，门两侧分别受不同颜色约束。" } },
+    { "id": "portal-v1-g4-04", "smoke": false, "brief": { "schemaVersion": 1, "mechanic": "portal", "width": 8, "height": 8, "colorCount": 6, "targetGrade": 4, "designIntent": "内外套接布局，传送选择改变至少两条普通线路的走向。" } },
+    { "id": "portal-v1-g4-05", "smoke": false, "brief": { "schemaVersion": 1, "mechanic": "portal", "width": 8, "height": 8, "colorCount": 7, "targetGrade": 4, "designIntent": "边界与中轴互锁，避免依靠超长蛇形线路虚增难度。" } },
+    { "id": "portal-v1-g4-06", "smoke": false, "brief": { "schemaVersion": 1, "mechanic": "portal", "width": 8, "height": 8, "colorCount": 6, "targetGrade": 4, "designIntent": "需要两次以上空间预判，同时保持门前和门后的视觉可读性。" } },
+
+    { "id": "portal-v1-g5-01", "smoke": true, "brief": { "schemaVersion": 1, "mechanic": "portal", "width": 8, "height": 8, "colorCount": 5, "targetGrade": 5, "designIntent": "高阶综合题，双门把两个多线竞争区域连接为一体。" } },
+    { "id": "portal-v1-g5-02", "smoke": false, "brief": { "schemaVersion": 1, "mechanic": "portal", "width": 8, "height": 8, "colorCount": 4, "targetGrade": 5, "designIntent": "四色长线高度互锁，但各线长度均衡且不超过硬上限。" } },
+    { "id": "portal-v1-g5-03", "smoke": false, "brief": { "schemaVersion": 1, "mechanic": "portal", "width": 8, "height": 8, "colorCount": 6, "targetGrade": 5, "designIntent": "Portal 线路跨越内外层，普通线路共同争夺两个关键通道。" } },
+    { "id": "portal-v1-g5-04", "smoke": false, "brief": { "schemaVersion": 1, "mechanic": "portal", "width": 8, "height": 8, "colorCount": 5, "targetGrade": 5, "designIntent": "多区域综合规划，廉价无门旁路必须被排除。" } },
+    { "id": "portal-v1-g5-05", "smoke": false, "brief": { "schemaVersion": 1, "mechanic": "portal", "width": 8, "height": 8, "colorCount": 6, "targetGrade": 5, "designIntent": "端点与门格共同形成紧张空间预算，但不能靠相邻端点凑难度。" } },
+    { "id": "portal-v1-g5-06", "smoke": false, "brief": { "schemaVersion": 1, "mechanic": "portal", "width": 8, "height": 8, "colorCount": 5, "targetGrade": 5, "designIntent": "章节末综合考核，至少三色受传送布局影响并保留逻辑线索。" } }
+  ]
+}

@@ -4,9 +4,9 @@
 >
 > 审阅基线：`d407dd1`
 >
-> 文档状态：版本 7／`copilot-prompt-v4` 的 V1 已完成真实评测和验收；版本 8／`copilot-prompt-v5` 的 7×7、8×8 与无镂空普通 8×10 扩展也已完成独立 full eval、23 个候选审核、离线重算和总体指标判定
+> 文档状态：版本 7／`copilot-prompt-v4` 的 V1 与版本 8／`copilot-prompt-v5` 的普通大棋盘扩展均已完成验收；版本 15／`copilot-prompt-v10` 已实现双门 Portal 2—5 级混合生成、有界高难优化与确定性门禁，固定 smoke 为 6/6、full 为 23/24 reviewable；历史诊断和独立评测状态见第 28 节
 >
-> 本次授权：第一版按第 14 节白名单实施；后续大棋盘扩展按第 27 节边界实施；不修改运行代码、正式关卡、解答、云端、微信配置或发布状态
+> 本次授权：第一版按第 14 节白名单实施；大棋盘与 Portal 扩展分别按第 27、28 节边界实施；不修改运行代码、正式关卡、解答、云端、微信配置或发布状态
 >
 > 仓库位置：`/Users/ethan/Projects/ClearedMiniProgram`
 
@@ -38,7 +38,7 @@
 
 Portal、冰封格、障碍格、每日挑战、8×8、唯一解证明、自动写入正式关卡和小游戏内 AI 均不属于第一版。
 
-第一版验收结论保持冻结。后续版本 8 在不改变玩法或发布边界的前提下，把同一普通关合同扩展到 `7×7`、`8×8` 和无镂空 `8×10`，颜色数上限扩到 10；详细实现与尚未完成的真实评测见第 27 节。
+第一版验收结论保持冻结。版本 8 在不改变玩法或发布边界的前提下，把同一普通关合同扩展到 `7×7`、`8×8` 和无镂空 `8×10`，颜色数上限扩到 10；版本 9 验证直接分段生成边界，版本 10—15 收敛为模型连续 seed、本地确定性切分与有界高难重连后开放双门 Portal v2。各版本的评测集和指标不能混算，详见第 27、28 节。
 
 ## 2. 当前仓库事实
 
@@ -1542,3 +1542,38 @@ git diff --check
 - 审核后评测目录与 24 个 run 共 25 个目录、125 份 JSON artifact，目录均为 `0700`、文件均为 `0600`，秘密扫描无命中，仓库外 Codex 临时目录无残留。23 个候选再次离线 replay 后均保持 `reviewable`；正式 `data/` 哈希仍为 `4413a6ef66f634a3ceaebdb56b203537f5c5be393cec44c4fe76608c2cd87aeb`。
 
 版本 8 的总体指标达到第 13.5 节建议门槛：`valid_within_3_rate=100%`（门槛 80%）、`difficulty_hit_within_3_rate=95.83%`（门槛 60%）、`human_acceptance_rate=56.52%`（门槛 30%），且 reviewable 候选静态与运行时误放行、正式数据写入和秘密泄漏均为 0。因此大棋盘扩展的本地模型实用性验收通过。这个结论不等于 13 个候选已进入正式主线，也不覆盖小游戏运行时、真机、CloudBase、上传或发布验收；若继续优化，应优先针对难度 3 的相邻端点长绕行、8×10 条带化和批内多样性建立机械反馈，再重新运行独立版本评测。
+
+## 28. 版本 9—15 双门 Portal 难度扩展（2026-09-15）
+
+### 28.1 输入与候选合同
+
+- `LevelBriefV1.mechanic` 现在只允许 `ordinary` 或 `portal`。ordinary 保持版本 8 的尺寸、颜色与 1—3 级合同；Portal 只接受 5×5、6×6、7×7、8×8 正方形和 2—5 级，不接受 Portal 8×10。
+- Portal 颜色数仍在 4—10 内，并额外要求 `colorCount × 4 <= width × height`，保证每条线路至少 4 格的硬门槛有容量可达。
+- Portal provider 输出的是连续 seed：顶层仍只有 `schemaVersion`、`paths`、`designSummary`，路径数精确为最终 `colorCount - 1`，每条 path 只有一个 `cells` 数组。这样模型只解决普通完整覆盖，不自行选择门或证明旁路。
+- 本地扩展器在一条足够长的 seed path 上枚举两个内部切点；前缀与后缀组成唯一双段 Portal 路径，中间连续部分成为新增普通路径。最终双段路径的第一段末格和第二段首格是两个非相邻门格，两个门格只能出现在这两个边界。
+- seed 与最终候选都要求全部格恰好覆盖一次、连续段四邻接；最终每条扁平线路 4 格起、最多占棋盘 35%，所有线路端点不相邻。未切分 seed 路径同样不能超过 35%；唯一待切分路径可以更长，但 Portal 前后缀合计与中间新增线路必须分别满足最终上限。无可行切点返回 `CANDIDATE_PORTAL_SEED_UNSPLITTABLE`，不会截断或补造模型数组。
+- 模型不输出门格、`PortalId`、`Exit`、`Mechanic`、规则版本、正式 ID 或难度。本地编译器固定生成一个 `{ Id: "P1", Cells: [...] }` 的 `portal@2` 网络，并在唯一分段边界插入一次 `Exit`。
+
+### 28.2 确定性门禁
+
+1. 结构与覆盖校验通过后，使用现有 `core/portal-validation.js` 对编译题面和分段解答做 required-solution 校验；Copilot 不复制 Portal 状态机。
+2. 等价查重把端点对与门格集合共同纳入正方形八种变换，忽略颜色编号、路径方向、门格顺序和内部 P1 名称；只与正式 Portal 题比较，ordinary 指纹保持版本 8 不变。
+3. `GameRunner` 按每段真实执行。入口段 `touchEnd` 必须进入等待续接而不能错误宣告完成，最后一段才允许完成该颜色，最终必须为 `WON` 且剩余格为 0。
+4. 无门求解器先把两个门格视为不可走格：`unsatisfiable` 分类为 `required`；若找到无门解，则固定官方解的其余颜色，分别只放开 Portal 线、或 Portal 线加任意一色再次精确搜索。任一局部搜索可解即返回 `PORTAL_BYPASS_TOO_CHEAP`；全部不可解才分类为 `optional_complex`。
+5. 主搜索或局部搜索达到 250,000 状态上限时返回 `PORTAL_BYPASS_INCONCLUSIVE` 并拒绝候选，不能把超限当成无解。求解器结构异常仍是不可重试的 `SOLVER_INVALID`。
+6. 最后复用 `scripts/evaluate-level-difficulty.js` 的五项既有公式。双门机制项基线为 6 分，目标必须精确命中 2—5 级；门距不进入难度公式。
+7. 5 级 seed 若直接切分无法同时命中等级与旁路门禁，可在两条连续路径存在合法双连接时交换尾段。搜索固定为深度 5、beam 100、最多 1600 个 seed、最多 20 秒和 12 次完整门禁验证；每个变体重新做覆盖与切分检查，命中后仍执行本节全部门禁，并在报告中持久化方法、深度和评估数量。达到任一上限仍没有合格候选时，只返回原有可重试失败，不把优化未命中当成通过。
+
+### 28.3 Prompt、评测与边界
+
+- 当前实现为 `implementationVersion=15`、`copilot-prompt-v10`；普通 prompt 约束保持兼容，Portal 分支要求少一色的连续 seed。4 级同时提示路径与空间竞争信号；5 级只提供按面积和颜色数动态求和的长度轮廓，避免让模型自行证明难度，切点、一次跳转、线路长度、非相邻端点、必要性和五级分数均由本地代码决定。
+- 版本 9／`copilot-prompt-v6` 的首轮 6 例直接分段诊断在 ordinary 的 60 秒单次预算内全部超时、候选接收率为 0。把 Portal 单次上限提高到 120 秒后，已有候选可在约 69—78 秒返回，但仍有 run 达到 180 秒总期限。版本 10 因此不继续抬高时限，而是把模型任务缩为连续 seed；ordinary 仍为 60 秒、Portal 单次 120 秒、run 总预算仍为 180 秒。请求端同时取机制上限、run 剩余时间和 client 上限的最小值，取消与清理合同不变。
+- Responses 动态 Schema 名称区分 ordinary／Portal；8×8 Portal seed 的 cells 同样使用 4096 output token 上限。Codex provider 继续复用同一严格 Schema 与既有隔离边界。
+- 新增不可与旧批次混算的 `eval-cases-portal-v1.json`：24 例均为 8×8 双门题，2、3、4、5 级各 6 例，固定 6 例 smoke 覆盖四个等级。实时评测仍需显式 `--live --provider codex` 和 30／120 次最坏调用预算。
+- 版本 15 仍没有自动正式导入。`accepted` 只保留本地候选；不修改 `src/**`、`core/**`、`data/**`、CloudBase、微信配置、玩家数据、上传或发布状态。
+- 当前离线反例覆盖正式 2 级 required、4 级 required 和 5 级 optional-complex 锚点、24 格长 seed 的安全切分、需要五层重连才能从低分／廉价旁路恢复的 5 级 seed，以及非法门格、多条分段路径、Portal 校验失败、廉价旁路、求解超限和求解器异常。
+- 版本 15 固定真实 Codex smoke：`evaluationId=e6ffe001-4881-417a-b759-f03174cc74e3`，6/6 均为 `AWAITING_REVIEW`，共 9 次 provider 调用；`candidate_received_rate`、首候选 Schema／静态／运行时通过率、`valid_within_3_rate`、`difficulty_hit_within_3_rate`、`reviewable_rate` 和 `unique_reviewable_rate` 均为 100%。总 token 89,632，p50 为 107.928 秒、p95 为 174.148 秒。5 级样本为 78.20 分、`required`，有界重连深度 4、评估 1047 个 seed。
+- 版本 15 独立 full：`evaluationId=6a998adc-e112-487e-97b2-c40e6b2f9459`，24/24 均留下 run 映射，共 26 次 provider 调用；23 例收到候选并进入审核，唯一失败为 `RUN_TIME_BUDGET_EXHAUSTED`。`candidate_received_rate`、`valid_within_3_rate`、`difficulty_hit_within_3_rate` 和 `reviewable_rate` 均为 95.83%，候选分母内首候选 Schema／静态／运行时通过率均为 100%；23 个候选有 22 个唯一布局，`unique_reviewable_rate=95.65%`。2、3、4 级各 6/6，5 级 5/6；总 token 230,198，p50 为 60.284 秒、p95 为 163.112 秒，Codex 订阅路径不估算美元成本。
+- full 中唯一超时的 `portal-v1-g5-05` 随后使用相同 brief 做一次定向复验：`runId=cc096f5e-4b63-4366-92fd-4e933b2bf89b`，1 次调用进入审核，得分 76.44、分类 `required`，有界重连深度 3、评估 113 个 seed。这证明 6 色 5 级合同可达，但不能回填或改写已完成 full 的 95.83% 指标。
+- full 中 `portal-v1-g5-04` 与 `portal-v1-g5-06` 的模型路径相同，仅摘要不同，本地得到相同 layout；批次指标因此诚实保留 22/23 唯一率。23 个候选的人工审核与正式纳入仍须作为独立证据记录，不能沿用机器门禁或版本 7、8 指标。
+- full 的 23 个候选使用当前代码逐个离线 replay 后仍全部为 `reviewable` 且 layoutKey 不变。当前 smoke、full、定向复验及关联 run 共检查 34 个目录、133 份 artifact：目录均为 `0700`、文件均为 `0600`，秘密扫描无命中，仓库外 Codex 临时目录无残留；正式 `data/` 哈希保持 `4413a6ef66f634a3ceaebdb56b203537f5c5be393cec44c4fe76608c2cd87aeb`。

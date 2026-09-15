@@ -10,6 +10,7 @@ const {
 
 const PROVIDER_ID = 'codex-cli';
 const DEFAULT_TIMEOUT_MS = 60000;
+const MAX_TIMEOUT_MS = 120000;
 const DEFAULT_MAX_OUTPUT_BYTES = 256 * 1024;
 const AUTH_TIMEOUT_MS = 10000;
 const SAFE_ITEM_TYPES = new Set(['agent_message', 'reasoning']);
@@ -380,7 +381,7 @@ class CodexClient {
     this.temporaryFiles = input.temporaryFiles || withTemporaryOutputSchema;
     this.temporaryRoot = input.temporaryRoot;
     this.timeoutMs = Number.isInteger(input.timeoutMs) && input.timeoutMs > 0
-      ? Math.min(input.timeoutMs, DEFAULT_TIMEOUT_MS) : DEFAULT_TIMEOUT_MS;
+      ? Math.min(input.timeoutMs, MAX_TIMEOUT_MS) : DEFAULT_TIMEOUT_MS;
     this.maxOutputBytes = Number.isInteger(input.maxOutputBytes) && input.maxOutputBytes > 0
       ? Math.min(input.maxOutputBytes, DEFAULT_MAX_OUTPUT_BYTES) : DEFAULT_MAX_OUTPUT_BYTES;
     this.authPromise = null;
@@ -444,7 +445,11 @@ class CodexClient {
       throw new CodexClientError('CODEX_EXEC_CANCELLED', { kind: 'transport' });
     }
     const requestTimeoutMs = boundedTimeout(this.timeoutMs,
-      Number.isInteger(options.remainingTimeMs) ? options.remainingTimeMs : options.timeoutMs);
+      Math.min(
+        Number.isInteger(options.timeoutMs) && options.timeoutMs > 0
+          ? options.timeoutMs : this.timeoutMs,
+        Number.isInteger(options.remainingTimeMs) && options.remainingTimeMs > 0
+          ? options.remainingTimeMs : this.timeoutMs));
     let bundle;
     try {
       bundle = await this.temporaryFiles(options.schema, {
