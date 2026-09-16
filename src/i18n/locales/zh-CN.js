@@ -117,6 +117,7 @@ module.exports = Object.freeze({
   'play.hintStep.breakIce': '第 {current}/{total} 步：经过冰封格，先破冰',
   'play.hintStep.clearIce': '第 {current}/{total} 步：再次经过，消除地板',
   'play.hintStep.connectEndpoints': '第 {current}/{total} 步：连接同色端点',
+  'portal.instruction.mixed': '通过传送门连接同色端点\n冰封格需要两条不同连线经过',
   'portal.instruction.initial': '路径会通过传送门抵达另一个传送门',
   'portal.instruction.continue': '到达传送门后松手，再从另一扇门继续',
   'hint.unavailable': '提示不可用',

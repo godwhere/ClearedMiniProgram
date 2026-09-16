@@ -13,8 +13,8 @@ function localized(locale, key) {
   return i18n.translate('zh-CN', key);
 }
 
-function initial(locale) {
-  return localized(locale, 'portal.instruction.initial');
+function initial(locale, hasIce) {
+  return localized(locale, hasIce ? 'portal.instruction.mixed' : 'portal.instruction.initial');
 }
 
 function continued(locale) {
@@ -24,8 +24,8 @@ function continued(locale) {
 function forState(state, locale) {
   const phase = state && state.phase || 'READY';
   if (phase === 'PORTAL_LOCKED' || phase === 'PORTAL_WAIT') return continued(locale);
-  if (phase === 'READY') return initial(locale);
-  if (phase === 'DRAWING' && !(state && state.usedPairIds && state.usedPairIds.length)) return initial(locale);
+  if (phase === 'READY') return initial(locale, !!(state && state.ice));
+  if (phase === 'DRAWING' && !(state && state.usedPairIds && state.usedPairIds.length)) return initial(locale, !!(state && state.ice));
   return null;
 }
 

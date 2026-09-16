@@ -129,7 +129,7 @@ async function run() {
     const result = await pipeline.generate({ brief, apiKey: 'unit-test-key', model: 'explicit-model' });
     assert.strictEqual(result.status, 'AWAITING_REVIEW');
     assert.strictEqual(result.exitCode, 0);
-    assert.strictEqual(result.record.implementationVersion, 15);
+    assert.strictEqual(result.record.implementationVersion, 16);
     assert.strictEqual(calls, 2);
     assert.deepStrictEqual(waits, [250]);
     assert.strictEqual(result.record.httpCalls, 2);

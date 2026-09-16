@@ -2,6 +2,12 @@
 
 const contracts = require('./contracts.js');
 
+// Four-gate expansion crosses cut choices from two seed paths. Keep that
+// deterministic authoring search bounded; raise only after eval evidence shows
+// valid layouts are being missed rather than spending unbounded local time.
+const MAX_PORTAL_CUTS_PER_PATH = 32;
+const MAX_EXPANDED_PORTAL_CANDIDATES = 1024;
+
 const ERROR_CODES = Object.freeze({
   CANDIDATE_CELL_OUT_OF_RANGE: 'CANDIDATE_CELL_OUT_OF_RANGE',
   CANDIDATE_CELL_DUPLICATE: 'CANDIDATE_CELL_DUPLICATE',
@@ -40,18 +46,14 @@ function validatePathCover(brief, input) {
   const portal = brief.mechanic === 'portal';
   const portalCells = portal ? input.portalCells : [];
   if (portal && (portalCells.some(cell => !Number.isInteger(cell) || cell < 0 || cell >= area) ||
-      portalCells[0] === portalCells[1])) {
+      new Set(portalCells).size !== portalCells.length)) {
     return fail(ERROR_CODES.CANDIDATE_PORTAL_CELLS_INVALID);
   }
-  let splitPathIndex = -1;
+  const splitPathIndexes = [];
   for (let pathIndex = 0; pathIndex < input.paths.length; pathIndex += 1) {
     const segments = segmentsOf(brief, input.paths[pathIndex]);
     if (portal && segments.length === 2) {
-      if (splitPathIndex >= 0) {
-        return fail(ERROR_CODES.CANDIDATE_PORTAL_SEGMENTS_INVALID,
-          { reason: 'multiple_split_paths' });
-      }
-      splitPathIndex = pathIndex;
+      splitPathIndexes.push(pathIndex);
     }
     const local = new Set();
     for (let segmentIndex = 0; segmentIndex < segments.length; segmentIndex += 1) {
@@ -91,24 +93,36 @@ function validatePathCover(brief, input) {
     return fail(ERROR_CODES.CANDIDATE_COVERAGE_MISSING, { missingCount: missing.length });
   }
   if (portal) {
-    if (splitPathIndex < 0) {
+    const expectedSplitPaths = contracts.portalSplitPathCount(brief);
+    if (splitPathIndexes.length !== expectedSplitPaths) {
       return fail(ERROR_CODES.CANDIDATE_PORTAL_SEGMENTS_INVALID,
-        { reason: 'split_path_required' });
+        { reason: 'split_path_count', expected: expectedSplitPaths,
+          actual: splitPathIndexes.length });
     }
-    const segments = input.paths[splitPathIndex].segments;
-    const from = segments[0].cells[segments[0].cells.length - 1];
-    const to = segments[1].cells[0];
-    if (portalCells.indexOf(from) < 0 || portalCells.indexOf(to) < 0 || from === to ||
-        adjacent(from, to, brief.width)) {
+    const transitionCells = new Set();
+    for (const pathIndex of splitPathIndexes) {
+      const segments = input.paths[pathIndex].segments;
+      const from = segments[0].cells[segments[0].cells.length - 1];
+      const to = segments[1].cells[0];
+      if (portalCells.indexOf(from) < 0 || portalCells.indexOf(to) < 0 || from === to ||
+          adjacent(from, to, brief.width)) {
+        return fail(ERROR_CODES.CANDIDATE_PORTAL_TRANSITION_INVALID, { pathIndex });
+      }
+      transitionCells.add(from);
+      transitionCells.add(to);
+    }
+    if (transitionCells.size !== portalCells.length ||
+        portalCells.some(cell => !transitionCells.has(cell))) {
       return fail(ERROR_CODES.CANDIDATE_PORTAL_TRANSITION_INVALID,
-        { pathIndex: splitPathIndex });
+        { reason: 'portal_cells_must_all_be_used' });
     }
+    const splitPathSet = new Set(splitPathIndexes);
     for (let pathIndex = 0; pathIndex < input.paths.length; pathIndex += 1) {
       const segmentsForPath = input.paths[pathIndex].segments;
       for (let segmentIndex = 0; segmentIndex < segmentsForPath.length; segmentIndex += 1) {
         const cells = segmentsForPath[segmentIndex].cells;
         for (let index = 0; index < cells.length; index += 1) {
-          const isTransitionCell = pathIndex === splitPathIndex &&
+          const isTransitionCell = splitPathSet.has(pathIndex) &&
             ((segmentIndex === 0 && index === cells.length - 1) ||
              (segmentIndex === 1 && index === 0));
           if (portalCells.indexOf(cells[index]) >= 0 && !isTransitionCell) {
@@ -123,7 +137,11 @@ function validatePathCover(brief, input) {
 }
 
 function portalSeedBrief(brief) {
-  return Object.assign({}, brief, { mechanic: 'ordinary', colorCount: brief.colorCount - 1 });
+  return Object.assign({}, brief, {
+    mechanic: 'ordinary',
+    colorCount: brief.colorCount - contracts.portalSplitPathCount(brief),
+    portalCellCount: undefined
+  });
 }
 
 function portalSeedCuts(cells, width, maximumLength) {
@@ -142,6 +160,42 @@ function portalSeedCuts(cells, width, maximumLength) {
   return result;
 }
 
+function portalSeedPlans(brief, input, maximumLength) {
+  const cutsByPath = input.paths.map(path =>
+    portalSeedCuts(path.cells, brief.width, maximumLength));
+  const splitPathCount = contracts.portalSplitPathCount(brief);
+  const selections = [];
+  function choose(start, selected) {
+    if (selected.length === splitPathCount) {
+      const selectedSet = new Set(selected);
+      if (input.paths.every((path, pathIndex) =>
+        selectedSet.has(pathIndex) || path.cells.length <= maximumLength)) {
+        selections.push(selected.slice());
+      }
+      return;
+    }
+    for (let pathIndex = start; pathIndex < cutsByPath.length; pathIndex += 1) {
+      if (!cutsByPath[pathIndex].length) continue;
+      selected.push(pathIndex);
+      choose(pathIndex + 1, selected);
+      selected.pop();
+    }
+  }
+  choose(0, []);
+  return { cutsByPath, selections };
+}
+
+function representativeCuts(cuts) {
+  if (cuts.length <= MAX_PORTAL_CUTS_PER_PATH) return cuts;
+  const selected = [];
+  for (let index = 0; index < MAX_PORTAL_CUTS_PER_PATH; index += 1) {
+    const sourceIndex = Math.floor(index * (cuts.length - 1) /
+      (MAX_PORTAL_CUTS_PER_PATH - 1));
+    selected.push(cuts[sourceIndex]);
+  }
+  return selected;
+}
+
 function validatePortalSeed(brief, input) {
   const structure = contracts.validatePortalSeedStructure(brief, input);
   if (!structure.ok) return structure;
@@ -149,7 +203,6 @@ function validatePortalSeed(brief, input) {
   const cover = validatePathCover(seedBrief, input);
   if (!cover.ok) return cover;
   const maximumLength = Math.floor(brief.width * brief.height * 0.35);
-  const cutsByPath = [];
   for (let pathIndex = 0; pathIndex < input.paths.length; pathIndex += 1) {
     const cells = input.paths[pathIndex].cells;
     if (cells.length < 4) {
@@ -159,12 +212,9 @@ function validatePortalSeed(brief, input) {
     if (adjacent(cells[0], cells[cells.length - 1], brief.width)) {
       return fail(ERROR_CODES.CANDIDATE_PORTAL_ENDPOINT_ADJACENT, { pathIndex });
     }
-    cutsByPath.push(portalSeedCuts(cells, brief.width, maximumLength));
   }
-  const splittable = cutsByPath.some((cuts, pathIndex) => cuts.length &&
-    input.paths.every((path, otherIndex) =>
-      otherIndex === pathIndex || path.cells.length <= maximumLength));
-  return splittable ? { ok: true } :
+  const plans = portalSeedPlans(brief, input, maximumLength);
+  return plans.selections.length ? { ok: true } :
     fail(ERROR_CODES.CANDIDATE_PORTAL_SEED_UNSPLITTABLE);
 }
 
@@ -173,35 +223,53 @@ function expandPortalSeedCandidates(brief, input) {
   if (!checked.ok) return { ok: false, error: checked.error, candidates: [] };
   const maximumLength = Math.floor(brief.width * brief.height * 0.35);
   const candidates = [];
-  input.paths.forEach((path, pathIndex) => {
-    if (input.paths.some((otherPath, otherIndex) =>
-      otherIndex !== pathIndex && otherPath.cells.length > maximumLength)) return;
-    portalSeedCuts(path.cells, brief.width, maximumLength).forEach(cut => {
-      const portalPath = {
-        segments: [
-          { cells: path.cells.slice(0, cut.first + 1) },
-          { cells: path.cells.slice(cut.second) }
-        ]
-      };
-      const middlePath = {
-        segments: [{ cells: path.cells.slice(cut.first + 1, cut.second) }]
-      };
-      const paths = [];
-      input.paths.forEach((seedPath, seedIndex) => {
-        if (seedIndex === pathIndex) {
-          paths.push(portalPath, middlePath);
-        } else {
-          paths.push({ segments: [{ cells: seedPath.cells.slice() }] });
+  const plans = portalSeedPlans(brief, input, maximumLength);
+  for (const selectedPathIndexes of plans.selections) {
+    const cutOptions = selectedPathIndexes.map(pathIndex =>
+      selectedPathIndexes.length === 1
+        ? plans.cutsByPath[pathIndex]
+        : representativeCuts(plans.cutsByPath[pathIndex]));
+    function chooseCuts(index, selectedCuts) {
+      if (candidates.length >= MAX_EXPANDED_PORTAL_CANDIDATES) return;
+      if (index < cutOptions.length) {
+        for (const cut of cutOptions[index]) {
+          selectedCuts.push(cut);
+          chooseCuts(index + 1, selectedCuts);
+          selectedCuts.pop();
+          if (candidates.length >= MAX_EXPANDED_PORTAL_CANDIDATES) break;
         }
+        return;
+      }
+      const selected = new Map(selectedPathIndexes.map((pathIndex, selectionIndex) =>
+        [pathIndex, selectedCuts[selectionIndex]]));
+      const paths = [];
+      const portalCells = [];
+      input.paths.forEach((seedPath, seedIndex) => {
+        const cut = selected.get(seedIndex);
+        if (!cut) {
+          paths.push({ segments: [{ cells: seedPath.cells.slice() }] });
+          return;
+        }
+        paths.push({
+          segments: [
+            { cells: seedPath.cells.slice(0, cut.first + 1) },
+            { cells: seedPath.cells.slice(cut.second) }
+          ]
+        }, {
+          segments: [{ cells: seedPath.cells.slice(cut.first + 1, cut.second) }]
+        });
+        portalCells.push(seedPath.cells[cut.first], seedPath.cells[cut.second]);
       });
       candidates.push({
         schemaVersion: 1,
-        portalCells: [path.cells[cut.first], path.cells[cut.second]],
+        portalCells,
         paths,
         designSummary: input.designSummary
       });
-    });
-  });
+    }
+    chooseCuts(0, []);
+    if (candidates.length >= MAX_EXPANDED_PORTAL_CANDIDATES) break;
+  }
   return { ok: true, candidates };
 }
 
@@ -359,6 +427,8 @@ function layoutKey(level) {
 
 module.exports = {
   ERROR_CODES,
+  MAX_PORTAL_CUTS_PER_PATH,
+  MAX_EXPANDED_PORTAL_CANDIDATES,
   validatePathCover,
   validatePortalSeed,
   expandPortalSeedCandidates,

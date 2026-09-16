@@ -1046,6 +1046,7 @@ class ClearedApp {
 
     const mechanicState = viewState.mechanic && typeof viewState.mechanic === 'object'
       ? viewState.mechanic : { id: null, portals: [] };
+    const iceState = mechanicState.id === 'ice' ? mechanicState : mechanicState.ice;
     const portals = Array.isArray(mechanicState.portals) ? mechanicState.portals : [];
     const portalCells = new Set();
     portals.forEach(portal => {
@@ -1075,7 +1076,7 @@ class ClearedApp {
         selected: selectedCells.has(index),
         portal: portalCells.has(index)
       };
-      if (mechanicState.id === 'ice') {
+      if (iceState) {
         cells[index].frozen = Array.isArray(boardState.remainingLayers) && boardState.remainingLayers[index] === 2;
       }
     }
@@ -1094,7 +1095,9 @@ class ClearedApp {
       instruction: portalInstructions.forState(mechanicState, this.locale),
       lockedEntry: locked && Number.isInteger(locked.entry) ? locked.entry : null
     } : null;
+    if (portal && iceState) portal.hasIce = true;
     return {
+      iceInstruction: iceState ? this.t('play.iceInstruction') : null,
       board: {
         width,
         height,
@@ -1579,7 +1582,7 @@ class ClearedApp {
     // Keep a single 180ms pulse; rapid clears restart it instead of stacking.
     this.clearFeedback = { runner, startedAt: now, durationMs: 180 };
     const state = runner.getViewState();
-    const iceBrokenCells = state.mechanic.id === 'ice'
+    const iceBrokenCells = state.mechanic.id === 'ice' || state.mechanic.ice
       ? (cells || []).filter(index => state.board.remainingLayers[index] === 1) : [];
     this.hint = null;
     this.hintUntil = 0;
@@ -3487,7 +3490,7 @@ class ClearedApp {
 
   changeHintPreviewStep(delta) {
     const preview = this.hintPreview;
-    if (this.scene !== 'play' || !preview || !preview.manual || !Array.isArray(preview.frames) ||
+    if ((this.scene !== 'play' && this.scene !== 'daily') || !preview || !preview.manual || !Array.isArray(preview.frames) ||
         (delta !== -1 && delta !== 1)) return false;
     const index = clamp(preview.index + delta, 0, preview.frames.length - 1);
     if (index === preview.index) return false;
@@ -3535,7 +3538,7 @@ class ClearedApp {
       portal.expectedExits = [];
       portal.expectedExit = null;
       portal.lockedEntry = null;
-      portal.instruction = portalInstructions.initial(this.locale);
+      portal.instruction = portalInstructions.initial(this.locale, portal.hasIce);
     }
     if (Array.isArray(hint.steps) && hint.steps.length === lines.length) {
       const frames = hint.steps.map((step, index) => Object.assign({}, viewModel, {
@@ -3632,7 +3635,7 @@ class ClearedApp {
       return false;
     }
     this.hint = hint;
-    this.hintUntil = until;
+    this.hintUntil = preview.manual ? 0 : until;
     this.hintPreview = preview;
     this.audio.playSfx('complete');
     this.invalidate();

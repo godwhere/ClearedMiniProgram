@@ -2,21 +2,23 @@
 
 // Offline design estimate, not a player-performance model. Current mainline
 // boards up to 8x8 are supported, including connected/scattered ice. Ordinary
-// 8x10 boards are also accepted for authoring and Copilot evaluation.
+// and Portal 8x10 boards are also accepted for authoring and Copilot evaluation.
 const iceRules = require('../core/mechanics/ice-v1.js');
 const clamp = value => Math.max(0, Math.min(1, value));
 const round = value => Math.round(value * 100) / 100;
 
 function evaluate(level, answer) {
-  const ordinaryEightByTen = level && level.Width === 8 && level.Height === 10 &&
-    level.Mechanic === undefined && level.IceCells === undefined &&
-    level.Portals === undefined && level.Blocked === undefined;
+  const supportedEightByTen = level && level.Width === 8 && level.Height === 10 &&
+    level.IceCells === undefined && level.Blocked === undefined &&
+    ((level.Mechanic === undefined && level.Portals === undefined) ||
+     (level.Mechanic === 'portal' && level.PortalRulesVersion === 2 &&
+      Array.isArray(level.Portals)));
   if (!level || !Number.isInteger(level.Width) || level.Width < 1 || level.Width > 8 ||
       !Number.isInteger(level.Height) || level.Height < 1 ||
-      !((level.Height <= 8) || ordinaryEightByTen) ||
+      !((level.Height <= 8) || supportedEightByTen) ||
       !Array.isArray(level.Lines) || !level.Lines.length || !Array.isArray(answer) ||
       answer.length !== level.Lines.length || (level.Mechanic && !['portal', 'ice'].includes(level.Mechanic)) ||
-      (level.IceCells !== undefined && level.Mechanic !== 'ice')) throw new Error('Difficulty v1 requires an ordinary/Portal/ice answer up to 8x8, or an ordinary 8x10 answer');
+      (level.IceCells !== undefined && level.Mechanic !== 'ice')) throw new Error('Difficulty v1 requires an ordinary/Portal/ice answer up to 8x8, or an ordinary/Portal 8x10 answer');
   const width = level.Width, area = width * level.Height;
   const ice = new Set(level.Mechanic === 'ice' ? iceRules.normalize(level,
     Array.from({ length: area }, (_, cell) => (level.Blocked || []).includes(cell))) : []);

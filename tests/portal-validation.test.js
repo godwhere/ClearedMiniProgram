@@ -74,6 +74,7 @@ function run() {
     'portal-cell-out-of-range',
     'portal-cells-array-invalid',
     'portal-endpoint-conflict',
+    'portal-ice-invalid',
     'portal-id-duplicate',
     'portal-id-required',
     'portal-mechanic-invalid',

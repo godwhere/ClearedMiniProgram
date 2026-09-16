@@ -8,6 +8,7 @@ const normal = require('../data/solutions.js');
 const portal = require('../data/portal-solutions.js');
 const evaluate = require('../scripts/evaluate-level-difficulty.js');
 const solveWithoutPortals = require('../scripts/solve-no-portal.js');
+const candidateTools = require('../scripts/level-copilot/candidate.js');
 const GameRunner = require('../core/game-runner.js');
 const HintService = require('../src/services/hint-service.js');
 const ProgressionService = require('../src/services/progression-service.js');
@@ -133,6 +134,35 @@ function earlyLevelRating() {
   assert.strictEqual(largeRating.score, 10);
   assert.strictEqual(largeRating.easyLines, 10);
   assert.strictEqual(solveWithoutPortals(large).status, 'solved');
+  const frontierBrief = {
+    schemaVersion: 1,
+    mechanic: 'portal',
+    width: 8,
+    height: 10,
+    colorCount: 10,
+    targetGrade: 3,
+    designIntent: 'Portal authoring boundary fixture.',
+    portalCellCount: 4
+  };
+  const frontierSeed = {
+    schemaVersion: 1,
+    paths: [
+      { cells: [0, 8, 9, 1, 2, 10, 11, 3, 4, 12, 13, 5, 6, 14, 15, 7] },
+      { cells: [16, 24, 25, 17, 18, 26, 27, 19, 20, 28, 29, 21, 22, 30, 31, 23] }
+    ].concat(Array.from({ length: 6 }, (_, row) => ({
+      cells: Array.from({ length: 8 }, (_, column) => (row + 4) * 8 + column)
+    }))),
+    designSummary: null
+  };
+  const expandedFrontier = candidateTools.expandPortalSeedCandidates(
+    frontierBrief, frontierSeed);
+  assert.strictEqual(expandedFrontier.ok, true);
+  const compiledFrontier = candidateTools.compileCandidate(
+    frontierBrief, expandedFrontier.candidates[0]);
+  const frontierRating = evaluate(compiledFrontier.level, compiledFrontier.solution);
+  assert.strictEqual(frontierRating.doors, 4);
+  assert.notStrictEqual(solveWithoutPortals(compiledFrontier.level).status, 'invalid');
+  replay(compiledFrontier.level, compiledFrontier.solution);
   assert.strictEqual(solveWithoutPortals(Object.assign({}, large, { Height: 9 })).status, 'invalid');
   assert.strictEqual(solveWithoutPortals(Object.assign({}, large, { Blocked: [9] })).status, 'invalid');
   assert.throws(() => evaluate(Object.assign({}, large, { Blocked: [9] }), largeRows), /ordinary\/Portal/);

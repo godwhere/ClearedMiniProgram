@@ -11,6 +11,7 @@
  */
 
 const portalSchema = require('./portal-schema.js');
+const iceV1 = require('./mechanics/ice-v1.js');
 
 const {
   isRecord,
@@ -28,6 +29,7 @@ const {
 
 const CODES = Object.freeze({
   MECHANIC_INVALID: 'portal-mechanic-invalid',
+  ICE_INVALID: 'portal-ice-invalid',
   REQUIRED_ARRAY: 'portals-required-array',
   NOT_OBJECT: 'portal-not-object',
   ID_REQUIRED: 'portal-id-required',
@@ -337,7 +339,20 @@ function validatePortals(level, options) {
   if (opts.requireSolution && opts.solution === undefined) {
     add(errors, CODES.SOLUTION_REQUIRED);
   }
-  return structuralResult(errors, level, validPortals, rulesVersion);
+  const result = structuralResult(errors, level, validPortals, rulesVersion);
+  if (level.IceCells !== undefined || level.IceRulesVersion !== undefined) {
+    const mask = Array.from({ length: board.valid ? board.total : 0 }, (_, index) => blocked.has(index));
+    const iceCells = iceV1.normalize(Object.assign({}, level, {
+      Width: board.width, Height: board.height, Lines: rawLines(level).map(line => ({
+        Start: lineEndpoint(line, 'start'), End: lineEndpoint(line, 'end')
+      }))
+    }), mask, Array.from(seenCells));
+    if (!isV2 || !iceCells.length) {
+      add(errors, CODES.ICE_INVALID);
+      result.ok = false;
+    } else result.iceCells = iceCells;
+  }
+  return result;
 }
 
 function solutionField(value, upper, lower) {
@@ -420,6 +435,8 @@ function validatePortalSolution(level, solution) {
   const lines = rawLines(level);
   if (paths.length !== lines.length) add(errors, CODES.SOLUTION_LINE_COUNT);
   const covered = new Set();
+  const visits = new Map();
+  const iceCells = new Set(structural.iceCells || []);
   const usedPortalCells = new Set();
   const byId = structural.portalById;
   const isV2 = structural.rulesVersion === 2;
@@ -473,7 +490,8 @@ function validatePortalSolution(level, solution) {
         if (blocked.has(cell)) add(errors, CODES.SOLUTION_THROUGH_BLOCKED);
         if (local.has(cell)) add(errors, CODES.SOLUTION_PATH_DUPLICATE);
         local.add(cell);
-        if (covered.has(cell)) add(errors, CODES.SOLUTION_OVERLAP);
+        visits.set(cell, (visits.get(cell) || 0) + 1);
+        if (visits.get(cell) > (iceCells.has(cell) ? 2 : 1)) add(errors, CODES.SOLUTION_OVERLAP);
         covered.add(cell);
         lineCells.push(cell);
         if (order > 0 && Number.isInteger(cells[order - 1]) &&
@@ -579,6 +597,9 @@ function validatePortalSolution(level, solution) {
     }
   });
 
+  iceCells.forEach(cell => {
+    if (visits.get(cell) !== 2) add(errors, CODES.SOLUTION_INCOMPLETE);
+  });
   if (isV2) {
     for (let cell = 0; cell < board.total; cell += 1) {
       if (!blocked.has(cell) && !structural.portalByCell[cell] && !covered.has(cell)) {

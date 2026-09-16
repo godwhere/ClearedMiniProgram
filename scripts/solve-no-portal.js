@@ -13,9 +13,12 @@ function solveWithoutPortals(level, options) {
   const ordinaryEightByTen = width === 8 && height === 10 &&
     level.Mechanic === undefined && level.IceCells === undefined &&
     level.Portals === undefined && level.Blocked === undefined;
+  const portalEightByTen = width === 8 && height === 10 &&
+    level.Mechanic === 'portal' && level.PortalRulesVersion === 2 &&
+    level.IceCells === undefined;
   const dimensionsSupported = Number.isInteger(width) && Number.isInteger(height) &&
     width >= 1 && height >= 1 && width <= 8 &&
-    (height <= 8 || ordinaryEightByTen);
+    (height <= 8 || ordinaryEightByTen || portalEightByTen);
   const maxStates = options && Number.isInteger(options.maxStates)
     ? Math.max(1, options.maxStates) : 250000;
   if (!dimensionsSupported || !Array.isArray(lines) || !lines.length ||

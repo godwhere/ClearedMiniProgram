@@ -2,7 +2,7 @@
 
 const BRIEF_FIELDS = [
   'schemaVersion', 'mechanic', 'width', 'height',
-  'colorCount', 'targetGrade', 'designIntent'
+  'colorCount', 'targetGrade', 'designIntent', 'portalCellCount'
 ];
 const ORDINARY_CANDIDATE_FIELDS = ['schemaVersion', 'paths', 'designSummary'];
 const PORTAL_CANDIDATE_FIELDS = ['schemaVersion', 'portalCells', 'paths', 'designSummary'];
@@ -24,6 +24,7 @@ const ERROR_CODES = Object.freeze({
   BRIEF_MECHANIC_UNSUPPORTED: 'BRIEF_MECHANIC_UNSUPPORTED',
   BRIEF_BOARD_SIZE_UNSUPPORTED: 'BRIEF_BOARD_SIZE_UNSUPPORTED',
   BRIEF_COLOR_COUNT_INVALID: 'BRIEF_COLOR_COUNT_INVALID',
+  BRIEF_PORTAL_CELL_COUNT_INVALID: 'BRIEF_PORTAL_CELL_COUNT_INVALID',
   BRIEF_TARGET_GRADE_INVALID: 'BRIEF_TARGET_GRADE_INVALID',
   BRIEF_INTENT_INVALID: 'BRIEF_INTENT_INVALID',
   BRIEF_UNKNOWN_FIELD: 'BRIEF_UNKNOWN_FIELD',
@@ -61,10 +62,10 @@ function validateBrief(input) {
   if (!isSupportedBoardSize(input.width, input.height)) {
     return result(ERROR_CODES.BRIEF_BOARD_SIZE_UNSUPPORTED);
   }
-  // Portal authoring reuses the existing exact no-Portal audit, whose supported
-  // Portal frontier is currently capped at 8x8. Ordinary 8x10 stays supported.
-  if (input.mechanic === 'portal' && input.height > 8) {
-    return result(ERROR_CODES.BRIEF_BOARD_SIZE_UNSUPPORTED);
+  const portalCellCount = input.portalCellCount === undefined ? 2 : input.portalCellCount;
+  if ((input.mechanic === 'portal' && portalCellCount !== 2 && portalCellCount !== 4) ||
+      (input.mechanic !== 'portal' && input.portalCellCount !== undefined)) {
+    return result(ERROR_CODES.BRIEF_PORTAL_CELL_COUNT_INVALID);
   }
   if (!Number.isInteger(input.colorCount) || input.colorCount < MIN_COLOR_COUNT ||
       input.colorCount > MAX_COLOR_COUNT ||
@@ -83,13 +84,23 @@ function validateBrief(input) {
     return result(ERROR_CODES.BRIEF_INTENT_INVALID);
   }
   const value = {};
-  BRIEF_FIELDS.forEach(field => { value[field] = input[field]; });
+  BRIEF_FIELDS.forEach(field => { if (own(input, field)) value[field] = input[field]; });
+  if (input.mechanic === 'portal') value.portalCellCount = portalCellCount;
   return { ok: true, value };
+}
+
+function portalCellCount(brief) {
+  return brief && brief.mechanic === 'portal' && brief.portalCellCount === 4 ? 4 : 2;
+}
+
+function portalSplitPathCount(brief) {
+  return portalCellCount(brief) / 2;
 }
 
 function candidateSchema(brief) {
   const area = brief.width * brief.height;
   if (brief.mechanic === 'portal') {
+    const expectedPortalCells = portalCellCount(brief);
     return {
       type: 'object',
       additionalProperties: false,
@@ -98,8 +109,8 @@ function candidateSchema(brief) {
         schemaVersion: { type: 'integer', const: 1 },
         portalCells: {
           type: 'array',
-          minItems: 2,
-          maxItems: 2,
+          minItems: expectedPortalCells,
+          maxItems: expectedPortalCells,
           items: { type: 'integer', minimum: 0, maximum: area - 1 }
         },
         paths: {
@@ -167,7 +178,7 @@ function candidateSchema(brief) {
 
 function portalSeedSchema(brief) {
   const area = brief.width * brief.height;
-  const seedPathCount = brief.colorCount - 1;
+  const seedPathCount = brief.colorCount - portalSplitPathCount(brief);
   return {
     type: 'object',
     additionalProperties: false,
@@ -205,7 +216,8 @@ function validatePortalSeedStructure(brief, input) {
   if (brief.mechanic !== 'portal') return result(ERROR_CODES.CANDIDATE_SCHEMA_INVALID);
   const seedBrief = Object.assign({}, brief, {
     mechanic: 'ordinary',
-    colorCount: brief.colorCount - 1
+    colorCount: brief.colorCount - portalSplitPathCount(brief),
+    portalCellCount: undefined
   });
   return validateCandidateStructure(seedBrief, input);
 }
@@ -219,7 +231,7 @@ function validateCandidateStructure(brief, input) {
     return result(ERROR_CODES.CANDIDATE_SCHEMA_INVALID);
   }
   if (portal && (!own(input, 'portalCells') || !Array.isArray(input.portalCells) ||
-      input.portalCells.length !== 2)) {
+      input.portalCells.length !== portalCellCount(brief))) {
     return result(ERROR_CODES.CANDIDATE_SCHEMA_INVALID);
   }
   if (input.paths.length !== brief.colorCount) {
@@ -264,6 +276,8 @@ module.exports = {
   MIN_COLOR_COUNT,
   MAX_COLOR_COUNT,
   isSupportedBoardSize,
+  portalCellCount,
+  portalSplitPathCount,
   validateBrief,
   candidateSchema,
   generationSchema,

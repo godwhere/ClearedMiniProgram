@@ -233,6 +233,14 @@ v1 只允许一个固定双向门对，解答可继续使用 `PairId`，且两�
   真实 Runner 的已完成线路、selection、Portal pending 和撤销状态保持不变；
 - 无可执行 Portal 解时返回 `null`，不能降级成错误的普通路径。
 
+## 6.1 每日 Portal + 冰封组合
+
+每日挑战现可声明 Portal 题，新增内容使用 v2；9 月 21–25 日的混合题在原 v2 题面附加 `IceRulesVersion: 1` 与 `IceCells`。冰格不得与端点、Blocked 或门格重叠；普通必填格恰好覆盖一次，冰格由两条不同完整连线各覆盖一次，未使用 v2 门格仍可不覆盖。解答继续使用 `Segments/Exit`，不把跳跃伪装为相邻格。
+
+`portal-validation` 对非法组合返回 `portal-ice-invalid`，同时验证完整解答的两次冰格覆盖。Runner 保持原 Portal 状态机，层数由完成线路重建；`getMechanicState()` 仅在混合题上增加只读 `ice` 字段。中英混合提示只出现在开始阶段，入口锁定/等出口仍沿用原提示。每日来源只改变结算域，不改变 Portal 规则。
+
+新增十题的排期、结构验证与发布边界见 [每日机制包](daily-mechanic-pack.md)。
+
 ## 7. 代码边界
 
 ### 7.1 规则与版本
@@ -281,7 +289,7 @@ v1 兼容继续由不进入小游戏包的测试 fixture 验证，不能为测�
 - `tests/renderer-portal.test.js`：提示位置/呼吸、棋盘不跳位、纯数字标题、选关页不叠加 Portal 徽标、LOCKED 入口居中放大/选中高亮、无 P1、多出口高亮和资源回退；
 - `tests/portal-publishing.test.js`：26 个主线 Portal 题、无逐关说明与残留试玩解、历史 63–67 内容质量门槛、高成本无门解、三门未用门 fixture、v1 兼容 fixture 和逐段回放；
 - `tests/mixed-chapter.test.js`：68–97 的 19 普通/11 Portal 混排、6–9 色、双门、无凑数短线、完整提示、对称去重、无门分类与一/二色廉价旁路排除；93–97 另检查反向/变序回放、逐格完整提示与追加解锁衔接；
-- `tests/level-copilot-*.test.js`：开发期版本 15 的连续 seed Schema、长 seed 安全切分、有界尾段重连与 `P1` 编译、Portal 感知对称查重、共享校验、逐段 Runner 回放、必需／高成本可选分类、廉价旁路与搜索不确定失败关闭、2—5 级评分和独立评测集；该工具不进入小游戏包，也不改变本节运行时协议；
+- `tests/level-copilot-*.test.js`：开发期版本 16 的 5×5—8×10 连续 seed Schema、2／4 门单网络编译、每线一次跳转、长 seed 安全切分、有界候选枚举与尾段重连、Portal 感知矩形／正方形查重、共享校验、逐段 Runner 回放、必需／高成本可选分类、全传送线廉价旁路组合、2—5 级评分和独立评测集；该工具不进入小游戏包，也不改变本节运行时协议；
 - `node tests/run.js` 必须全量通过，现有普通关行为不得回归。
 - `Portals` 缺省或空数组时，现有无 Portal 普通关卡必须保持原有规则、输入、计时、撤销与完成判定语义；新增普通 Portal 关卡使用独立的 v2 分段解答。
 

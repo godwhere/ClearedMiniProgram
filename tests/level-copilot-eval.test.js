@@ -242,6 +242,17 @@ async function run() {
     item.brief.width === 8 && item.brief.height === 8));
   assert.deepStrictEqual([2, 3, 4, 5].map(grade =>
     portal.cases.filter(item => item.brief.targetGrade === grade).length), [6, 6, 6, 6]);
+  const portalFrontier = evalTools.loadCases(evalTools.PORTAL_FRONTIER_CASES, false);
+  const portalFrontierSmoke = evalTools.loadCases(evalTools.PORTAL_FRONTIER_CASES, true);
+  assert.strictEqual(portalFrontier.caseVersion, 'eval-cases-portal-frontier-v1');
+  assert.strictEqual(portalFrontier.cases.length, 24);
+  assert.strictEqual(portalFrontierSmoke.cases.length, 6);
+  assert(portalFrontier.cases.every(item => item.brief.mechanic === 'portal' &&
+    item.brief.width === 8 && item.brief.height === 10));
+  assert.deepStrictEqual([2, 4].map(portalCellCount => portalFrontier.cases.filter(item =>
+    item.brief.portalCellCount === portalCellCount).length), [12, 12]);
+  assert.deepStrictEqual([2, 3, 4, 5].map(grade => portalFrontier.cases.filter(item =>
+    item.brief.targetGrade === grade).length), [6, 6, 6, 6]);
   assert.throws(() => evalTools.parseArguments(['--cases', evalTools.DEFAULT_CASES, '--max-calls', '120']),
     /EVAL_ARGUMENT_INVALID/);
   assert.throws(() => evalTools.parseArguments(['--live', '--max-calls', '119']),

@@ -1,6 +1,6 @@
 'use strict';
 
-const PROMPT_VERSION = 'copilot-prompt-v10';
+const PROMPT_VERSION = 'copilot-prompt-v11';
 const MAX_FEEDBACK_LINES = 10;
 const DIFFICULTY_TARGETS = Object.freeze({
   1: Object.freeze({
@@ -52,10 +52,10 @@ const INSTRUCTIONS = [
   'The host-calculated difficultyTarget is authoritative: aim inside its preferred score band while keeping the fixed width, height, and color count.',
   'For ordinary boards, difficulty rises with detours, bends, endpoint-shortest-route competition, and fewer short direct paths; it falls when paths are direct, readable, and independently obvious.',
   'For ordinary boards, score equals path plus space plus readability plus colors: path is 30 times min(1, 1.333333 times detourRate plus 0.08 times bendsPerLine), space is 25 times min(1, competingColors divided by 3), readability is 20 times (1 minus easyLines divided by colorCount), and colors is 10 times min(1, (colorCount minus 4) divided by 6).',
-  'For a Portal task, output only the simpler continuous seed cover required by the schema. It has one fewer path than the final color count; do not output portalCells, segments, Exit, or PortalId.',
-  'The host deterministically chooses two internal non-adjacent cells on one sufficiently long seed path. Its prefix and suffix become one Portal path, while the cells between the gates become one additional ordinary path. Every unsplit seed path must be between four cells and 35 percent of the board. The one path intended for splitting may be longer only when both its final Portal prefix-plus-suffix and its middle path can each fit within 35 percent. Keep all seed endpoints non-adjacent.',
-  'The host, not the model, enumerates legal cuts, compiles exactly one P1 jump, checks the final target difficulty, and rejects one-color or two-color no-Portal bypasses. Do not spend time proving bypass properties or selecting gates.',
-  'Portal difficulty uses the ordinary score plus a mechanic factor. With two gates, that factor is 15 times min(1, 0.4 plus competingColors divided by 15). Do not use imagined gate distance as a difficulty proxy.',
+  'For a Portal task, output only the simpler continuous seed cover required by the schema. It has one fewer path for two gates or two fewer paths for four gates than the final color count; do not output portalCells, segments, Exit, or PortalId.',
+  'The host deterministically chooses two internal non-adjacent cells on each required splittable seed path. Each selected path becomes one Portal prefix-plus-suffix path and one additional ordinary middle path. Every unsplit seed path must be between four cells and 35 percent of the board. A selected seed path may be longer only when both resulting final paths can each fit within 35 percent. Keep all seed endpoints non-adjacent.',
+  'The host, not the model, enumerates legal cuts, compiles one neutral P1 network with one or two independent jumps, checks the final target difficulty, and rejects one-color or two-color no-Portal bypasses. Do not spend time proving bypass properties or selecting gates.',
+  'Portal difficulty uses the ordinary score plus a mechanic factor: 15 times min(1, 0.4 plus 0.25 times the number of gates beyond two plus competingColors divided by 15). Do not use imagined gate distance as a difficulty proxy.',
   'For Portal grade 4, portalPolicy.seedDifficultySignals are simultaneous lower-bound signals for the host-scored final candidate. Do not trade path complexity for space competition or satisfy only one signal. For grade 5, use seedConstructionHints as a simple construction profile: make winding interlocking regions with the requested path lengths instead of calculating abstract factors or returning four equal stripes. The host alone decides whether the final score passes.',
   'An easy line has at most eight cells, zero detours from its shortest legal endpoint route, and at most one bend. For grade 1, use preferredStructure as a feasible construction profile while the score band remains the final target.',
   'When preferredStructure.strategy is one_winding_remainder_path, keep the requested number of short straight easy lines and concentrate unavoidable extra cells in one longer path with zero endpoint-route competition.',
@@ -117,8 +117,20 @@ function difficultyTarget(grade, colorCount, width, height) {
 
 function gradeFiveSeedPathLengths(brief) {
   const area = brief.width * brief.height;
-  const seedPathCount = brief.colorCount - 1;
+  const splitPathCount = brief.portalCellCount === 4 ? 2 : 1;
+  const seedPathCount = brief.colorCount - splitPathCount;
   const finalMaximum = Math.floor(area * 0.35);
+  if (splitPathCount === 2) {
+    const unit = Math.floor(area / (seedPathCount + splitPathCount));
+    const lengths = Array.from({ length: seedPathCount }, (_, index) =>
+      index < splitPathCount ? unit * 2 : unit);
+    let remaining = area - lengths.reduce((sum, length) => sum + length, 0);
+    for (let index = 0; remaining > 0; index = (index + 1) % lengths.length) {
+      lengths[index] += 1;
+      remaining -= 1;
+    }
+    return lengths;
+  }
   const longLength = Math.min(
     area - (seedPathCount - 1) * 4,
     Math.max(finalMaximum + 1, Math.round(area * 0.375)));
@@ -213,13 +225,17 @@ function buildInput(brief, previousReports) {
     previousFailures: (previousReports || []).map(safeFeedback).filter(Boolean)
   };
   if (portal) {
+    const portalCellCount = brief.portalCellCount === 4 ? 4 : 2;
+    const splitPathCount = portalCellCount / 2;
+    payload.brief.portalCellCount = portalCellCount;
     payload.portalPolicy = {
       rulesVersion: 2,
-      generationStrategy: 'split_one_continuous_seed_path',
-      seedPathCount: brief.colorCount - 1,
-      portalCellCount: 2,
-      splitPathCount: 1,
-      transitionsPerSolution: 1,
+      generationStrategy: 'split_continuous_seed_paths',
+      portalNetworkCount: 1,
+      seedPathCount: brief.colorCount - splitPathCount,
+      portalCellCount,
+      splitPathCount,
+      transitionsPerSolution: splitPathCount,
       minimumFlattenedPathLength: 4,
       maximumFlattenedPathShare: 0.35,
       maximumCheapBypassReroutedColors: 2
@@ -231,7 +247,7 @@ function buildInput(brief, previousReports) {
     if (brief.targetGrade === 5) {
       payload.portalPolicy.seedConstructionHints = {
         preferredSeedPathLengths: gradeFiveSeedPathLengths(brief),
-        splittablePathIndex: 0,
+        splittablePathIndexes: Array.from({ length: splitPathCount }, (_, index) => index),
         shape: 'winding_interlocking_regions',
         avoid: 'parallel_equal_stripes'
       };

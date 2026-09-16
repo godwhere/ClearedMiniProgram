@@ -103,6 +103,12 @@ Portal 初次接入后：
 
 应优先拆出 portal hint provider 和 board/portal renderer，而不是把整个服务或整个 Canvas 系统一次重写。
 
+## 2.6 每日机制组合的当前边界
+
+每日来源现支持普通、Portal、冰封和 Portal v2 + 冰封 v1。组合仍使用 `Mechanic: portal` 和原 Portal 版本，附加冰封声明；不引入任意机制组合框架或新的进度域。`GameRunner` 在纯机制层共享覆盖计数，Portal 查询中可附加只读 `ice` 状态；App 从此状态构造冻结格和提示 ViewModel，Renderer 不读取 Runner。
+
+`DailyChallengeService` 校验题面与解答；HintService 根据只读主机制/冰封状态选择原 provider，混合完整提示复用 Portal 分段校验与 Ice 分步预览。`daily`/`dailyResult` 复用 Portal 指令带、冰封层和手动提示控制；所有完成继续走每日存档/联网结算，不落入 ordinary/trial。排期与验证见 [每日机制包](daily-mechanic-pack.md)。
+
 ## 3. 不可破坏的架构约束
 
 后续所有阶段必须继续遵守：

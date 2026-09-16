@@ -13,8 +13,10 @@ const { normalizeProvider } = require('./cli.js');
 const DEFAULT_CASES = path.join(__dirname, 'eval-cases-v1.json');
 const LARGE_BOARD_CASES = path.join(__dirname, 'eval-cases-large-v1.json');
 const PORTAL_CASES = path.join(__dirname, 'eval-cases-portal-v1.json');
+const PORTAL_FRONTIER_CASES = path.join(__dirname, 'eval-cases-portal-frontier-v1.json');
 const ALLOWED_CASE_VERSIONS = new Set([
-  'eval-cases-v1', 'eval-cases-large-v1', 'eval-cases-portal-v1'
+  'eval-cases-v1', 'eval-cases-large-v1', 'eval-cases-portal-v1',
+  'eval-cases-portal-frontier-v1'
 ]);
 const MAX_CALLS_PER_CASE = LIMITS.maxProviderCalls;
 const FULL_CASE_COUNT = 24;
@@ -512,6 +514,7 @@ module.exports = {
   DEFAULT_CASES,
   LARGE_BOARD_CASES,
   PORTAL_CASES,
+  PORTAL_FRONTIER_CASES,
   MAX_CALLS_PER_CASE,
   MAX_LIVE_CALLS,
   percentile,

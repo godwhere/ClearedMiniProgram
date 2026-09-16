@@ -144,19 +144,33 @@ function portalBypassAudit(level, solution, solver) {
     return { status: 'failed', errorCode: ERROR_CODES.SOLVER_INVALID, base };
   }
 
-  const portalLine = solution.findIndex(line =>
-    line && Array.isArray(line.Segments) && line.Segments.some(segment => segment.Exit));
-  if (portalLine < 0) {
+  const portalLines = [];
+  solution.forEach((line, lineIndex) => {
+    if (line && Array.isArray(line.Segments) && line.Segments.some(segment => segment.Exit)) {
+      portalLines.push(lineIndex);
+    }
+  });
+  if (!portalLines.length) {
     return { status: 'failed', errorCode: ERROR_CODES.SOLVER_INVALID, base };
   }
   const paths = solution.map(flattenedSolutionLine);
+  const portalCells = new Set((level.Portals || []).flatMap(portal => portal.Cells || []));
+  const movingGroups = new Map();
+  portalLines.forEach(portalLine => {
+    movingGroups.set(String(portalLine), [portalLine]);
+    for (let other = 0; other < level.Lines.length; other += 1) {
+      if (other === portalLine) continue;
+      const moving = [portalLine, other].sort((one, two) => one - two);
+      movingGroups.set(moving.join(','), moving);
+    }
+  });
+  const groups = Array.from(movingGroups.values()).sort((one, two) =>
+    one.length - two.length || one[0] - two[0] || (one[1] || 0) - (two[1] || 0));
   const localChecks = [];
-  for (let other = -1; other < level.Lines.length; other += 1) {
-    if (other === portalLine) continue;
-    const moving = other < 0 ? [portalLine] : [portalLine, other];
+  for (const moving of groups) {
     const movingSet = new Set(moving);
     const fixedCells = paths.reduce((cells, path, index) =>
-      movingSet.has(index) ? cells : cells.concat(path), []);
+      movingSet.has(index) ? cells : cells.concat(path.filter(cell => !portalCells.has(cell))), []);
     const reduced = Object.assign({}, level, {
       Lines: moving.map(index => level.Lines[index]),
       Blocked: fixedCells

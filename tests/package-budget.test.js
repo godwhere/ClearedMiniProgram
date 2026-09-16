@@ -15,6 +15,12 @@ function run() {
   assert.strictEqual(report.total.bytes, report.packages.reduce((sum, row) => sum + row.bytes, 0));
   const config = JSON.parse(fs.readFileSync(path.join(root, 'project.config.json'), 'utf8'));
   const packages = JSON.parse(fs.readFileSync(path.join(root, 'game.json'), 'utf8')).subpackages;
+  ['output/pdf/example.pdf', 'tmp/previews/page.png'].forEach(file => {
+    assert.strictEqual(budget.isIgnored(file, config.packOptions.ignore), true, 'local artifacts must not ship');
+  });
+  ['data/daily-mechanic-pack.js', 'data/daily-mechanic-solutions.js'].forEach(file => {
+    assert.strictEqual(budget.isIgnored(file, config.packOptions.ignore), false, 'daily content must ship');
+  });
   require('../src/skins/index.js').filter(skin => skin.id !== 'classic').forEach(skin => {
     assert.strictEqual(budget.isIgnored(skin.assets.tileSheet, config.packOptions.ignore), false);
     assert.strictEqual(budget.packageForFile(skin.assets.tileSheet, packages), `theme-${skin.id}`);

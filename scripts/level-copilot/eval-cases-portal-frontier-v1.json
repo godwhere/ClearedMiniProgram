@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "caseVersion": "eval-cases-portal-frontier-v1",
+  "cases": [
+    { "id": "portal-frontier-p2-g2-01", "smoke": true, "brief": { "schemaVersion": 1, "mechanic": "portal", "width": 8, "height": 10, "colorCount": 10, "targetGrade": 2, "designIntent": "八乘十双门恢复题，入口明确，纵向空间舒展且传送关系易读。", "portalCellCount": 2 } },
+    { "id": "portal-frontier-p2-g2-02", "smoke": false, "brief": { "schemaVersion": 1, "mechanic": "portal", "width": 8, "height": 10, "colorCount": 9, "targetGrade": 2, "designIntent": "双门只完成一次温和换区，并保留两条明显起手。", "portalCellCount": 2 } },
+    { "id": "portal-frontier-p2-g2-03", "smoke": false, "brief": { "schemaVersion": 1, "mechanic": "portal", "width": 8, "height": 10, "colorCount": 8, "targetGrade": 2, "designIntent": "利用长棋盘形成上下分区，但避免重复水平条带。", "portalCellCount": 2 } },
+    { "id": "portal-frontier-p2-g3-01", "smoke": false, "brief": { "schemaVersion": 1, "mechanic": "portal", "width": 8, "height": 10, "colorCount": 10, "targetGrade": 3, "designIntent": "传送线路与普通线路在中部形成一次可恢复的顺序判断。", "portalCellCount": 2 } },
+    { "id": "portal-frontier-p2-g3-02", "smoke": false, "brief": { "schemaVersion": 1, "mechanic": "portal", "width": 8, "height": 10, "colorCount": 8, "targetGrade": 3, "designIntent": "一条长线跨越上下区域，双门负责连接两个轮廓清楚的空间。", "portalCellCount": 2 } },
+    { "id": "portal-frontier-p2-g3-03", "smoke": false, "brief": { "schemaVersion": 1, "mechanic": "portal", "width": 8, "height": 10, "colorCount": 7, "targetGrade": 3, "designIntent": "减少条带感，让边缘和中轴共同参与两步规划。", "portalCellCount": 2 } },
+    { "id": "portal-frontier-p2-g4-01", "smoke": true, "brief": { "schemaVersion": 1, "mechanic": "portal", "width": 8, "height": 10, "colorCount": 8, "targetGrade": 4, "designIntent": "双门线路与至少两色争夺中部通道，仍保留一个可读起手。", "portalCellCount": 2 } },
+    { "id": "portal-frontier-p2-g4-02", "smoke": false, "brief": { "schemaVersion": 1, "mechanic": "portal", "width": 8, "height": 10, "colorCount": 7, "targetGrade": 4, "designIntent": "上下区域互相制约，错误顺序可以回退但不能廉价绕过传送。", "portalCellCount": 2 } },
+    { "id": "portal-frontier-p2-g4-03", "smoke": false, "brief": { "schemaVersion": 1, "mechanic": "portal", "width": 8, "height": 10, "colorCount": 6, "targetGrade": 4, "designIntent": "少色长线交错占据纵向空间，难点集中而不是遍布全盘。", "portalCellCount": 2 } },
+    { "id": "portal-frontier-p2-g5-01", "smoke": true, "brief": { "schemaVersion": 1, "mechanic": "portal", "width": 8, "height": 10, "colorCount": 6, "targetGrade": 5, "designIntent": "双门极难题，长线互锁并要求提前安排上下通道。", "portalCellCount": 2 } },
+    { "id": "portal-frontier-p2-g5-02", "smoke": false, "brief": { "schemaVersion": 1, "mechanic": "portal", "width": 8, "height": 10, "colorCount": 5, "targetGrade": 5, "designIntent": "五色长线形成多区域依赖，传送必须参与正确解。", "portalCellCount": 2 } },
+    { "id": "portal-frontier-p2-g5-03", "smoke": false, "brief": { "schemaVersion": 1, "mechanic": "portal", "width": 8, "height": 10, "colorCount": 4, "targetGrade": 5, "designIntent": "四条大范围线路互相嵌套，避免平行等宽分区。", "portalCellCount": 2 } },
+
+    { "id": "portal-frontier-p4-g2-01", "smoke": true, "brief": { "schemaVersion": 1, "mechanic": "portal", "width": 8, "height": 10, "colorCount": 10, "targetGrade": 2, "designIntent": "四门入门题，两次跳转分别清楚连接两个局部区域。", "portalCellCount": 4 } },
+    { "id": "portal-frontier-p4-g2-02", "smoke": false, "brief": { "schemaVersion": 1, "mechanic": "portal", "width": 8, "height": 10, "colorCount": 9, "targetGrade": 2, "designIntent": "一个中性四门网络保持易读，两条传送线都应容易辨认。", "portalCellCount": 4 } },
+    { "id": "portal-frontier-p4-g2-03", "smoke": false, "brief": { "schemaVersion": 1, "mechanic": "portal", "width": 8, "height": 10, "colorCount": 8, "targetGrade": 2, "designIntent": "门格分散在上下区域，但不要用额外绕行制造假难度。", "portalCellCount": 4 } },
+    { "id": "portal-frontier-p4-g3-01", "smoke": false, "brief": { "schemaVersion": 1, "mechanic": "portal", "width": 8, "height": 10, "colorCount": 10, "targetGrade": 3, "designIntent": "两条传送线路分别影响一条普通线路，形成温和先后关系。", "portalCellCount": 4 } },
+    { "id": "portal-frontier-p4-g3-02", "smoke": false, "brief": { "schemaVersion": 1, "mechanic": "portal", "width": 8, "height": 10, "colorCount": 8, "targetGrade": 3, "designIntent": "四个门格分区清楚，中部需要一次双线协调。", "portalCellCount": 4 } },
+    { "id": "portal-frontier-p4-g3-03", "smoke": false, "brief": { "schemaVersion": 1, "mechanic": "portal", "width": 8, "height": 10, "colorCount": 7, "targetGrade": 3, "designIntent": "让两条传送线轮廓不同，避免镜像重复与水平条带。", "portalCellCount": 4 } },
+    { "id": "portal-frontier-p4-g4-01", "smoke": true, "brief": { "schemaVersion": 1, "mechanic": "portal", "width": 8, "height": 10, "colorCount": 8, "targetGrade": 4, "designIntent": "四门挑战题，两条传送线共同争夺中轴空间并保留逻辑线索。", "portalCellCount": 4 } },
+    { "id": "portal-frontier-p4-g4-02", "smoke": false, "brief": { "schemaVersion": 1, "mechanic": "portal", "width": 8, "height": 10, "colorCount": 7, "targetGrade": 4, "designIntent": "上下门区相互牵制，至少需要两次可理解的顺序判断。", "portalCellCount": 4 } },
+    { "id": "portal-frontier-p4-g4-03", "smoke": false, "brief": { "schemaVersion": 1, "mechanic": "portal", "width": 8, "height": 10, "colorCount": 6, "targetGrade": 4, "designIntent": "少色长线穿插四门网络，传送旁路必须具有明显代价。", "portalCellCount": 4 } },
+    { "id": "portal-frontier-p4-g5-01", "smoke": true, "brief": { "schemaVersion": 1, "mechanic": "portal", "width": 8, "height": 10, "colorCount": 6, "targetGrade": 5, "designIntent": "四门极难题，两条传送长线与普通长线形成多区域互锁。", "portalCellCount": 4 } },
+    { "id": "portal-frontier-p4-g5-02", "smoke": false, "brief": { "schemaVersion": 1, "mechanic": "portal", "width": 8, "height": 10, "colorCount": 5, "targetGrade": 5, "designIntent": "五色高压布局要求预先分配上下空间，两次传送都不可替代。", "portalCellCount": 4 } },
+    { "id": "portal-frontier-p4-g5-03", "smoke": false, "brief": { "schemaVersion": 1, "mechanic": "portal", "width": 8, "height": 10, "colorCount": 4, "targetGrade": 5, "designIntent": "四条大范围线路以两次跳转交错，避免等宽分区和盲目试错。", "portalCellCount": 4 } }
+  ]
+}

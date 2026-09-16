@@ -117,6 +117,7 @@ module.exports = Object.freeze({
   'play.hintStep.breakIce': 'Step {current}/{total}: Cross the frozen tile to break the ice',
   'play.hintStep.clearIce': 'Step {current}/{total}: Cross it again to clear the tile',
   'play.hintStep.connectEndpoints': 'Step {current}/{total}: Connect the matching endpoints',
+  'portal.instruction.mixed': 'Connect colors through portals\nCross ice with two different paths',
   'portal.instruction.initial': 'The path enters one portal and exits another',
   'portal.instruction.continue': 'Release at the portal, then continue from the other one',
   'hint.unavailable': 'Hint unavailable',

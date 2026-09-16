@@ -2,6 +2,8 @@
   "description": "Cleared puzzle game rebuilt as a lightweight WeChat Mini Game",
   "packOptions": {
     "ignore": [
+      { "value": "output", "type": "folder" },
+      { "value": "tmp", "type": "folder" },
       {
         "value": "tests",
         "type": "folder"

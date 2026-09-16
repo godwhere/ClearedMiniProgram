@@ -2,7 +2,7 @@
 
 > 设计记录：2026-08-31  
 > 需求状态：已确认每日两关、每日进入次数 3 次；本文是实现契约。  
-> 实现状态：每日两关、每日 3 次进入、镂空规则、独立存档和主页入口已接入；棋盘输入、提示与渲染已迁入共享架构。阶段 6 已关闭 checked-in 的无限调试入口；广告/分享增次、复活和货币仍未实现。
+> 当前实现：每日两关、默认 3 次进入、独立存档和联网结算；普通、Portal、冰封及 Portal v2 + 冰封混合题共用规则/输入/渲染。完整每日首通奖励 500，广告/分享增次默认关闭。北京时间 2026-09-16 至 09-25 新增十天机制包，见 [内容与验收](daily-mechanic-pack.md)。后文分阶段记录不是当前未实现清单。
 > 运行时：微信小游戏单 Canvas 链路 game.js → src/bootstrap.js → src/app.js → src/ui/canvas-renderer.js
 
 ## 1. 已确认的产品规则
@@ -13,14 +13,14 @@
 - 进入后的页面/玩法标题：**每日挑战**。
 - 每个自然日提供 **2 关**，按顺序游玩：
   - 第 1 关：入门关，**3 列 × 3 行、2 种棋子（2 条线）**，目标是非常简单。
-  - 第 2 关：极难关，**8 列 × 10 行**，允许配置镂空格，目标难度接近“羊了个羊”式的高门槛。
+  - 第 2 关：挑战关，**8 列 × 10 行**，可配置镂空、Portal、冰封或 Portal v2 + 冰封。保留 `Difficulty: extreme` 兼容标识，不代表已经证明每题达到极难或唯一解；实际难度需试玩校准。
 - 每日默认最多进入 **3 次**。一次“进入”代表开始一轮每日挑战，完成第 1 关后进入第 2 关不再扣次数。
 - 自动化测试可显式注入无限次进入，以便反复验证两关流程；checked-in 运行配置不得开启，正式模式默认上限为 3。
 - 当前轮次离开后重新进入、结果页重玩，均视为再次进入；次数用尽后不能再开始。
-- 后续可通过广告、分享等方式增加进入次数，并增加“复活”按钮；本阶段只预留扩展接口，不接广告、分享、复活或货币。
-- 第 2 关通关后产生一次每日完成奖励资格。货币名称、数量、余额、兑换、皮肤解锁和其他消费逻辑暂不实现。
+- 授权增次已有独立接口，但默认关闭；免费重试当前失败小关与重新开始整轮是不同操作，见第 17 节。
+- 两小关均完成后按 dateKey 发放一次 500 首通奖励，第一关不发奖；现行联网模式使用低频云结算，详见 [联网合同](cloudbase-local-first-sync.md)。
 
-普通关卡统一按 1—137 连续编号，题面最大为 8×8；前 32 关不变，105 个 8×8 按 [难度系统](level-difficulty-system.md) 固定顺序开放，已完成/永久解锁题保留访问。主线普通/Portal 混排，冰块不加入，继续使用独立的普通进度和普通统计。本轮不改每日内容和规则。
+主线共 168 关，题面最大为 8×8，按 [难度系统](level-difficulty-system.md) 固定顺序开放；普通/Portal/冰封混排。每日内容不改变任何主线坐标、排序、解锁或统计。
 8×10 只保留在高难／每日挑战中；每日两关不是 catalog-v2 中的额外普通关卡。
 
 ## 2. 附件截图的适用范围
@@ -45,7 +45,7 @@
 - 独立 daily 棋盘场景和 dailyResult 结果场景。
 - 每日包内两个有序 level；第 1 关完成后只在当前轮次内切到第 2 关。
 - 每日进入次数、每日完成状态和重复结算幂等。
-- 第 1 关 3×3/2 线、第 2 关 8×10/镂空。
+- 第 1 关 3×3/2 线、第 2 关 8×10，机制由题面声明，Blocked 可为空。
 - 为未来奖励层保留 onDailyCompleted 完成事件和次数增加接口边界。
 
 ### 3.2 明确不做
@@ -53,11 +53,11 @@
 - 不把每日 level 加入 data/catalog-v2.js、catalog.sets、data/solutions.js 或 ProgressionService。
 - 不把每日完成写入普通 ProgressStore.state.completed、bestMs、lastPlayed 或 stats.totalClears。
 - 不调用 ProgressStore.recordCompletion() 或普通 AdsService.onLevelCompleted() 结算每日奖励。
-- 不接入广告、分享、复活按钮、货币账本、商城、皮肤解锁、排行榜、网络下发或服务端时间。
+- 关卡内容不通过网络下发，不引入排行榜或服务端排期；现有提示许可、奖励与增次边界见后文。
 - 不修改 pages/* 或根目录旧小程序页面；当前发布包不使用这些路径。
 - 不在跨午夜时自动替换正在游玩的棋盘；重新进入时才解析新日期。
 - 不要求当前阶段恢复每日轮次的中途连线快照。
-- v1 不支持传送门每日题；题面声明 `Mechanic: 'portal'` 或显式 `Portals` 时以 `portal-not-supported` 拒绝加载。
+- Portal 题复用 `portal-validation` 的版本/结构校验与分段解答；纯冰封使用 ice v1，混合仅允许 Portal v2 + ice v1。未知版本或非法冰格拒绝加载。
 
 ## 4. 主页布局契约
 
@@ -286,13 +286,13 @@ module.exports = {
 | Level Id | 是 | 稳定唯一；提示和每日存档使用它 |
 | LevelIndex | 是 | 只能为 0 或 1，且不得重复 |
 | Difficulty | 是 | level 0 为 intro，level 1 为 extreme |
-| PieceCount | 否 | 视觉/校验提示；当前 level 0 为 2，level 1 为 10，与 Lines.length 对应 |
+| PieceCount | 否 | 必须与 Lines.length 对应；热身为 2，十天机制包的挑战关为 8 |
 | Width/Height | 是 | level 0 必须 3×3；level 1 必须 8×10 |
 | Blocked | 是 | 整数索引数组；去重、范围有效 |
 | Lines | 是 | 端点可走且互不重复；level 0 必须恰好 2 条 |
 | Palette | 是 | 至少覆盖线数量 |
 
-索引统一为行优先：index = row * Width + column。代码只使用 Blocked，不支持 Holes 别名。level 0 的两条线必须联合覆盖 3×3 的 9 格；level 1 的解答路径联合覆盖 80 - Blocked.length 格。
+索引统一为行优先：index = row * Width + column。代码只使用 Blocked，不支持 Holes 别名。热身两条线覆盖 9 格；挑战题覆盖全部必填格，普通格一次、冰格两条不同线路各一次，未使用的 Portal v2 门格不要求覆盖。冰格与端点、Blocked、门格不得重叠。
 
 ### 7.2 校验
 
@@ -300,8 +300,8 @@ validateDay() 和 validate() 必须拒绝：
 
 - 日期、ID、EntryLimit、LevelIndex、尺寸或难度不符合约束；
 - Blocked 非整数、越界、重复，或端点落在 Blocked；
-- `Mechanic: 'portal'` 或显式 `Portals`（每日题 v1 尚无分段解答/存档契约）；
-- 端点重复、路径经过 Blocked、越界、非相邻、重复或跨 level 重叠；
+- Portal schema/版本/分段 Exit 非法；ice v1 声明非法或与 Portal v1 混用；
+- 端点重复、路径经过 Blocked、越界、非法非相邻跳跃、自重复，或非冰格跨线路重复；
 - 解答数量与 Lines 不一致，或没有覆盖该 level 的全部可走格。
 
 ### 7.3 每日提示索引
@@ -353,11 +353,11 @@ new GameRunner(level, palette, onChange, {
 - 普通 find(runner, setIndex, levelIndex) 保持兼容。
 - 每日使用 findDaily(runner, levelId, dailySolutions)，按 level ID 查询。
 - 完整预览使用 findDailyComplete(runner, levelId, dailySolutions)：只接受并整体验证预设解法，
-  任一路线缺失、非法或未覆盖全部非 Blocked 格时返回 null，不使用 BFS 拼接答案。
-- HintService 只从 `runner.getViewState()` 创建深拷贝 HintContext，再交给 ordinary provider。
+  任一路线缺失、非法或未满足普通/Portal/冰格覆盖规则时返回 null，不使用 BFS 拼接答案。
+- HintService 只从 `runner.getViewState()` 创建深拷贝 HintContext，再按机制交给 ordinary / portal / ice provider；混合题将 Portal 分段验证与冰格覆盖计数组合。
 - 存储路径和 BFS 都根据 HintContext 的 `blocked/blockedMask` 跳过镂空格。
 - 提示求解服务不读日期、不写存档、不发奖励；提示访问许可由独立 HintAccessService 管理，见第 18 节。
-- App 以独立 `hintPreview` 显示初始棋盘 ViewModel 和全部路线；预览持续 10 秒，再次点击提示立即关闭。
+- App 以独立 `hintPreview` 显示初始棋盘 ViewModel。无冰题完整预览持续 10 秒；纯冰封/混合题使用手动逐线步骤，箭头或左右滑动翻页，不自动超时。再次点击提示立即关闭。
   预览期间计时继续，棋盘输入、重置和回撤禁用，真实 Runner、每日进度和撤销栈均不变。
 - 按钮切换为“隐藏提示”时，图标与文案按宽度整体居中并保持间距；窄屏可等比缩小内容，
   不移动或缩小原有触控区域，普通关与每日关共用此排布。
@@ -373,7 +373,7 @@ new GameRunner(level, palette, onChange, {
 - 每个 Blocked 格显示为不可走镂空，不绘制 tile、端点、提示或清除动画，也不产生棋盘 UI hit。
 - 完整提示路径按线路颜色绘制经过格、中心连线和缩放方向箭头；预览仍复用当前安全区与动态棋盘布局。
 - 主题只负责 tile、背景和按钮，不判断 Blocked。
-- 结果页只显示每日完成、总用时和次数状态，不显示虚构货币数量。
+- 结果页显示每日完成、总用时、次数及现有奖励结果，不自行写钱包。
 - 未填满失败使用同一 Canvas 结果层，显示剩余空格数、“返回主页”和“重试本关”；面板出现后
   不得保留棋盘、顶部控制、提示或撤回的命中区域。
 - 2026-09-04 视觉统一：普通／每日失败和成功结算共用 `drawResultPanel()` 的全宽深色横向面板，
@@ -607,6 +607,6 @@ checked-in 入口当前将 `dailyDebugUnlimited` 设为 `false`，所有实际�
 后续“首个新关免费、第二个分享、第三个及以后观看广告并达到平台发奖条件后解锁”仍是待实施策略；原免费失败重试保持不变。日期、键格式、失败回退、代码边界及测试见 [`hint-access-and-sharing.md`](hint-access-and-sharing.md)。
 ## 19. 完整每日首胜货币
 
-- 只有本轮固定 `dateKey` 下两项不同 levelId 都成功写入、且索引为 0／1 的完整每日记录，才获得 500 本地货币；第一小关不发放。
+- 只有本轮固定 `dateKey` 下两项不同 levelId 都成功写入、且索引为 0／1 的完整每日记录，才获得 500 首通奖励；第一小关不发放。现行联网模式由云端幂等确认，本地回退仍由 RewardUnlockService 处理；不得把本地可靠保存当成云端已到账。
 - 领取按 `dateKey` 去重，同日重玩、调试无限进入或同日期更换 dayId 都不会再次领取。跨午夜完成已经开始的旧日挑战仍归原 `dateKey`。
 - `DailyProgressStore.exportRewardCompletions()` 只投影已保存的完整两关事实；读取或格式失败不以当前内存状态冒充成功。余额和领取标记由独立 `RewardUnlockService` 在同一次写盘中提交，不改变每日进入次数、提示或服务端额外次数合同。

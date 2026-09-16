@@ -2314,7 +2314,8 @@ class CanvasRenderer {
     if (model.scene === 'result') this.drawResult(model, now);
   }
 
-  drawPlayActions(model, actionTop, now) {
+  drawPlayActions(model, actionTop, now, actionPrefix) {
+    const prefix = actionPrefix || 'play';
     const skin = this.skinService.current();
     const { width } = this.platform.metrics;
 
@@ -2325,7 +2326,7 @@ class CanvasRenderer {
     const rectH = 50;
     const hintPreviewActive = !!(model.hintPreview && (model.hintPreview.manual === true || now < model.hintPreview.until));
     const manualPreview = hintPreviewActive && model.hintPreview.manual === true;
-    this.button('play:hint', { x: margin, y: rectY, w: buttonWidth, h: rectH },
+    this.button(prefix + ':hint', { x: margin, y: rectY, w: buttonWidth, h: rectH },
       hintPreviewActive ? this.t('play.hideHint') : (model.hintLabel || this.t('play.hint')), {
       fontSize: 17,
       icon: 'hint',
@@ -2343,7 +2344,7 @@ class CanvasRenderer {
       this.text(`${preview.index + 1}/${preview.frames.length}`, x + buttonWidth / 2, rectY + rectH / 2,
         12, { maxWidth: buttonWidth - 88 });
       this.text(this.t('play.swipeHintSteps'), width / 2, rectY + rectH + 8, 10, { alpha: 0.62 });
-    } else this.button('play:undo', {
+    } else this.button(prefix + ':undo', {
       x: margin + buttonWidth + gap,
       y: rectY,
       w: buttonWidth,
@@ -2415,6 +2416,8 @@ class CanvasRenderer {
       ? Number(board.width) : this.dailyDimension(challenge, 'Width', 'width', 8);
     const rows = board && Number(board.height) > 0
       ? Number(board.height) : this.dailyDimension(challenge, 'Height', 'height', 10);
+    const portal = renderModel && renderModel.mechanic && renderModel.mechanic.portal;
+    const hasPromptBand = !!portal || !!model.beginnerInstruction;
     const palette = this.dailyPalette(challenge, skin);
     const background = (challenge && (challenge.Color || challenge.color)) || skin.colors.homeBackground;
     this.begin(background);
@@ -2446,7 +2449,8 @@ class CanvasRenderer {
     this.iconButton(backAction, { x: 8, y: topUi + 12, w: 44, h: 44 }, 'back', true, model && model.pressedId);
     this.iconButton(soundAction, { x: soundX, y: topUi + 12, w: controlSize, h: 44 },
       model && model.soundEnabled === false ? 'mute' : 'sound', true, model && model.pressedId);
-    const hintPreviewActive = !!(model && model.hintPreview && now < model.hintPreview.until);
+    const hintPreviewActive = !!(model && model.hintPreview &&
+      (model.hintPreview.manual === true || now < model.hintPreview.until));
     this.iconButton('daily:reset', { x: resetX, y: topUi + 12, w: controlSize, h: 44 },
       'reset', !isResult && !!board && !hintPreviewActive, model && model.pressedId);
 
@@ -2495,7 +2499,10 @@ class CanvasRenderer {
     const showActions = !isResult || failedResult;
     const actionHeight = showActions ? 78 : 0;
     const actionTop = safeBottom - actionHeight;
-    const boardTop = headerTop + headerHeight + 16;
+    const promptTop = headerTop + headerHeight;
+    const instruction = isResult ? null : (portal ? portal.instruction : model.beginnerInstruction);
+    if (instruction) this.drawPlayInstruction(instruction, { x: 12, y: promptTop, w: width - 24, h: 32 }, now);
+    const boardTop = promptTop + 16 + (hasPromptBand ? 32 : 0);
     const boardBottom = actionTop - (showActions ? 14 : 20);
     const cell = Math.min(
       (width - 24) / cols,
@@ -2512,44 +2519,16 @@ class CanvasRenderer {
         levelEnteredAt: model.levelEnteredAt,
         animateBlocked: false
       });
-      if (showActions) this.drawDailyActions(model, actionTop, now);
+      if (showActions) this.drawDailyActions(Object.assign({}, model, {
+        hintStepLabel: renderModel && renderModel.hintStepLabel
+      }), actionTop, now);
     }
 
     if (isResult) this.drawDailyResult(model, now);
   }
 
   drawDailyActions(model, actionTop, now) {
-    const skin = this.skinService.current();
-    const width = this.platform.metrics.width;
-    const gap = 12;
-    const margin = 22;
-    const buttonWidth = (width - margin * 2 - gap) / 2;
-    const rectY = actionTop + 12;
-    const rectH = 50;
-    const hintPreviewActive = !!(model.hintPreview && now < model.hintPreview.until);
-    this.button('daily:hint', { x: margin, y: rectY, w: buttonWidth, h: rectH },
-      hintPreviewActive ? this.t('play.hideHint') : (model.hintLabel || this.t('play.hint')), {
-      fontSize: 17,
-      icon: 'hint',
-      enabled: model.hintAvailable !== false,
-      fill: skin.colors.primaryButton,
-      stroke: skin.colors.primaryButtonStroke
-    }, model.pressedId);
-    this.button('daily:undo', {
-      x: margin + buttonWidth + gap,
-      y: rectY,
-      w: buttonWidth,
-      h: rectH
-    }, this.t('play.undo'), {
-      fontSize: 17,
-      icon: 'undo',
-      enabled: model.canUndo === true && !hintPreviewActive,
-      fill: skin.colors.secondaryButton,
-      stroke: skin.colors.primaryButtonStroke
-    }, model.pressedId);
-    if (hintPreviewActive) {
-      this.text(this.t('play.fullSolution'), width / 2, actionTop - 19, 12, { alpha: 0.76 });
-    }
+    this.drawPlayActions(model, actionTop, now, 'daily');
   }
 
   drawResultPanel(desiredHeight, options) {

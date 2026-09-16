@@ -119,6 +119,19 @@ function optimizableGradeFivePortalSeed() {
   };
 }
 
+function fourGatePortalSeed() {
+  return {
+    schemaVersion: 1,
+    paths: [
+      { cells: [0, 8, 9, 1, 2, 10, 11, 3, 4, 12, 13, 5, 6, 14, 15, 7] },
+      { cells: [16, 24, 25, 17, 18, 26, 27, 19, 20, 28, 29, 21, 22, 30, 31, 23] }
+    ].concat(Array.from({ length: 6 }, (_, row) => ({
+      cells: Array.from({ length: 8 }, (_, column) => (row + 4) * 8 + column)
+    }))),
+    designSummary: 'Eight by ten seed with two deterministic Portal splits.'
+  };
+}
+
 function run() {
   const input = cover();
   const before = JSON.stringify(input);
@@ -354,6 +367,49 @@ function run() {
   assert.strictEqual(optimizedSeed.report.portalSeedOptimization.depth, 5);
   assert(optimizedSeed.report.portalSeedOptimization.evaluatedSeedCount <=
     validator.PORTAL_SEED_SEARCH_LIMITS.maxSeeds);
+
+  const fourGateBrief = {
+    schemaVersion: 1,
+    mechanic: 'portal',
+    width: 8,
+    height: 10,
+    colorCount: 10,
+    targetGrade: 3,
+    designIntent: 'Four-gate eight by ten validation fixture.',
+    portalCellCount: 4
+  };
+  const fourGateResult = validator.validateCandidate(fourGateBrief, fourGatePortalSeed(), {
+    dependencies: dependencies({
+      solveWithoutPortals: () => ({ status: 'unsatisfiable', paths: null, states: 10 }),
+      evaluateDifficulty: () => ({ grade: 3, score: 50 })
+    })
+  });
+  assert.strictEqual(fourGateResult.status, 'reviewable');
+  assert.strictEqual(fourGateResult.level.Width, 8);
+  assert.strictEqual(fourGateResult.level.Height, 10);
+  assert.strictEqual(fourGateResult.level.Portals[0].Cells.length, 4);
+  assert.strictEqual(fourGateResult.solution.filter(line =>
+    line.Segments.some(segment => segment.Exit)).length, 2);
+  assert.strictEqual(fourGateResult.report.checks.runtime, 'passed');
+  assert.strictEqual(fourGateResult.report.solver.classification, 'required');
+
+  const bypassCalls = [];
+  const bypass = validator.portalBypassAudit(
+    fourGateResult.level, fourGateResult.solution, level => {
+      bypassCalls.push(level);
+      return bypassCalls.length === 1
+        ? { status: 'solved', paths: [[0, 1]], states: 1 }
+        : { status: 'unsatisfiable', paths: null, states: 1 };
+    });
+  assert.strictEqual(bypass.status, 'passed');
+  assert.strictEqual(bypass.classification, 'optional_complex');
+  assert(bypass.localChecks.some(check => check.movingLines.length === 2 &&
+    fourGateResult.solution.every((line, lineIndex) =>
+      !line.Segments.some(segment => segment.Exit) || check.movingLines.includes(lineIndex))));
+  const gates = new Set(fourGateResult.level.Portals[0].Cells);
+  bypassCalls.slice(1).forEach(level => {
+    assert((level.Blocked || []).every(cell => !gates.has(cell)));
+  });
 }
 
 module.exports = run;

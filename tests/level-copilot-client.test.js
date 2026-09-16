@@ -125,7 +125,7 @@ async function run() {
   });
   assert.strictEqual(tenLineFeedback.difficultySignals.pathLengths.length, 10);
   assert.strictEqual(tenLineFeedback.difficultySignals.lineSignals.length, 10);
-  assert.strictEqual(prompt.PROMPT_VERSION, 'copilot-prompt-v10');
+  assert.strictEqual(prompt.PROMPT_VERSION, 'copilot-prompt-v11');
   const portalBrief = {
     schemaVersion: 1,
     mechanic: 'portal',
@@ -137,13 +137,14 @@ async function run() {
   };
   const portalInput = JSON.parse(prompt.buildInput(portalBrief, []));
   assert.strictEqual(portalInput.task, 'generate_complete_portal_path_cover');
+  assert.strictEqual(portalInput.brief.portalCellCount, 2);
   assert.strictEqual(portalInput.portalPolicy.portalCellCount, 2);
   assert.strictEqual(portalInput.portalPolicy.seedPathCount, 4);
   assert.strictEqual(portalInput.portalPolicy.maximumCheapBypassReroutedColors, 2);
   assert.strictEqual(portalInput.portalPolicy.seedDifficultySignals, undefined);
   assert.deepStrictEqual(portalInput.portalPolicy.seedConstructionHints, {
     preferredSeedPathLengths: [24, 14, 13, 13],
-    splittablePathIndex: 0,
+    splittablePathIndexes: [0],
     shape: 'winding_interlocking_regions',
     avoid: 'parallel_equal_stripes'
   });
@@ -175,6 +176,27 @@ async function run() {
   const gradeThreePortalInput = JSON.parse(prompt.buildInput(
     Object.assign({}, portalBrief, { targetGrade: 3 }), []));
   assert.strictEqual(gradeThreePortalInput.portalPolicy.seedDifficultySignals, undefined);
+  const fourGatePortalInput = JSON.parse(prompt.buildInput({
+    schemaVersion: 1,
+    mechanic: 'portal',
+    width: 8,
+    height: 10,
+    colorCount: 6,
+    targetGrade: 5,
+    designIntent: 'Four-gate frontier fixture.',
+    portalCellCount: 4
+  }, []));
+  assert.strictEqual(fourGatePortalInput.portalPolicy.portalNetworkCount, 1);
+  assert.strictEqual(fourGatePortalInput.portalPolicy.portalCellCount, 4);
+  assert.strictEqual(fourGatePortalInput.portalPolicy.splitPathCount, 2);
+  assert.strictEqual(fourGatePortalInput.portalPolicy.seedPathCount, 4);
+  assert.strictEqual(fourGatePortalInput.portalPolicy.transitionsPerSolution, 2);
+  assert.deepStrictEqual(fourGatePortalInput.portalPolicy.seedConstructionHints, {
+    preferredSeedPathLengths: [27, 27, 13, 13],
+    splittablePathIndexes: [0, 1],
+    shape: 'winding_interlocking_regions',
+    avoid: 'parallel_equal_stripes'
+  });
 
   const schema = contracts.candidateSchema(brief);
   const body = buildRequestBody({

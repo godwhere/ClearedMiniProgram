@@ -140,8 +140,11 @@ class GameRunner {
     this.portalPolicy = this.portalDefinitions.length ? portalPolicy : null;
     this.portalRulesVersion = this.portalPolicy ? this.portalPolicy.rulesVersion : null;
     this.portalEnabled = this.portalDefinitions.length > 0;
-    const icePolicy = mechanic === 'ice' ? mechanicPolicies.resolve(mechanic, this.level.IceRulesVersion) : null;
-    this.iceCells = icePolicy ? icePolicy.normalize(this.level, this.blockedMask) : [];
+    const icePolicy = mechanic === 'ice' || (this.portalEnabled && this.portalRulesVersion === 2)
+      ? mechanicPolicies.resolve('ice', this.level.IceRulesVersion) : null;
+    const portalCells = this.portalEnabled
+      ? this.portalDefinitions.flatMap(portal => portal.cells || [portal.A, portal.B]) : null;
+    this.iceCells = icePolicy ? icePolicy.normalize(this.level, this.blockedMask, portalCells) : [];
     this.iceEnabled = this.iceCells.length > 0;
     this.reset();
   }
@@ -331,11 +334,12 @@ class GameRunner {
   }
 
   getMechanicState() {
-    if (this.iceEnabled) return {
+    const ice = this.iceEnabled ? {
       id: 'ice',
       rulesVersion: 1,
       cells: this.iceCells.map(index => ({ index, remainingLayers: this.remainingLayers[index] }))
-    };
+    } : null;
+    if (ice && !this.portalEnabled) return ice;
     const pending = this.portalPending ? {
       lineIndex: this.portalPending.lineIndex,
       pairId: this.portalPending.pairId || null,
@@ -356,7 +360,7 @@ class GameRunner {
       continuationStarted: this.portalPending.continuationStarted === true
     } : null;
     const locked = this.portalLock ? cloneRecord(this.portalLock) : null;
-    return {
+    const state = {
       id: this.portalEnabled ? 'portal' : null,
       rulesVersion: this.portalEnabled ? this.portalRulesVersion : null,
       phase: this.portalPhase,
@@ -375,6 +379,8 @@ class GameRunner {
       locked,
       usedPairIds: Array.from(this.portalUsedPairs || [])
     };
+    if (ice) state.ice = ice;
+    return state;
   }
 
   getCompletedLine(lineIndex) {

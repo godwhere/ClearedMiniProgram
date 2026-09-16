@@ -115,8 +115,8 @@ function run() {
   });
   invalidCases.slice(4, 7).forEach(item => {
     const result = service.validate(item[1]);
-    assert(result.errors.indexOf('portal-not-supported') >= 0,
-      `${item[0]} should expose the daily portal gate`);
+    assert(result.errors.some(code => code.startsWith('portal')),
+      `${item[0]} must still reject an incomplete or stray portal declaration`);
   });
 
   const portalSolutionChallenge = Object.assign(clone(manifest.Challenges[0]), {
@@ -128,7 +128,7 @@ function run() {
     solutions.ByChallengeId[manifest.Challenges[0].Id]
   );
   assert.strictEqual(portalSolutionResult.ok, false);
-  assert(portalSolutionResult.errors.indexOf('portal-not-supported') >= 0);
+  assert(portalSolutionResult.errors.includes('portals-required-array'));
 
   const badPaths = clone(solutions.ByChallengeId[resolved.levels[1].Id]);
   badPaths[0][1] = 3;
@@ -143,7 +143,7 @@ function run() {
   );
   assert.strictEqual(portalResolve.status, 'unavailable');
   assert.strictEqual(portalResolve.reason, 'invalid-day');
-  assert(portalResolve.errors.indexOf('portal-not-supported') >= 0);
+  assert(portalResolve.errors.includes('portals-required-array'));
 
   const solutionAware = new DailyChallengeService(manifest, { solutions });
   assert.strictEqual(solutionAware.resolve(new Date('2026-08-31T00:00:00Z')).status, 'available');

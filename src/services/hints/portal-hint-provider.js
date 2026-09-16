@@ -55,13 +55,13 @@ class PortalHintProvider {
     return this.findAvailablePortalPath(context);
   }
 
-  findComplete(context, storedPaths) {
+  findComplete(context, storedPaths, requiredCoverage) {
     if (!context || (context.outcome && context.outcome !== 'playing')) return null;
     if (!Array.isArray(storedPaths)) return null;
     const lines = linesOf(context);
     if (!lines.length || storedPaths.length !== lines.length) return null;
 
-    const used = new Set();
+    const used = new Map();
     const paths = [];
     for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
       const line = lines[lineIndex];
@@ -77,8 +77,9 @@ class PortalHintProvider {
       if (!direction || !this.isStoredPortalPathUsable(context, lineIndex, direction, {
         ignoreOwner: true
       })) return null;
-      if (direction.path.some(cell => used.has(cell))) return null;
-      direction.path.forEach(cell => used.add(cell));
+      if (direction.path.some(cell => (used.get(cell) || 0) >=
+          (requiredCoverage ? requiredCoverage[cell] : 1))) return null;
+      direction.path.forEach(cell => used.set(cell, (used.get(cell) || 0) + 1));
       paths.push({
         lineIndex,
         segments: direction.segments.map(segment => segment.slice()),
@@ -93,7 +94,7 @@ class PortalHintProvider {
     for (let index = 0; index < total; index++) {
       if (!this.ordinary.isPlayable(context, index)) continue;
       if (isPortalV2(context) && this.portalAt(context, index)) continue;
-      if (!used.has(index)) return null;
+      if (used.get(index) !== (requiredCoverage ? requiredCoverage[index] : 1)) return null;
     }
     return { paths, source: 'solution' };
   }

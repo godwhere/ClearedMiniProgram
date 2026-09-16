@@ -124,6 +124,31 @@ function longPortalSeed() {
   };
 }
 
+function fourGatePortalSeed() {
+  return {
+    brief: {
+      schemaVersion: 1,
+      mechanic: 'portal',
+      width: 8,
+      height: 10,
+      colorCount: 10,
+      targetGrade: 3,
+      designIntent: 'Eight by ten four-gate Portal seed fixture.',
+      portalCellCount: 4
+    },
+    candidate: {
+      schemaVersion: 1,
+      paths: [
+        { cells: [0, 8, 9, 1, 2, 10, 11, 3, 4, 12, 13, 5, 6, 14, 15, 7] },
+        { cells: [16, 24, 25, 17, 18, 26, 27, 19, 20, 28, 29, 21, 22, 30, 31, 23] }
+      ].concat(Array.from({ length: 6 }, (_, row) => ({
+        cells: Array.from({ length: 8 }, (_, column) => (row + 4) * 8 + column)
+      }))),
+      designSummary: 'Two paths are split into two independent jumps in one network.'
+    }
+  };
+}
+
 function run() {
   assert.strictEqual(tools.validatePathCover(brief, cover()).ok, true);
   assert.strictEqual(code(changed(value => { value.paths[0].cells[1] = 1.5; })),
@@ -239,6 +264,28 @@ function run() {
   neighbors.forEach(neighbor => {
     assert.strictEqual(tools.validatePortalSeed(longSeed.brief, neighbor).ok, true);
   });
+
+  const fourGate = fourGatePortalSeed();
+  assert.strictEqual(tools.validatePortalSeed(fourGate.brief, fourGate.candidate).ok, true);
+  const fourGateExpanded = tools.expandPortalSeedCandidates(
+    fourGate.brief, fourGate.candidate);
+  assert.strictEqual(fourGateExpanded.ok, true);
+  assert(fourGateExpanded.candidates.length > 0);
+  assert(fourGateExpanded.candidates.length <= tools.MAX_EXPANDED_PORTAL_CANDIDATES);
+  const fourGateCandidate = fourGateExpanded.candidates[0];
+  assert.strictEqual(fourGateCandidate.portalCells.length, 4);
+  assert.strictEqual(new Set(fourGateCandidate.portalCells).size, 4);
+  assert.strictEqual(fourGateCandidate.paths.length, 10);
+  assert.strictEqual(fourGateCandidate.paths.filter(path => path.segments.length === 2).length, 2);
+  assert.strictEqual(tools.validatePathCover(fourGate.brief, fourGateCandidate).ok, true);
+  const compiledFourGate = tools.compileCandidate(fourGate.brief, fourGateCandidate);
+  assert.deepStrictEqual(compiledFourGate.level.Portals,
+    [{ Id: 'P1', Cells: fourGateCandidate.portalCells }]);
+  assert.strictEqual(compiledFourGate.solution.filter(line =>
+    line.Segments.some(segment => segment.Exit)).length, 2);
+  const fourGateKey = tools.layoutKey(compiledFourGate.level);
+  assert(fourGateKey.startsWith('8x10:'));
+  assert(fourGateKey.split('@')[1].split(',').length === 4);
 }
 
 module.exports = run;

@@ -1,8 +1,9 @@
 'use strict';
 
 // Hint paths are indexed by immutable level id, never by an ordinary
-// setIndex/levelIndex pair. Every path is contiguous and the paths for one
-// level jointly cover all playable cells exactly once.
+// setIndex/levelIndex pair. Ordinary paths are contiguous; Portal routes use
+// explicit segments/exits. Ice cells require two distinct routes; other
+// required cells are covered once (unused v2 portal squares are optional).
 
 const introPaths = [
   [0, 1, 2],
@@ -75,9 +76,17 @@ const legacyExtremePaths = [
   ]
 ];
 
+const mechanicSolutions = require('./daily-mechanic-solutions.js');
+const newIntroSolutions = {};
+require('./daily-mechanic-pack.js').forEach(level => {
+  newIntroSolutions[`daily-${level.DateKey}-v1-intro-v1`] = introPaths;
+});
+
 module.exports = {
   SchemaVersion: 2,
   ByChallengeId: {
+    ...newIntroSolutions,
+    ...mechanicSolutions,
     'daily-2026-08-31-v1-intro-v1': introPaths,
     'daily-2026-08-31-v1-extreme-v1': extremePaths,
     'daily-2026-09-01-v1-intro-v1': introPaths,

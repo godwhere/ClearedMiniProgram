@@ -90,6 +90,7 @@ const tests = [
   ['theme assets', require('./theme-assets.test.js')],
   ['gallery preview assets', require('./gallery-preview-assets.test.js')],
   ['daily challenge service', require('./daily-challenge-service.test.js')],
+  ['daily mechanic pack', require('./daily-mechanic-pack.test.js')],
   ['daily progress store', require('./daily-progress-store.test.js')],
   ['daily progress adapter', require('./daily-progress-adapter.test.js')],
   ['daily ViewModel mapping', require('./daily-view-model.test.js')],

@@ -113,6 +113,8 @@ Developer comments, diagnostic-only logs, test descriptions, source-data authori
 
 No text-bearing art change is planned. If implementation discovers Chinese embedded in a player-visible image, stop and amend the asset boundary instead of editing or duplicating the asset opportunistically.
 
+Daily Portal/ice boards reuse the existing localized portal and ice instruction bands. `portal.instruction.mixed` provides a two-line Chinese/English explanation for the combined board; waiting for an exit still uses the standard Portal prompt. Daily ice hints reuse the existing localized manual-step labels and swipe/arrow controls. These instructions are presentation only and never affect date, level IDs, or settlement.
+
 ## 6. American English writing rules
 
 - Translate intent and player action, not Chinese grammar.

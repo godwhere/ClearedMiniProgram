@@ -84,7 +84,7 @@ class HintService {
     this.portalSolutions = portals !== undefined ? portals : defaultPortalSolutions;
     this.ordinaryProvider = new OrdinaryHintProvider();
     this.portalProvider = new PortalHintProvider(this.ordinaryProvider);
-    this.iceProvider = new IceHintProvider(this.ordinaryProvider);
+    this.iceProvider = new IceHintProvider(this.ordinaryProvider, this.portalProvider);
   }
 
   solutionFor(setIndex, levelIndex, levelId) {
@@ -110,7 +110,7 @@ class HintService {
   find(source, setIndex, levelIndex) {
     const context = toHintContext(source);
     if (!context || (context.outcome && context.outcome !== 'playing')) return null;
-    if (context.mechanic && context.mechanic.id === 'ice') {
+    if (context.mechanic && (context.mechanic.id === 'ice' || context.mechanic.ice)) {
       // Ice v1 exposes the validated full sequence only, not a one-step BFS
       // candidate that may conflict with the player's partially cleared floor.
       return null;
@@ -124,10 +124,11 @@ class HintService {
   findComplete(source, setIndex, levelIndex) {
     const context = toHintContext(source);
     if (!context || (context.outcome && context.outcome !== 'playing')) return null;
-    if (context.mechanic && context.mechanic.id === 'ice') {
+    if (context.mechanic && (context.mechanic.id === 'ice' || context.mechanic.ice)) {
       return this.iceProvider.findComplete(context,
         context.levelId === iceTrial.Games[0].Id ? iceTrial.solution
-          : this.solutionFor(setIndex, levelIndex, context.levelId));
+          : context.mechanic.id === 'portal' ? this.portalSolutionFor(context.levelId)
+            : this.solutionFor(setIndex, levelIndex, context.levelId));
     }
     if (context.mechanic && context.mechanic.id === 'portal') {
       return this.portalProvider.findComplete(
@@ -144,6 +145,9 @@ class HintService {
   findPortalComplete(source) {
     const context = toHintContext(source);
     if (!context || (context.outcome && context.outcome !== 'playing')) return null;
+    if (context.mechanic && context.mechanic.ice) {
+      return this.iceProvider.findComplete(context, this.portalSolutionFor(context.levelId));
+    }
     return this.portalProvider.findComplete(
       context,
       this.portalSolutionFor(context.levelId)
@@ -152,7 +156,8 @@ class HintService {
 
   findPortal(source) {
     const context = toHintContext(source);
-    if (!context || (context.outcome && context.outcome !== 'playing')) return null;
+    if (!context || (context.outcome && context.outcome !== 'playing') ||
+        (context.mechanic && context.mechanic.ice)) return null;
     return this.portalProvider.find(context, this.portalSolutionFor(context.levelId));
   }
 
@@ -209,6 +214,8 @@ class HintService {
       challengeId,
       dailySolutions || this.dailySolutions
     );
+    if (context.mechanic && (context.mechanic.id === 'ice' || context.mechanic.ice)) return null;
+    if (context.mechanic && context.mechanic.id === 'portal') return this.portalProvider.find(context, stored);
     return this.ordinaryProvider.find(context, stored);
   }
 
@@ -224,6 +231,9 @@ class HintService {
       challengeId,
       dailySolutions || this.dailySolutions
     );
+    if (context.mechanic && (context.mechanic.id === 'ice' || context.mechanic.ice)) {
+      return this.iceProvider.findComplete(context, stored);
+    }
     if (context.mechanic && context.mechanic.id === 'portal') {
       return this.portalProvider.findComplete(context, stored);
     }

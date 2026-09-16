@@ -14,7 +14,7 @@ function buildDailyViewModel(input) {
     : { portal: null };
   const portalStatus = mechanic.portal;
   const debugUnlimited = data.debugUnlimited === true;
-  return {
+  const model = {
     dailyAvailable: !!data.challenge,
     dailyEntryAvailable: debugUnlimited || data.entriesRemaining > 0,
     dailyCanEnter: debugUnlimited || data.entriesRemaining > 0,
@@ -56,6 +56,8 @@ function buildDailyViewModel(input) {
     expectedExits: portalStatus ? portalStatus.expectedExits : [],
     portalInstruction: portalStatus ? portalStatus.instruction : null
   };
+  if (boardView && boardView.iceInstruction) model.beginnerInstruction = boardView.iceInstruction;
+  return model;
 }
 
 module.exports = buildDailyViewModel;

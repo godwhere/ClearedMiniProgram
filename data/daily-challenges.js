@@ -1,9 +1,11 @@
 'use strict';
 
+const mechanicPack = require('./daily-mechanic-pack.js');
+
 // Versioned local manifest for the Daily Challenge mode. The ordinary
 // catalog (data/catalog-v2.js) deliberately remains independent from this
 // table. A day is a package containing exactly two levels: a tiny intro board
-// and an extreme 8x10 board with blocked cells.
+// and an 8x10 challenge with optional blocked cells and declared mechanics.
 
 const introLevel = (dateKey, dayId) => ({
   Id: `${dayId}-intro-v1`,
@@ -107,7 +109,8 @@ module.exports = {
   Days: [
     day('2026-08-31'),
     day('2026-09-01'),
-    day('2026-09-07', courtyardLevel)
+    day('2026-09-07', courtyardLevel),
+    ...mechanicPack.map(level => day(level.DateKey, () => level))
   ],
   Challenges: [
     legacyChallenge('2026-08-31'),

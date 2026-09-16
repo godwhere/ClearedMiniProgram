@@ -1,13 +1,16 @@
 'use strict';
 
 class IceHintProvider {
-  constructor(ordinaryProvider) {
+  constructor(ordinaryProvider, portalProvider) {
     this.ordinaryProvider = ordinaryProvider;
+    this.portalProvider = portalProvider;
   }
 
   // Pure preset validation and presentation snapshots, never a live Runner.
   findComplete(context, storedPaths) {
-    const mechanic = context && context.mechanic;
+    const primary = context && context.mechanic;
+    const mixed = primary && primary.id === 'portal' && primary.rulesVersion === 2;
+    const mechanic = mixed ? primary.ice : primary;
     const board = context && context.board;
     if (!board || !mechanic || mechanic.id !== 'ice' || mechanic.rulesVersion !== 1 ||
         !Array.isArray(mechanic.cells) || !mechanic.cells.length) return null;
@@ -19,11 +22,14 @@ class IceHintProvider {
     for (const cell of mechanic.cells) {
       const index = cell && cell.index;
       if (!Number.isInteger(index) || !this.ordinaryProvider.isPlayable(context, index) ||
-          iceCells.has(index) || (board.fixedLine && board.fixedLine[index] >= 0)) return null;
+          iceCells.has(index) || (board.fixedLine && board.fixedLine[index] >= 0) ||
+          (mixed && (!this.portalProvider || this.portalProvider.portalAt(context, index)))) return null;
       iceCells.add(index);
       remaining[index] = 2;
     }
-    const complete = this.ordinaryProvider.findComplete(context, storedPaths, remaining);
+    const provider = mixed ? this.portalProvider : this.ordinaryProvider;
+    if (!provider) return null;
+    const complete = provider.findComplete(context, storedPaths, remaining);
     if (!complete) return null;
     const steps = complete.paths.map(path => {
       const step = { path, remainingLayers: remaining.slice(),

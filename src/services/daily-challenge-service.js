@@ -1,5 +1,8 @@
 'use strict';
 
+const portalValidation = require('../../core/portal-validation.js');
+const iceV1 = require('../../core/mechanics/ice-v1.js');
+
 // Daily content is a pure data concern. This service does not access Canvas,
 // platform APIs, or progress storage; callers can therefore use it from the
 // game and from deterministic tests alike.
@@ -153,11 +156,22 @@ function challengePalette(challenge) {
   return valueOf(challenge, 'Palette', 'palette');
 }
 
-function usesUnsupportedPortalMechanic(challenge) {
-  if (!isRecord(challenge)) return false;
-  const mechanic = valueOf(challenge, 'Mechanic', 'mechanic');
-  const declaresPortals = own(challenge, 'Portals') || own(challenge, 'portals');
-  return mechanic === 'portal' || declaresPortals;
+function mechanicLevel(challenge) {
+  return Object.assign({}, challenge, {
+    Width: challengeWidth(challenge), Height: challengeHeight(challenge),
+    Mechanic: valueOf(challenge, 'Mechanic', 'mechanic'),
+    Lines: Array.isArray(challengeLines(challenge)) ? challengeLines(challenge).map(line => ({
+      Start: lineValue(line, 'Start', 'start'), End: lineValue(line, 'End', 'end')
+    })) : []
+  });
+}
+
+function normalizedIce(challenge) {
+  const level = mechanicLevel(challenge);
+  const total = Number.isInteger(level.Width) && Number.isInteger(level.Height) &&
+    isAllowedDimension(level.Width, level.Height) ? level.Width * level.Height : 0;
+  const blocked = new Set(Array.isArray(challengeBlocked(challenge)) ? challengeBlocked(challenge) : []);
+  return iceV1.normalize(level, Array.from({ length: total }, (_, index) => blocked.has(index)));
 }
 
 function lineValue(line, upper, lower) {
@@ -381,10 +395,17 @@ class DailyChallengeService {
       return { ok: false, errors: ['challenge-not-object'] };
     }
 
-    // Daily challenge schema v1 has no segmented solution/persistence
-    // contract. Reject portal selection as well as a stray explicit Portals
-    // field instead of flattening the jump into ordinary path semantics.
-    if (usesUnsupportedPortalMechanic(challenge)) add('portal-not-supported');
+    const mechanic = valueOf(challenge, 'Mechanic', 'mechanic');
+    if (mechanic === 'portal' || own(challenge, 'Portals') || own(challenge, 'portals')) {
+      portalValidation.validatePortals(mechanicLevel(challenge)).errors.forEach(add);
+    }
+    if (mechanic === 'ice') {
+      if (!normalizedIce(challenge).length) add('ice-invalid');
+    } else if (mechanic !== 'portal' &&
+        (challenge.IceCells !== undefined || challenge.IceRulesVersion !== undefined)) add('ice-mechanic-invalid');
+    if (mechanic !== undefined && mechanic !== null && mechanic !== 'portal' && mechanic !== 'ice') {
+      add('mechanic-not-supported');
+    }
 
     const id = challengeId(challenge);
     if (typeof id !== 'string' || id.length === 0) add('id-required');
@@ -567,7 +588,11 @@ class DailyChallengeService {
       if (errors.indexOf(code) < 0) errors.push(code);
     };
     if (!isRecord(challenge)) return { ok: false, errors: ['challenge-not-object'] };
-    if (usesUnsupportedPortalMechanic(challenge)) add('portal-not-supported');
+    this.validate(challenge).errors.forEach(add);
+    if (valueOf(challenge, 'Mechanic', 'mechanic') === 'portal') {
+      portalValidation.validatePortalSolution(mechanicLevel(challenge), paths).errors.forEach(add);
+      return { ok: errors.length === 0, errors };
+    }
     if (!Array.isArray(paths)) {
       add('solution-required');
       return { ok: false, errors };
@@ -583,6 +608,8 @@ class DailyChallengeService {
     if (paths.length !== lines.length) add('solution-line-count');
 
     const covered = new Set();
+    const visits = new Map();
+    const iceCells = new Set(valueOf(challenge, 'Mechanic', 'mechanic') === 'ice' ? normalizedIce(challenge) : []);
     lines.forEach((line, lineIndex) => {
       const path = paths[lineIndex];
       if (!Array.isArray(path) || path.length < 2) {
@@ -606,7 +633,8 @@ class DailyChallengeService {
         if (blockedSet.has(cell)) add('solution-through-blocked');
         if (local.has(cell)) add('solution-path-duplicate');
         local.add(cell);
-        if (covered.has(cell)) add('solution-overlap');
+        visits.set(cell, (visits.get(cell) || 0) + 1);
+        if (visits.get(cell) > (iceCells.has(cell) ? 2 : 1)) add('solution-overlap');
         covered.add(cell);
         if (order > 0) {
           const previous = path[order - 1];
@@ -620,6 +648,7 @@ class DailyChallengeService {
 
     const expected = total - blockedSet.size;
     if (expected > 0 && covered.size !== expected) add('solution-incomplete');
+    iceCells.forEach(cell => { if (visits.get(cell) !== 2) add('solution-incomplete'); });
     if (blockedSet.size > total) add('solution-blocked-invalid');
     return { ok: errors.length === 0, errors };
   }

@@ -54,9 +54,23 @@ function run() {
   assert.strictEqual(contracts.validateBrief(brief({
     mechanic: 'portal', width: 8, height: 8, colorCount: 6, targetGrade: 4
   })).ok, true);
-  assert.strictEqual(code(contracts.validateBrief(brief({
+  const portalEightByTen = contracts.validateBrief(brief({
     mechanic: 'portal', width: 8, height: 10, colorCount: 8, targetGrade: 3
-  }))), 'BRIEF_BOARD_SIZE_UNSUPPORTED');
+  }));
+  assert.strictEqual(portalEightByTen.ok, true);
+  assert.strictEqual(portalEightByTen.value.portalCellCount, 2);
+  assert.strictEqual(contracts.validateBrief(brief({
+    mechanic: 'portal', width: 8, height: 10, colorCount: 8, targetGrade: 4,
+    portalCellCount: 4
+  })).ok, true);
+  for (const portalCellCount of [1, 3, 5, 6, 4.5]) {
+    assert.strictEqual(code(contracts.validateBrief(brief({
+      mechanic: 'portal', width: 8, height: 10, colorCount: 8, targetGrade: 3,
+      portalCellCount
+    }))), 'BRIEF_PORTAL_CELL_COUNT_INVALID');
+  }
+  assert.strictEqual(code(contracts.validateBrief(brief({ portalCellCount: 2 }))),
+    'BRIEF_PORTAL_CELL_COUNT_INVALID');
   assert.strictEqual(code(contracts.validateBrief(brief({ mechanic: 'ice' }))),
     'BRIEF_MECHANIC_UNSUPPORTED');
   for (const dimensions of [
@@ -118,6 +132,15 @@ function run() {
   assert.strictEqual(contracts.validateCandidateStructure(portalBrief, portalCandidate()).ok, true);
   assert.strictEqual(code(contracts.validateCandidateStructure(portalBrief,
     Object.assign(portalCandidate(), { portalCells: [1] }))), 'CANDIDATE_SCHEMA_INVALID');
+  const fourGateBrief = Object.assign({}, portalBrief, {
+    width: 8, height: 10, colorCount: 6, portalCellCount: 4
+  });
+  const fourGateSchema = contracts.candidateSchema(fourGateBrief);
+  assert.strictEqual(fourGateSchema.properties.portalCells.minItems, 4);
+  assert.strictEqual(fourGateSchema.properties.portalCells.maxItems, 4);
+  const fourGateGenerationSchema = contracts.generationSchema(fourGateBrief);
+  assert.strictEqual(fourGateGenerationSchema.properties.paths.minItems, 4);
+  assert.strictEqual(fourGateGenerationSchema.properties.paths.maxItems, 4);
   const malformedPortalPath = portalCandidate();
   malformedPortalPath.paths[0] = { cells: [0, 1] };
   assert.strictEqual(code(contracts.validateCandidateStructure(portalBrief, malformedPortalPath)),
