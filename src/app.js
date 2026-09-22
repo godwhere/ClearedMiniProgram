@@ -196,6 +196,40 @@ function cloneData(value) {
   return value;
 }
 
+const APP_LOCAL_FORBIDDEN_OPTIONS = Object.freeze([
+  'syncStore', 'progressSync', 'economy', 'authoritativeApplier', 'auth',
+  'behavior', 'profile', 'share', 'rewards', 'engagement', 'ads',
+  'cloudBackup', 'dailyService', 'dailyChallengeService', 'dailyStore',
+  'dailyProgressStore', 'dailyManifest', 'dailySolutions', 'hintAccess'
+]);
+
+function sameAuthority(left, right) {
+  let normalized;
+  try { normalized = ProductPolicy.normalizeAuthority(left); } catch (error) { return false; }
+  if (!normalized || !right || normalized.mode !== 'app-local' || right.mode !== 'app-local' ||
+      normalized.storageNamespaceId !== right.storageNamespaceId) return false;
+  return ProductPolicy.AUTHORITY_DOMAIN_KEYS.every(key =>
+    normalized.domains && right.domains && normalized.domains[key] === right.domains[key]);
+}
+
+function validateExplicitAuthority(options, productPolicy) {
+  const authority = options && options.authority;
+  if (!authority) return null;
+  const declared = productPolicy && productPolicy.authority && productPolicy.authority();
+  if (!sameAuthority(authority, declared)) throw new Error('app-local-authority-mismatch');
+  const forbidden = APP_LOCAL_FORBIDDEN_OPTIONS.find(key =>
+    options[key] !== undefined && options[key] !== null && options[key] !== false);
+  if (forbidden) throw new Error(`app-local-forbidden-dependency:${forbidden}`);
+  if (!options.progress || !options.stamina || !options.rewardUnlocks || !options.preferences ||
+      typeof options.stamina.authorityMode !== 'function' ||
+      options.stamina.authorityMode() !== 'app-local' ||
+      typeof options.rewardUnlocks.authorityMode !== 'function' ||
+      options.rewardUnlocks.authorityMode() !== 'app-local') {
+    throw new Error('app-local-service-authority-mismatch');
+  }
+  return declared;
+}
+
 function fallbackClearEffects(progress, canUse) {
   const allowed = typeof canUse === 'function' ? canUse : (kind, id) => kind === 'effect' && id === 'none';
   let currentId = 'none';
@@ -242,6 +276,10 @@ class ClearedApp {
       hintMode: configuredAdConfig.rules && configuredAdConfig.rules.hintMode
         ? configuredAdConfig.rules.hintMode : 'tiered'
     });
+    // ProductPolicy may carry a dormant App declaration for focused content
+    // tests. Only the validated composition root activates it by passing the
+    // normalized authority separately.
+    this.localAuthority = validateExplicitAuthority(opts, this.productPolicy);
     this.productCapabilities = this.productPolicy.capabilities;
     this.contentAccessQuery = typeof opts.contentAccess === 'function'
       ? opts.contentAccess
@@ -331,7 +369,10 @@ class ClearedApp {
     // completion timestamps, stamina recovery, or the device/system time.
     this.dailyTestDate = shanghaiNoon(opts.dailyTestDateKey);
     this.stamina = opts.stamina || new StaminaService(platform, staminaConfig);
-    if (this.syncStore && this.stamina.setAuthorityMode) this.stamina.setAuthorityMode(this.syncStore.authorityMode('stamina'));
+    if (this.syncStore && this.stamina.setAuthorityMode &&
+        this.stamina.setAuthorityMode(this.syncStore.authorityMode('stamina')) !== true) {
+      throw new Error('stamina-authority-mismatch');
+    }
     const lastPlayed = this.progress.state.lastPlayed;
     this.stamina.restoreUnlockedLevels(catalog.levels.filter(entry =>
       this.progress.isCompleted(entry.setIndex, entry.levelIndex) ||
@@ -406,7 +447,10 @@ class ClearedApp {
     this.dailyChallengeService = this.dailyService;
     this.dailyProgressStore = this.dailyProgress;
     this.rewardUnlocks = opts.rewardUnlocks || new RewardUnlockService(platform, rewardConfig);
-    if (this.syncStore && this.rewardUnlocks.setAuthorityMode) this.rewardUnlocks.setAuthorityMode(this.syncStore.authorityMode('economy'));
+    if (this.syncStore && this.rewardUnlocks.setAuthorityMode &&
+        this.rewardUnlocks.setAuthorityMode(this.syncStore.authorityMode('economy')) !== true) {
+      throw new Error('reward-authority-mismatch');
+    }
     this.economy = opts.economy || null;
     this.authoritativeApplier = opts.authoritativeApplier || null;
     this.cloudBackup = opts.cloudBackup || null;
@@ -588,10 +632,34 @@ class ClearedApp {
 
   authorityMode(service, domain) {
     if (this.syncStore && typeof this.syncStore.authorityMode === 'function') return this.syncStore.authorityMode(domain || 'economy');
+    if (this.localAuthority && this.localAuthority.domains) {
+      return this.localAuthority.domains[domain || 'economy'] || 'unknown';
+    }
     return service && service.authorityMode ? service.authorityMode() : 'legacy-local';
   }
 
+  authorityConfigurationValid(domain) {
+    const key = domain || 'economy';
+    const mode = this.authorityMode(null, key);
+    if (this.localAuthority) {
+      if (mode !== this.localAuthority.domains[key] || mode !== 'app-local') return false;
+      if (key === 'economy' || key === 'entitlements') {
+        return !!(this.rewardUnlocks && this.rewardUnlocks.authorityMode &&
+          this.rewardUnlocks.authorityMode() === 'app-local');
+      }
+      if (key === 'stamina') {
+        return !!(this.stamina && this.stamina.authorityMode &&
+          this.stamina.authorityMode() === 'app-local');
+      }
+      if (key === 'progress') return !!this.progress;
+      if (key === 'preferences') return !!(this.progress && this.preferences);
+      return false;
+    }
+    return ['legacy-local', 'migration-freeze', 'cloud-authoritative', 'local-backup'].includes(mode);
+  }
+
   blockCoreWriteDuringMigration(domain) {
+    if (!this.authorityConfigurationValid(domain)) return true;
     const restorePending = this.syncStore && this.syncStore.currentScope && this.syncStore.currentScope().pendingBackupRestore;
     if (this.authorityMode(null, domain) !== 'migration-freeze' && !restorePending) return false;
     if (this.scene !== 'account') this.openAccount();
@@ -2030,9 +2098,13 @@ class ClearedApp {
       this.invalidate();
       return;
     }
+    const staminaMode = this.authorityMode(this.stamina, 'stamina');
     const cloudStaminaRefund = runner === this.runner && this.runContext.progressionScope === 'ordinary' &&
-      this.authorityMode(this.stamina, 'stamina') === 'cloud-authoritative';
-    if (runner === this.runner && this.runContext.progressionScope === 'ordinary' && !cloudStaminaRefund) {
+      staminaMode === 'cloud-authoritative';
+    const localStaminaRefund = runner === this.runner && this.runContext.progressionScope === 'ordinary' &&
+      ['legacy-local', 'local-backup', 'app-local'].includes(staminaMode) &&
+      this.authorityConfigurationValid('stamina');
+    if (localStaminaRefund) {
       const refundAt = this.clockNow().getTime();
       const refund = this.stamina.refundQuickClear(
         `${this.runContext.setIndex}:${this.runContext.levelIndex}`, completion.elapsedMs, refundAt
@@ -2051,11 +2123,11 @@ class ClearedApp {
     const source = `ordinary:${this.runContext.setIndex}:${this.runContext.levelIndex}`;
     const settlementMode = this.authorityMode(null, 'economy');
     completion.currencyReward = {
-      status: !rewardResult.ok && settlementMode === 'local-backup' ? 'local-save-failed'
+      status: !rewardResult.ok && ['local-backup', 'app-local'].includes(settlementMode) ? 'local-save-failed'
         : !rewardResult.ok ? 'pending' : (rewardResult.sources || []).includes(source) ? 'granted' : 'already-claimed',
       amount: rewardResult.ok && (rewardResult.sources || []).includes(source) ? rewardConfig.currency.ordinaryFirstClear : 0
     };
-    if (settlementMode === 'local-backup' && !rewardResult.ok) {
+    if (['local-backup', 'app-local'].includes(settlementMode) && !rewardResult.ok) {
       completion.currencyReward.failureSource = completion.persisted ? 'reward-reconcile' : 'local-save';
     }
     let completionQueued = false;
@@ -2382,7 +2454,9 @@ class ClearedApp {
           this.invalidate();
           return false;
         }
-        const localSettlement = this.authorityMode(null, 'economy') === 'local-backup';
+        const localSettlement = ['local-backup', 'app-local'].includes(
+          this.authorityMode(null, 'economy')
+        );
         this.result.currencyReward.status = localSettlement ? 'local-save-failed' : 'pending';
         if (localSettlement) {
           this.result.currencyReward.failureSource = 'reward-reconcile';
@@ -3263,7 +3337,10 @@ class ClearedApp {
       return { ok: false, reason: 'restore-pending', amountDelta: 0, newRewards: [], sources: [] };
     }
     const mode = this.authorityMode(this.rewardUnlocks, 'economy');
-    if (!['legacy-local', 'local-backup'].includes(mode)) return { ok: false, reason: mode, amountDelta: 0, newRewards: [], sources: [] };
+    if (!this.authorityConfigurationValid('economy') ||
+        !['legacy-local', 'local-backup', 'app-local'].includes(mode)) {
+      return { ok: false, reason: mode, amountDelta: 0, newRewards: [], sources: [] };
+    }
     if (!this.rewardUnlocks) return { ok: false, reason: 'not-configured', amountDelta: 0, newRewards: [] };
     if (!this.rewardUnlocks.view().available) {
       const loaded = this.rewardUnlocks.retryLoad();
@@ -3411,6 +3488,14 @@ class ClearedApp {
         (status.conditionType === 'share' && !this.productCapabilities.rewardedShareEnabled)) {
       return false;
     }
+    let currencyMode = null;
+    if (status.conditionType === 'currency') {
+      currencyMode = this.authorityMode(this.rewardUnlocks, 'economy');
+      const cloudReady = currencyMode === 'cloud-authoritative' && !!this.economy;
+      const localReady = ['legacy-local', 'local-backup', 'app-local'].includes(currencyMode) &&
+        this.authorityConfigurationValid('economy');
+      if (!cloudReady && !localReady) return false;
+    }
     dialog.state = 'working';
     dialog.message = this.t(retry ? 'reward.retryingSave' : 'common.processingEllipsis');
     const generation = ++this.rewardRequestGeneration;
@@ -3420,8 +3505,7 @@ class ClearedApp {
     this.invalidate();
     let task;
     if (status.conditionType === 'currency') {
-      const mode = this.authorityMode(this.rewardUnlocks, 'economy');
-      if (mode === 'cloud-authoritative' && this.economy) {
+      if (currencyMode === 'cloud-authoritative' && this.economy) {
         const pendingRewards = () => this.syncStore && this.syncStore.currentScope().pendingOperations.some(item =>
           ['MAIN_LEVEL_COMPLETED', 'DAILY_LEVEL_COMPLETED'].includes(item.type));
         // A purchase is an explicit checkpoint: settle deferred earnings before
@@ -3431,8 +3515,9 @@ class ClearedApp {
           return result.ok && !pendingRewards() ? this.economy.purchase(rewardId)
             : { ok: false, reason: 'network-required', newRewards: [] };
         }) : this.economy.purchase(rewardId);
-      } else task = ['legacy-local', 'local-backup'].includes(mode) ? this.rewardUnlocks.purchase(rewardId)
-        : { ok: false, reason: mode, newRewards: [] };
+      } else task = ['legacy-local', 'local-backup', 'app-local'].includes(currencyMode)
+        ? this.rewardUnlocks.purchase(rewardId)
+        : { ok: false, reason: currencyMode, newRewards: [] };
     }
     else if (this.engagement && this.engagement.requestRewardUnlock) {
       task = this.engagement.requestRewardUnlock({ rewardId, scene: this.scene });
@@ -3500,7 +3585,14 @@ class ClearedApp {
   dismissRewardDialog() {
     if (!this.rewardDialog) return false;
     if (this.rewardDialog.mode === 'unlocked') {
-      this.rewardUnlocks.acknowledgeNotice(this.rewardDialog.rewardId);
+      if (this.blockCoreWriteDuringMigration('entitlements')) return false;
+      const acknowledged = this.rewardUnlocks.acknowledgeNotice(this.rewardDialog.rewardId);
+      if (!acknowledged || acknowledged.ok !== true) {
+        this.rewardDialog.state = 'error';
+        this.rewardDialog.message = this.t('reward.saveFailed');
+        this.invalidate();
+        return false;
+      }
       this.dismissedRewardNotices.add(this.rewardDialog.rewardId);
     }
     ++this.rewardRequestGeneration;
@@ -3571,7 +3663,8 @@ class ClearedApp {
       if (this.isCurrentAccount(account) && requestId === this.skinLoadRequestId) this.invalidate();
     }).then(() => {
       if (!this.isCurrentAccount(account) || requestId !== this.skinLoadRequestId) return;
-      if (!this.rewardUnlocks.canUse('theme', skinId) ||
+      if ((selectOnSuccess && this.blockCoreWriteDuringMigration('preferences')) ||
+          !this.rewardUnlocks.canUse('theme', skinId) ||
           (selectOnSuccess && (originScene !== this.scene || (dialogId && (!this.rewardDialog || this.rewardDialog.dialogId !== dialogId))))) {
         this.pendingSkinId = null;
         this.invalidate();
@@ -3802,13 +3895,22 @@ class ClearedApp {
       if (access.reason === 'requires_full_game') this.openStoreDialog(access);
       return false;
     }
+    const staminaMode = this.authorityMode(this.stamina, 'stamina');
+    if (!['legacy-local', 'local-backup', 'cloud-authoritative', 'app-local'].includes(staminaMode) ||
+        (staminaMode === 'app-local' && !this.authorityConfigurationValid('stamina')) ||
+        (this.syncStore && ['cloud-authoritative', 'local-backup'].includes(staminaMode) &&
+          (!this.progressSync || typeof this.progressSync.unlockOrdinaryLevel !== 'function'))) {
+      return false;
+    }
     const runner = this.createOrdinaryRunner(context);
     if (!runner) return false;
     const now = this.clockNow().getTime();
     // Completed progress can also arrive from cloud sync after construction.
     const levelKey = `${setIndex}:${levelIndex}`;
     const unlocked = this.progress.isCompleted(setIndex, levelIndex)
-      ? { ok: true } : this.progressSync && this.progressSync.unlockOrdinaryLevel
+      ? { ok: true } : staminaMode === 'app-local'
+        ? this.stamina.unlockOrdinaryLevel(levelKey, now)
+        : this.progressSync && this.progressSync.unlockOrdinaryLevel
         ? this.progressSync.unlockOrdinaryLevel(levelKey, now)
         : this.stamina.unlockOrdinaryLevel(levelKey, now);
     this.refreshStamina(now);
@@ -3884,7 +3986,9 @@ class ClearedApp {
   }
 
   recoverStaminaRefunds(now) {
-    if (this.authorityMode(this.stamina, 'stamina') !== 'legacy-local') return;
+    const mode = this.authorityMode(this.stamina, 'stamina');
+    if (!['legacy-local', 'app-local'].includes(mode) ||
+        !this.authorityConfigurationValid('stamina')) return;
     // A saved fast completion also proves a refund that was interrupted by a
     // failed stamina write or process exit. Spent entitlements cannot repeat.
     catalog.levels.forEach(entry => {

@@ -169,20 +169,44 @@ function validateConfig(config) {
   return { currency: clone(config.currency), items, byItem, byLevel };
 }
 
+function exactValue(left, right) {
+  if (left === right) return true;
+  if (Array.isArray(left) || Array.isArray(right)) {
+    return Array.isArray(left) && Array.isArray(right) && left.length === right.length &&
+      left.every((value, index) => exactValue(value, right[index]));
+  }
+  if (!record(left) || !record(right)) return false;
+  const leftKeys = Object.keys(left);
+  const rightKeys = Object.keys(right);
+  return leftKeys.length === rightKeys.length && leftKeys.every((key, index) =>
+    key === rightKeys[index] && exactValue(left[key], right[key]));
+}
+
 class RewardUnlockService {
-  constructor(platform, config) {
+  constructor(platform, config, options) {
+    const opts = options || {};
+    if (opts.authorityMode !== undefined && opts.authorityMode !== 'app-local') {
+      throw new Error('invalid-authority-mode');
+    }
     this.platform = platform || null;
     this.catalog = validateConfig(config);
     this.state = null;
     this.loadError = null;
     this.pendingExternal = null;
-    this._authorityMode = 'legacy-local';
+    // app-local is a construction-time capability. A default or previously
+    // protected service must never be promoted into it after touching a
+    // wallet, while a fresh process may still load an existing App ledger.
+    this._authorityMode = opts.authorityMode === 'app-local' ? 'app-local' : 'legacy-local';
     this.load();
   }
 
   authorityMode() { return this._authorityMode; }
   setAuthorityMode(mode) {
-    if (!['legacy-local', 'migration-freeze', 'cloud-authoritative', 'local-backup'].includes(mode) ||
+    if (!['legacy-local', 'migration-freeze', 'cloud-authoritative', 'local-backup', 'app-local'].includes(mode)) {
+      return false;
+    }
+    if (mode === this._authorityMode) return true;
+    if (mode === 'app-local' || this._authorityMode === 'app-local' ||
         (this._authorityMode !== 'legacy-local' && mode === 'legacy-local')) return false;
     this._authorityMode = mode;
     return true;
@@ -355,13 +379,16 @@ class RewardUnlockService {
   }
 
   reconcile(input) {
-    if (!['legacy-local', 'local-backup'].includes(this._authorityMode)) return this.authorityBlocked();
+    if (!['legacy-local', 'local-backup', 'app-local'].includes(this._authorityMode)) return this.authorityBlocked();
     if (!this.state) return { ok: false, reason: this.loadError, amountDelta: 0, newRewards: [] };
     const ordinary = input && input.ordinary;
     const daily = input && input.daily;
     if (!ordinary || ordinary.ok !== true || !Array.isArray(ordinary.levelKeys) ||
         !daily || daily.ok !== true || !Array.isArray(daily.days)) {
       return { ok: false, reason: 'invalid-completions', amountDelta: 0, newRewards: [] };
+    }
+    if (this._authorityMode === 'app-local' && daily.days.length !== 0) {
+      return { ok: false, reason: 'daily-disabled', amountDelta: 0, newRewards: [] };
     }
     const candidate = clone(this.state);
     const newRewards = [];
@@ -402,7 +429,7 @@ class RewardUnlockService {
   }
 
   purchase(rewardId) {
-    if (!['legacy-local', 'local-backup'].includes(this._authorityMode)) return this.authorityBlocked();
+    if (!['legacy-local', 'local-backup', 'app-local'].includes(this._authorityMode)) return this.authorityBlocked();
     if (!this.state) return { ok: false, reason: this.loadError, amountDelta: 0, newRewards: [] };
     const item = this.item(rewardId);
     if (!item || item.unlock.type !== 'currency') return { ok: false, reason: 'invalid-reward', amountDelta: 0, newRewards: [] };
@@ -524,5 +551,14 @@ class RewardUnlockService {
 RewardUnlockService.STORAGE_KEY = STORAGE_KEY;
 RewardUnlockService.emptyState = emptyState;
 RewardUnlockService.validateConfig = validateConfig;
+RewardUnlockService.configsMatch = (left, right) => {
+  const normalizedLeft = validateConfig(left);
+  const normalizedRight = validateConfig(right);
+  return !!(normalizedLeft && normalizedRight && exactValue(normalizedLeft, normalizedRight));
+};
+RewardUnlockService.catalogMatchesConfig = (catalog, config) => {
+  const normalized = validateConfig(config);
+  return !!(normalized && exactValue(catalog, normalized));
+};
 
 module.exports = RewardUnlockService;

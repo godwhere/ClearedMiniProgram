@@ -39,11 +39,11 @@
 
 ## 独立 App `app-local` 不是微信 `local-backup`
 
-P2.5-C 为未来独立 App 冻结了另一份尚未实现的本地权威合同。它只在仓库外宿主 H 显式提供 `mode:'app-local'`、独立非空存储命名空间，以及 `progress/economy/entitlements/stamina/preferences = app-local`、`daily = disabled` 的完整六域映射时成立。宿主平台还须报告匹配的 `{ id, isolated:true }`；检查必须在创建 App、有状态服务或读取业务存储前完成。
+P2.5-C 已为未来独立 App 实现另一份共享本地权威合同。它只在仓库外宿主 H 显式提供 `mode:'app-local'`、独立非空存储命名空间，以及 `progress/economy/entitlements/stamina/preferences = app-local`、`daily = disabled` 的完整六域映射时成立。宿主平台还须同步报告匹配的 `{ id, isolated:true }`；组合根会在创建 App、有状态服务或读取业务存储前完成检查，并拒绝不完整、额外或混合权威。
 
 `app-local` 不创建或注入 SyncStore、ProgressSync、Economy、身份、云备份、在线／每日服务，不生成云待办，也不上传六域快照。它不是本节下方历史 `local-backup` 的新名字、降级路径或启用开关；微信网络失败、CloudBase 缺失、备份能力缺失和旧 `local-backup` 档都不得自动切换到它。App 中若存在 SyncStore，原同步权威始终优先；任何混合或不完整配置失败关闭。
 
-本合同只固定共享业务的逻辑隔离和路由。不同测试命名空间中相同逻辑 key 互不可见，不能证明原生容器已提供物理隔离、可靠提交、杀进程恢复或设备迁移；这些证据仍须在 P4／P4.5／P5 的实际宿主、模拟器或真机边界取得。现有微信云权威、历史 `local-backup` 代码、配置、存档 key、协议及此前设备／云端记录均不因本节改变。
+当前实现只证明共享业务的逻辑隔离和路由：同步失败存储、重启补办及不同测试命名空间中相同逻辑 key 互不可见均有 Node 回归，但不能证明原生容器已提供物理隔离、可靠提交、杀进程恢复或设备迁移。这些证据仍须在 P4／P4.5／P5 的实际宿主、模拟器或真机边界取得。现有微信云权威、历史 `local-backup` 代码、配置、存档 key、协议及此前设备／云端记录均不因本节改变。
 
 ## 已实现但未启用：本地结算＋备份
 

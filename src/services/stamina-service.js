@@ -3,6 +3,7 @@
 const defaults = require('../config/stamina.js');
 const STORAGE_KEY = 'cleared:minigame:stamina:v1';
 const MAX_TIMESTAMP = 8640000000000000;
+const LOCAL_AUTHORITY_MODES = new Set(['legacy-local', 'local-backup', 'app-local']);
 
 function nonnegativeInteger(value) {
   return Number.isSafeInteger(value) && value >= 0;
@@ -26,9 +27,19 @@ function normalizeUnlocks(value) {
   return Array.isArray(value) ? Array.from(new Set(value.filter(validLevelKey))).sort() : [];
 }
 
+function cloneState(value) {
+  return value ? Object.assign({}, value, {
+    unlockedLevels: normalizeUnlocks(value.unlockedLevels),
+    refundedLevels: normalizeUnlocks(value.refundedLevels)
+  }) : null;
+}
+
 class StaminaService {
   constructor(platform, options) {
     const opts = options || {};
+    if (opts.authorityMode !== undefined && opts.authorityMode !== 'app-local') {
+      throw new Error('invalid-authority-mode');
+    }
     this.platform = platform;
     this.clock = typeof opts.clock === 'function' ? opts.clock : Date.now;
     this.config = Object.freeze(Object.keys(defaults).reduce((config, key) => {
@@ -41,15 +52,36 @@ class StaminaService {
     this._state = null;
     this._pending = false;
     this._pendingRefunds = new Set();
-    this._authorityMode = 'legacy-local';
+    // app-local must be selected while constructing a fresh service. It is
+    // intentionally locked in both directions after construction.
+    this._authorityMode = opts.authorityMode === 'app-local' ? 'app-local' : 'legacy-local';
   }
 
   authorityMode() { return this._authorityMode; }
   setAuthorityMode(mode) {
-    if (!['legacy-local', 'migration-freeze', 'cloud-authoritative', 'local-backup'].includes(mode) ||
+    if (!['legacy-local', 'migration-freeze', 'cloud-authoritative', 'local-backup', 'app-local'].includes(mode)) {
+      return false;
+    }
+    if (mode === this._authorityMode) return true;
+    if (mode === 'app-local' || this._authorityMode === 'app-local' ||
         (this._authorityMode !== 'legacy-local' && mode === 'legacy-local')) return false;
     this._authorityMode = mode;
     return true;
+  }
+
+  appLocalCheckpoint() {
+    return this._authorityMode === 'app-local' ? {
+      state: cloneState(this._state),
+      pending: this._pending,
+      pendingRefunds: new Set(this._pendingRefunds)
+    } : null;
+  }
+
+  restoreAppLocalCheckpoint(checkpoint) {
+    if (!checkpoint) return;
+    this._state = checkpoint.state;
+    this._pending = checkpoint.pending;
+    this._pendingRefunds = checkpoint.pendingRefunds;
   }
 
   validateAuthoritativeSnapshot(value) {
@@ -193,7 +225,7 @@ class StaminaService {
   }
 
   settle(now) {
-    if (!['legacy-local', 'local-backup'].includes(this._authorityMode)) {
+    if (!LOCAL_AUTHORITY_MODES.has(this._authorityMode)) {
       if (!this._state) {
         const exported = this.exportAuthoritativeSnapshot();
         if (exported.ok) this._state = exported.snapshot;
@@ -275,16 +307,39 @@ class StaminaService {
 
   snapshot(now) {
     const timestamp = this.time(now);
-    if (this.settle(timestamp)) this._pending = !this.persist(this._state);
+    const checkpoint = this.appLocalCheckpoint();
+    if (this.settle(timestamp)) {
+      if (this.persist(this._state)) this._pending = false;
+      else {
+        this._pending = true;
+        if (checkpoint) {
+          const failed = Object.assign({}, this.view(timestamp), { persisted: false });
+          this.restoreAppLocalCheckpoint(checkpoint);
+          return failed;
+        }
+      }
+    }
     return this.view(timestamp);
   }
 
   restoreUnlockedLevels(levelKeys, now) {
-    if (!['legacy-local', 'local-backup'].includes(this._authorityMode)) return false;
+    if (!LOCAL_AUTHORITY_MODES.has(this._authorityMode)) return false;
+    const checkpoint = this.appLocalCheckpoint();
     const changed = this.settle(this.time(now));
     const unlockedLevels = normalizeUnlocks(this._state.unlockedLevels.concat(normalizeUnlocks(levelKeys)));
     const added = unlockedLevels.length !== this._state.unlockedLevels.length;
-    if (added) this._state = Object.assign({}, this._state, { unlockedLevels });
+    const candidate = added ? Object.assign({}, this._state, { unlockedLevels }) : this._state;
+    if (checkpoint) {
+      const needsPersist = this._pending || changed || added;
+      if (needsPersist && !this.persist(candidate)) {
+        this.restoreAppLocalCheckpoint(checkpoint);
+        return false;
+      }
+      this._state = candidate;
+      this._pending = false;
+      return true;
+    }
+    if (added) this._state = candidate;
     // Existing completion/last-played records prove prior access, without a debit.
     if (changed || added) this._pending = !this.persist(this._state);
     return !this._pending;
@@ -292,20 +347,42 @@ class StaminaService {
 
   unlockOrdinaryLevel(levelKey, now) {
     const timestamp = this.time(now);
+    const checkpoint = this.appLocalCheckpoint();
     const changed = this.settle(timestamp);
     const before = this._state.balance;
     if (!validLevelKey(levelKey)) {
-      if (changed) this._pending = !this.persist(this._state);
+      if (changed) {
+        this._pending = !this.persist(this._state);
+        if (this._pending && checkpoint) {
+          const failed = Object.assign({}, this.view(timestamp), { persisted: false });
+          this.restoreAppLocalCheckpoint(checkpoint);
+          return { ok: false, reason: 'invalid-level', snapshot: failed };
+        }
+      }
       return { ok: false, reason: 'invalid-level', snapshot: this.view(timestamp) };
     }
     if (this._state.unlockedLevels.includes(levelKey)) {
-      if (changed) this._pending = !this.persist(this._state);
+      if (changed) {
+        this._pending = !this.persist(this._state);
+        if (this._pending && checkpoint) {
+          const failed = Object.assign({}, this.view(timestamp), { persisted: false });
+          this.restoreAppLocalCheckpoint(checkpoint);
+          return { ok: false, reason: 'persist-failed', spent: 0, before, after: before, snapshot: failed };
+        }
+      }
       return { ok: true, spent: 0, before, after: before, snapshot: this.view(timestamp) };
     }
-    if (!['legacy-local', 'local-backup'].includes(this._authorityMode)) return { ok: false, reason: this._authorityMode, snapshot: this.view(timestamp) };
+    if (!LOCAL_AUTHORITY_MODES.has(this._authorityMode)) return { ok: false, reason: this._authorityMode, snapshot: this.view(timestamp) };
     const { ordinaryUnlockCost, naturalCap, recoveryIntervalMs } = this.config;
     if (before < ordinaryUnlockCost) {
-      if (changed) this._pending = !this.persist(this._state);
+      if (changed) {
+        this._pending = !this.persist(this._state);
+        if (this._pending && checkpoint) {
+          const failed = Object.assign({}, this.view(timestamp), { persisted: false });
+          this.restoreAppLocalCheckpoint(checkpoint);
+          return { ok: false, reason: 'persist-failed', snapshot: failed };
+        }
+      }
       return { ok: false, reason: 'insufficient-stamina', snapshot: this.view(timestamp) };
     }
     const candidate = Object.assign({}, this._state, {
@@ -316,7 +393,9 @@ class StaminaService {
     else if (before >= naturalCap) candidate.nextRecoveryAt = timestamp + recoveryIntervalMs;
     // The debit and permanent access must commit in the same storage write.
     if (!this.persist(candidate)) {
-      return { ok: false, reason: 'persist-failed', snapshot: this.view(timestamp) };
+      const failed = Object.assign({}, this.view(timestamp), { persisted: false });
+      this.restoreAppLocalCheckpoint(checkpoint);
+      return { ok: false, reason: 'persist-failed', snapshot: failed };
     }
     this._state = candidate;
     this._pending = false;
@@ -324,19 +403,26 @@ class StaminaService {
   }
 
   flush(now) {
-    if (!['legacy-local', 'local-backup'].includes(this._authorityMode)) return true;
+    if (!LOCAL_AUTHORITY_MODES.has(this._authorityMode)) return true;
+    const checkpoint = this.appLocalCheckpoint();
     this.settle(this.time(now));
     const refundKeys = this._state.unlockedLevels.filter(key =>
       this._pendingRefunds.has(key) && !this._state.refundedLevels.includes(key));
     const balance = this._state.balance + refundKeys.length * this.config.quickClearRefundAmount;
-    if (!nonnegativeInteger(balance)) return false;
+    if (!nonnegativeInteger(balance)) {
+      this.restoreAppLocalCheckpoint(checkpoint);
+      return false;
+    }
     if (!this._pending && !refundKeys.length) return true;
     const candidate = Object.assign({}, this._state, {
       balance,
       nextRecoveryAt: balance >= this.config.naturalCap ? null : this._state.nextRecoveryAt,
       refundedLevels: normalizeUnlocks(this._state.refundedLevels.concat(refundKeys))
     });
-    if (!this.persist(candidate)) return false;
+    if (!this.persist(candidate)) {
+      this.restoreAppLocalCheckpoint(checkpoint);
+      return false;
+    }
     this._state = candidate;
     this._pending = false;
     this._pendingRefunds.clear();
@@ -346,7 +432,10 @@ class StaminaService {
   refundQuickClear(levelKey, elapsedMs, now) {
     const timestamp = this.time(now);
     const snapshot = this.snapshot(timestamp);
-    if (!['legacy-local', 'local-backup'].includes(this._authorityMode)) return { ok: true, reason: this._authorityMode, refunded: 0, snapshot };
+    if (this._authorityMode === 'app-local' && snapshot.persisted === false) {
+      return { ok: false, reason: 'persist-failed', refunded: 0, snapshot };
+    }
+    if (!LOCAL_AUTHORITY_MODES.has(this._authorityMode)) return { ok: true, reason: this._authorityMode, refunded: 0, snapshot };
     if (!validLevelKey(levelKey) || !Number.isFinite(elapsedMs) || elapsedMs < 0) {
       return { ok: false, reason: 'invalid-completion', refunded: 0, snapshot };
     }
@@ -357,15 +446,21 @@ class StaminaService {
     // Each level can earn this once, on its first qualifying clear, regardless
     // of how many slower clears or attempts came before.
     // Keep failed refunds queued without changing the visible balance.
+    const pendingBefore = new Set(this._pendingRefunds);
     this._pendingRefunds.add(levelKey);
     const before = this._state.balance;
     const persisted = this.flush(timestamp);
+    if (!persisted && this._authorityMode === 'app-local') this._pendingRefunds = pendingBefore;
     return { ok: persisted, reason: persisted ? null : 'refund-persist-failed',
       refunded: persisted ? this._state.balance - before : 0, snapshot: this.view(timestamp) };
   }
 
   quickClearRefundState(levelKey) {
-    if (!this._state) this.snapshot();
+    if (!this._state) {
+      const snapshot = this.snapshot();
+      if (!this._state) return { amount: this.config.quickClearRefundAmount,
+        status: 'unavailable', persisted: snapshot.persisted };
+    }
     return { amount: this.config.quickClearRefundAmount,
       status: this._pendingRefunds.has(levelKey) ? 'pending'
         : this._state.refundedLevels.includes(levelKey) ? 'claimed'

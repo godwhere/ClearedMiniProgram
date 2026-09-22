@@ -1,7 +1,7 @@
 # 微信小游戏到独立 App：架构准备方案与严格代码边界
 
 > 初稿日期：2026-09-08；本次更新：2026-09-22。
-> 状态：语言本地化已完成本地实现，作为现有能力保留；App 化已于 2026-09-22 完成 P0 基线、P1 通用装配、P2 平台生命周期合同、P2.5-A 能力裁剪和 P2.5-B 内容门禁／购买界面消费合同，并已冻结 P2.5-C App 本地权威施工合同；P2.5-C 运行时及之后阶段尚未实施。P2.5-B 只用 fake provider 证明共享消费者，不代表真实商店、宿主权益归并或原生持久化已经接通。2026-09-21 已冻结 App 首版的单机、六关试玩、一次性买断、无每日挑战／广告、回廊解锁及“独立 App 宿主工程＋现有游戏源码唯一来源”方向；2026-09-22 收紧权益生命周期、阶段出口、策略归属和方法级施工边界。开发者工具、模拟器、真机、商店沙盒与上架证据按后续阶段分别取得，不能互相替代。
+> 状态：语言本地化已完成本地实现，作为现有能力保留；App 化已于 2026-09-22 完成 P0 基线、P1 通用装配、P2 平台生命周期合同及 P2.5-A／B／C 的共享源码实施。P2.5-C 已实现显式 `app-local` 六域权威、命名空间前置校验、奖励纯投影与奖励／体力一致提交，但证据仍限同步 Node 测试存储；P3 回归检查点及 P4 之后的第二宿主、原生存储、真实商店和设备验收尚未实施。P2.5-B 只用 fake provider 证明共享消费者，不代表真实商店或宿主权益归并已经接通。2026-09-21 已冻结 App 首版的单机、六关试玩、一次性买断、无每日挑战／广告、回廊解锁及“独立 App 宿主工程＋现有游戏源码唯一来源”方向；2026-09-22 收紧权益生命周期、阶段出口、策略归属和方法级施工边界。开发者工具、模拟器、真机、商店沙盒与上架证据按后续阶段分别取得，不能互相替代。
 > 当前授权：用户已于 2026-09-22 授权按本文顺序分任务实施，并要求每完成一个独立任务后使用 GitHub Desktop 提交。只能由真机完成的验收暂缓；允许使用本机 Android／iOS 模拟器验证可覆盖的行为。该授权不放宽阶段白名单、停工条件、数据与产品边界，也不包含服务器／云服务变更、安装包上传、送审或发布。
 > 本轮 P0 审计起点：本地 `main` 的 `984303becf8afab1dcd4fc855cc4128f4e1d9460`，tree 为 `544090431fc5c514b38898d47bb2ecf75dffce33`；开始时工作区干净并跟踪 `origin/main`。`0fde16caa6c9732306141d2884cd8cfda0194f8f` 是上一轮远端文档审阅起点，`5010d7ce067bf0f412cd28dba452218c3b95bf26` 是 2026-09-09 的历史账号页／本地化核验节点，初稿基线为 `cf8bcab8776f742aea0f2cff9830d3a72732f0d8`。每个代码阶段仍须以届时最新 HEAD 重新刷新差异、测试、分包和包体。
 > 客户端根目录 C：`/Users/ethan/Projects/ClearedMiniProgram`。下文施工路径相对 C，除非另有说明；独立 App 宿主根目录记为 H，实际路径在 P4 冻结，必须位于 C 之外。
@@ -679,7 +679,7 @@ P2.5-B 已新增共享 store provider 注入合同、只读界面投影和 fake 
 | `src/services/reward-unlock-service.js` | `constructor()`／`setAuthorityMode()`、`reconcile()`、`purchase()` 的准入；`write(candidate)` 仅在必要时补失败保护 | `app-local` 只允许首通核对与金币购买；候选余额、领取记录和拥有权在同一账本提交 | 不使广告／分享授权入口接受 `app-local`；不改金额、schema、稳定 key、云回执校验或第二份资产 |
 | `src/services/stamina-service.js` | `constructor()`／`setAuthorityMode()`；`settle()`、`snapshot()`、`unlockOrdinaryLevel()`、`refundQuickClear()`、`restoreUnlockedLevels()`、`flush()` 及其直接调用链内必要的模式准入区段 | 明确本地结算／入场／恢复／退款权限；只允许全新且显式配置的服务进入 `app-local` | 自然恢复、永久解锁和退款算法、微信 key、云权威／冻结保护；不全仓异步化 |
 | `src/runtime/product-policy.js`、`tests/fixtures/app-product-policy.js` | 已有策略校验、六域／命名空间合同与奖励目录纯投影；测试 fixture 保存固定 App 取值 | 验证完整能力／本地模式组合、独立命名空间和回廊覆盖输入 | App 生产覆盖参数仍归 H；不全局改共享奖励目录，不把测试 fixture 引入生产依赖图 |
-| 文档 | 本文、`README.md`、`docs/reward-unlock-system.md`、`docs/stamina-system.md`、`docs/cloudbase-local-first-sync.md` | 同步 App 本地权威与微信云／历史本地备份的区别、证据边界和失败语义 | 不把合同冻结写成已实现，不覆盖历史设备／云端证据 |
+| 文档 | 本文、`README.md`、`docs/reward-unlock-system.md`、`docs/stamina-system.md`、`docs/cloudbase-local-first-sync.md` | 同步 App 本地权威与微信云／历史本地备份的区别、证据边界和失败语义 | 只在同步测试证据范围标记已实现，不覆盖历史设备／云端证据 |
 
 可改测试为 `tests/product-policy.test.js`、`tests/game-runtime.test.js`、`tests/app-smoke.test.js`、`tests/reward-unlock-service.test.js`、`tests/reward-unlock-app.test.js`、`tests/reward-unlock-renderer.test.js`、`tests/stamina-service.test.js`、`tests/stamina-app.test.js`、`tests/stamina-renderer.test.js`、`tests/single-settlement-bootstrap.test.js`、`tests/account-bootstrap.test.js`、`tests/architecture-boundaries.test.js`、`tests/run.js`；可新增 `tests/app-local-authority.test.js`，使用真实领域服务与可失败的独立测试存储。
 
@@ -1089,3 +1089,11 @@ git diff --check
 - 组合根须在 App 和有状态服务产生副作用前校验完整合同，拒绝 SyncStore、ProgressSync、Economy、身份、云备份、在线及每日依赖；App 内 SyncStore 仍始终优先，权威或服务不一致时失败关闭。
 - 奖励覆盖只做不变纯投影：首版 fixture／H 的五项广告／分享回廊统一为 `currency:10000`，稳定标识不变，共享奖励目录不变。RewardUnlockService 与 StaminaService 只允许全新、显式配置的实例进入 `app-local`，并补列体力 `settle()`／`snapshot()` 调用链。
 - 本次只同步本文、README、奖励、体力和 CloudBase 专题文档，没有修改运行行为、配置、存档、云端或真实数据，也未执行开发者工具、模拟器、真机、商店、上传、审核或发布。P2.5-C 运行时代码和自动化仍待下一项独立任务实施。
+
+### 13.14 P2.5-C App 本地权威实施：2026-09-22
+
+- 通用 runtime 合同升级为 `3`。ProductPolicy 精确规范化完整六域、宿主持有的非空命名空间和奖励覆盖输入；`createLocalServices()` 在 Locale、Progress、Stamina、RewardUnlockService 等任何有状态服务读盘前，先拒绝禁止依赖、验证同步 `{ id, isolated:true }`、完成共享奖励目录的纯投影与完整 schema 校验。`startGame()` 只接受一份一致的规范策略，并重新生成商业访问查询，防止旧闭包或第二策略绕过六关门禁。
+- App fixture 的五项 `rewarded_ad/share` 条目由外部声明投影为 `currency:10000`；真实 RewardUnlockService 目录必须与规范投影在稳定顺序、ID、kind、itemId、类型和价格上精确一致。共享 `src/config/rewards.js` 未修改；错误匹配数、损坏 schema、伪造价格、额外权威字段和混合服务都在 App 或业务存储副作用前失败。
+- RewardUnlockService 与 StaminaService 只能在全新构造时选择 `app-local`，之后双向锁定。普通首通、金币购买、体力入场与快通退款使用候选写入；写失败回滚未确认内存状态。已持久化进度可在重启后幂等补发奖励／退款，重复恢复或购买不重复发放、返还或扣币；广告／分享授权仍拒绝。App 在创建 Runner、改变奖励弹层、同步或异步保存设置前复查领域权威，SyncStore／迁移冻结／备份恢复保护保持优先。
+- 新增 `tests/app-local-authority.test.js`，并扩充产品策略、runtime、奖励、体力、主题异步回调和架构边界回归。同步测试覆盖命名空间缺失／不匹配／Promise、禁止依赖、策略冲突、奖励价格与 schema 漂移、失败回滚、重启补办、重复操作、两个逻辑命名空间隔离，以及微信默认／云权威／历史 `local-backup` 保护。
+- 本地验证：`node tests/run.js` 110／110 组通过；包预算通过（主包 1,505,205 bytes，11 个分包，总计 16,478,316 bytes）；rollout 配置预检 `ready:true`；`git diff --check` 通过。未创建 H，也未执行微信开发者工具、Android／iOS 模拟器、真机、原生杀进程恢复、商店沙盒、上传、审核或发布；同步 fake storage 的成功不构成这些证据。

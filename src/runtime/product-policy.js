@@ -11,8 +11,27 @@ const KNOWN_KEYS = new Set(CAPABILITY_KEYS.concat([
   'hintMode',
   'freeLevelKeys',
   'fullGameEntitlementId',
-  'iceTrialRequiresFullGame'
+  'iceTrialRequiresFullGame',
+  'authority',
+  'rewardUnlockOverride'
 ]));
+const AUTHORITY_DOMAIN_KEYS = Object.freeze([
+  'progress',
+  'daily',
+  'economy',
+  'entitlements',
+  'stamina',
+  'preferences'
+]);
+const APP_LOCAL_DOMAIN_VALUES = Object.freeze({
+  progress: 'app-local',
+  daily: 'disabled',
+  economy: 'app-local',
+  entitlements: 'app-local',
+  stamina: 'app-local',
+  preferences: 'app-local'
+});
+const EXTERNAL_REWARD_TYPES = new Set(['rewarded_ad', 'share']);
 const LEVEL_KEY = /^(0|[1-9]\d*):(0|[1-9]\d*)$/;
 const LOGICAL_ID = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/;
 const ENTITLEMENT_STATUSES = Object.freeze([
@@ -40,6 +59,81 @@ function booleanValue(source, fallback, key) {
   if (!Object.prototype.hasOwnProperty.call(source, key)) return fallback;
   if (typeof source[key] !== 'boolean') throw new Error(`invalid-product-policy:${key}`);
   return source[key];
+}
+
+function exactKeys(value, keys) {
+  if (!plainObject(value)) return false;
+  const actual = Object.keys(value).sort();
+  const expected = keys.slice().sort();
+  return actual.length === expected.length && actual.every((key, index) => key === expected[index]);
+}
+
+function normalizeAuthority(value) {
+  if (value === undefined || value === null) return null;
+  if (!exactKeys(value, ['mode', 'storageNamespaceId', 'domains']) || value.mode !== 'app-local' ||
+      typeof value.storageNamespaceId !== 'string' || value.storageNamespaceId.trim().length === 0 ||
+      !exactKeys(value.domains, AUTHORITY_DOMAIN_KEYS) ||
+      AUTHORITY_DOMAIN_KEYS.some(key => value.domains[key] !== APP_LOCAL_DOMAIN_VALUES[key])) {
+    throw new Error('invalid-product-policy:authority');
+  }
+  const domains = {};
+  AUTHORITY_DOMAIN_KEYS.forEach(key => { domains[key] = value.domains[key]; });
+  return Object.freeze({
+    mode: 'app-local',
+    storageNamespaceId: value.storageNamespaceId,
+    domains: Object.freeze(domains)
+  });
+}
+
+function normalizeRewardUnlockOverride(value) {
+  if (value === undefined || value === null) return null;
+  if (!exactKeys(value, ['sourceTypes', 'replacement', 'expectedMatches']) ||
+      !Array.isArray(value.sourceTypes) || value.sourceTypes.length === 0 ||
+      new Set(value.sourceTypes).size !== value.sourceTypes.length ||
+      !value.sourceTypes.every(type => EXTERNAL_REWARD_TYPES.has(type)) ||
+      !exactKeys(value.replacement, ['type', 'cost']) || value.replacement.type !== 'currency' ||
+      !Number.isSafeInteger(value.replacement.cost) || value.replacement.cost <= 0 ||
+      !Number.isSafeInteger(value.expectedMatches) || value.expectedMatches <= 0) {
+    throw new Error('invalid-product-policy:rewardUnlockOverride');
+  }
+  return Object.freeze({
+    sourceTypes: Object.freeze(value.sourceTypes.slice()),
+    replacement: Object.freeze({ type: 'currency', cost: value.replacement.cost }),
+    expectedMatches: value.expectedMatches
+  });
+}
+
+function frozenClone(value) {
+  if (Array.isArray(value)) return Object.freeze(value.map(frozenClone));
+  if (plainObject(value)) {
+    const result = {};
+    Object.keys(value).forEach(key => { result[key] = frozenClone(value[key]); });
+    return Object.freeze(result);
+  }
+  return value;
+}
+
+function projectRewardConfig(input, override) {
+  if (!override) return input;
+  if (!plainObject(input) || !Array.isArray(input.items)) {
+    throw new Error('invalid-product-policy:rewardConfig');
+  }
+  let matches = 0;
+  const items = input.items.map(source => {
+    if (!plainObject(source) || !plainObject(source.unlock)) {
+      throw new Error('invalid-product-policy:rewardConfig');
+    }
+    if (!override.sourceTypes.includes(source.unlock.type)) return frozenClone(source);
+    matches++;
+    return frozenClone(Object.assign({}, source, { unlock: override.replacement }));
+  });
+  if (matches !== override.expectedMatches) {
+    throw new Error('invalid-product-policy:rewardUnlockOverride:expectedMatches');
+  }
+  if (items.some(item => item && item.unlock && EXTERNAL_REWARD_TYPES.has(item.unlock.type))) {
+    throw new Error('invalid-product-policy:rewardUnlockOverride:uncovered');
+  }
+  return frozenClone(Object.assign({}, input, { items }));
 }
 
 function normalize(input, compatibility) {
@@ -91,6 +185,20 @@ function normalize(input, compatibility) {
   config.fullGameEntitlementId = entitlementId;
   config.iceTrialRequiresFullGame = booleanValue(source,
     booleanValue(fallback, false, 'iceTrialRequiresFullGame'), 'iceTrialRequiresFullGame');
+  // Host authority is never inherited through compatibility defaults. It is
+  // an explicit activation contract owned by the independent App host.
+  config.authority = normalizeAuthority(Object.prototype.hasOwnProperty.call(source, 'authority')
+    ? source.authority : null);
+  config.rewardUnlockOverride = normalizeRewardUnlockOverride(
+    Object.prototype.hasOwnProperty.call(source, 'rewardUnlockOverride')
+      ? source.rewardUnlockOverride : null
+  );
+  if (!!config.authority !== !!config.rewardUnlockOverride) {
+    throw new Error('invalid-product-policy:app-local-contract');
+  }
+  if (config.authority && (CAPABILITY_KEYS.some(key => config[key] !== false) || config.hintMode !== 'free')) {
+    throw new Error('invalid-product-policy:app-local-capabilities');
+  }
   return Object.freeze(config);
 }
 
@@ -182,6 +290,11 @@ function create(input, compatibility) {
   const policy = Object.freeze({
     config,
     capabilities,
+    authority() { return config.authority; },
+    rewardUnlockOverride() { return config.rewardUnlockOverride; },
+    projectRewardConfig(input) {
+      return projectRewardConfig(input, config.rewardUnlockOverride);
+    },
     isEnabled(name) {
       const key = `${name}Enabled`;
       return CAPABILITY_KEYS.includes(key) && capabilities[key] === true;
@@ -234,7 +347,12 @@ function create(input, compatibility) {
 module.exports = Object.freeze({
   create,
   normalize,
+  normalizeAuthority,
+  normalizeRewardUnlockOverride,
+  projectRewardConfig,
   normalizeEntitlementSnapshot,
   ENTITLEMENT_STATUSES,
-  EMPTY_DAILY_COMPLETIONS
+  EMPTY_DAILY_COMPLETIONS,
+  AUTHORITY_DOMAIN_KEYS,
+  APP_LOCAL_DOMAIN_VALUES
 });

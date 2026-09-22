@@ -3,6 +3,8 @@
 const assert = require('assert');
 const config = require('../src/config/rewards.js');
 const RewardUnlockService = require('../src/services/reward-unlock-service.js');
+const ProductPolicy = require('../src/runtime/product-policy.js');
+const appProductConfig = require('./fixtures/app-product-policy.js');
 const { RewardPlatform, ownedState } = require('./helpers/reward-fixture.js');
 
 const emptyCompletions = () => ({
@@ -166,6 +168,75 @@ function run() {
   testPendingRewardDisplay();
   assert.strictEqual(config.items.length, 13);
   assert.strictEqual(RewardUnlockService.validateConfig(config) !== null, true);
+
+  const appConfig = ProductPolicy.create(appProductConfig).projectRewardConfig(config);
+  const defaultAuthority = new RewardUnlockService(new RewardPlatform(), config);
+  assert.strictEqual(defaultAuthority.setAuthorityMode('app-local'), false,
+    'a legacy service cannot be promoted into App authority');
+  assert.strictEqual(defaultAuthority.authorityMode(), 'legacy-local');
+  assert.strictEqual(defaultAuthority.setAuthorityMode('unknown'), false);
+  const protectedAuthority = new RewardUnlockService(new RewardPlatform(), config);
+  assert.strictEqual(protectedAuthority.setAuthorityMode('cloud-authoritative'), true);
+  assert.strictEqual(protectedAuthority.setAuthorityMode('app-local'), false);
+  const appAuthority = new RewardUnlockService(new RewardPlatform(), appConfig, {
+    authorityMode: 'app-local'
+  });
+  assert.strictEqual(appAuthority.authorityMode(), 'app-local');
+  assert.strictEqual(appAuthority.setAuthorityMode('app-local'), true);
+  assert.strictEqual(appAuthority.setAuthorityMode('legacy-local'), false);
+  assert.strictEqual(appAuthority.setAuthorityMode('cloud-authoritative'), false);
+  const writesBeforeDaily = appAuthority.platform.writes.length;
+  assert.strictEqual(appAuthority.reconcile({ ordinary: { ok: true, levelKeys: [] },
+    daily: { ok: true, days: [{ dateKey: '2026-09-22', dayId: 'day-app', levelIds: ['a', 'b'] }] } }).reason,
+  'daily-disabled');
+  assert.strictEqual(appAuthority.platform.writes.length, writesBeforeDaily);
+  assert.strictEqual(appAuthority.recordAdCompletion({ rewardId: 'theme:ocean', attemptId: 'app:ad' }).reason,
+    'app-local');
+  assert.strictEqual(appAuthority.recordShareInitiated({ rewardId: 'theme:festival', initiated: true }).reason,
+    'app-local');
+
+  const appRewardIds = config.items.filter(item => ['rewarded_ad', 'share'].includes(item.unlock.type))
+    .map(item => item.id);
+  const fundedAppPlatform = new RewardPlatform({
+    [RewardUnlockService.STORAGE_KEY]: ownedState([], 50000)
+  });
+  const fundedApp = new RewardUnlockService(fundedAppPlatform, appConfig, { authorityMode: 'app-local' });
+  appRewardIds.forEach(rewardId => {
+    const before = fundedApp.view().balance;
+    assert.strictEqual(fundedApp.status(rewardId).conditionType, 'currency');
+    assert.strictEqual(fundedApp.status(rewardId).cost, 10000);
+    assert.strictEqual(fundedApp.purchase(rewardId).amountDelta, -10000);
+    assert.strictEqual(fundedApp.canUse(rewardId.split(':')[0], rewardId.split(':')[1]), true);
+    assert.strictEqual(fundedApp.view().balance, before - 10000);
+    assert.strictEqual(fundedApp.purchase(rewardId).amountDelta, 0,
+      'an App reward cannot charge twice');
+  });
+  assert.strictEqual(fundedApp.view().balance, 0);
+
+  const failedAppPlatform = new RewardPlatform({
+    [RewardUnlockService.STORAGE_KEY]: ownedState([], 10000)
+  });
+  failedAppPlatform.writeFailures[RewardUnlockService.STORAGE_KEY] = true;
+  const failedApp = new RewardUnlockService(failedAppPlatform, appConfig, { authorityMode: 'app-local' });
+  assert.strictEqual(failedApp.purchase(appRewardIds[0]).reason, 'persist-failed');
+  assert.deepStrictEqual(failedApp.view(), { available: true, balance: 10000, error: null });
+  assert.strictEqual(failedApp.owned(appRewardIds[0]), false);
+
+  const recoveryPlatform = new RewardPlatform();
+  const failedRecovery = new RewardUnlockService(recoveryPlatform, appConfig, { authorityMode: 'app-local' });
+  recoveryPlatform.writeFailures[RewardUnlockService.STORAGE_KEY] = true;
+  const persistedFact = { ordinary: { ok: true, levelKeys: ['0:0'] }, daily: { ok: true, days: [] } };
+  assert.strictEqual(failedRecovery.reconcile(persistedFact).reason, 'persist-failed');
+  assert.strictEqual(failedRecovery.view().balance, 0);
+  recoveryPlatform.writeFailures[RewardUnlockService.STORAGE_KEY] = false;
+  const recoveredApp = new RewardUnlockService(recoveryPlatform, appConfig, { authorityMode: 'app-local' });
+  assert.strictEqual(recoveredApp.reconcile(persistedFact).amountDelta, 100);
+  const appWrites = recoveryPlatform.writes.length;
+  const restartedApp = new RewardUnlockService(recoveryPlatform, appConfig, { authorityMode: 'app-local' });
+  assert.strictEqual(restartedApp.view().balance, 100,
+    'a fresh App service may load an existing isolated ledger');
+  assert.strictEqual(restartedApp.reconcile(persistedFact).amountDelta, 0);
+  assert.strictEqual(recoveryPlatform.writes.length, appWrites);
 
   const platform = new RewardPlatform();
   const service = new RewardUnlockService(platform, config);

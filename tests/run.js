@@ -27,6 +27,7 @@ const tests = [
   ['product capability policy', require('./product-policy.test.js')],
   ['full-game content access and store consumer', require('./full-game-access.test.js')],
   ['shared game runtime composition', require('./game-runtime.test.js')],
+  ['App local authority and isolated settlement', require('./app-local-authority.test.js')],
   ['platform input and lifecycle contract', require('./platform-contract.test.js')],
   ['level records, gallery navigation and beginner instructions', require('./level-ui.test.js')],
   ['stamina service', require('./stamina-service.test.js')],

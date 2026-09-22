@@ -229,6 +229,77 @@ function run() {
   const limit = createStaminaFixture(saved(Number.MAX_SAFE_INTEGER, null, ['0:0']));
   assert.strictEqual(limit.service.refundQuickClear('0:0', 1000).ok, false);
   assert.strictEqual(limit.service.snapshot().balance, Number.MAX_SAFE_INTEGER);
+
+  const defaultAuthority = createStaminaFixture();
+  assert.strictEqual(defaultAuthority.service.setAuthorityMode('app-local'), false,
+    'a default/WeChat stamina instance cannot be promoted to App authority');
+  assert.strictEqual(defaultAuthority.service.authorityMode(), 'legacy-local');
+  assert.strictEqual(defaultAuthority.service.setAuthorityMode('unknown'), false);
+  const protectedAuthority = createStaminaFixture();
+  assert.strictEqual(protectedAuthority.service.setAuthorityMode('cloud-authoritative'), true);
+  assert.strictEqual(protectedAuthority.service.setAuthorityMode('app-local'), false);
+
+  const appAuthority = createStaminaFixture(saved(5, null), { authorityMode: 'app-local' });
+  assert.strictEqual(appAuthority.service.authorityMode(), 'app-local');
+  assert.strictEqual(appAuthority.service.setAuthorityMode('app-local'), true);
+  assert.strictEqual(appAuthority.service.setAuthorityMode('legacy-local'), false);
+  assert.strictEqual(appAuthority.service.setAuthorityMode('local-backup'), false);
+  assert.strictEqual(appAuthority.service.snapshot().balance, 5);
+  assert.strictEqual(appAuthority.service.restoreUnlockedLevels(['0:0']), true);
+  assert.strictEqual(appAuthority.service.unlockOrdinaryLevel('0:0').spent, 0);
+  assert.strictEqual(appAuthority.service.unlockOrdinaryLevel('0:1').spent, 1);
+  assert.strictEqual(appAuthority.service.refundQuickClear('0:1', 1000).refunded, 1);
+  assert.strictEqual(appAuthority.service.refundQuickClear('0:1', 1000).refunded, 0);
+  assert.strictEqual(appAuthority.service.flush(), true);
+  const appRestart = new StaminaService(appAuthority.platform, {
+    clock: appAuthority.clock, authorityMode: 'app-local'
+  });
+  assert.strictEqual(appRestart.authorityMode(), 'app-local');
+  assert.strictEqual(appRestart.snapshot().balance, 5);
+  assert.strictEqual(appRestart.unlockOrdinaryLevel('0:1').spent, 0,
+    'a fresh App service loads an existing isolated ledger without charging again');
+  assert.strictEqual(appRestart.refundQuickClear('0:1', 1000).refunded, 0);
+
+  const appPendingRecovery = createStaminaFixture(saved(2, NOW), { authorityMode: 'app-local' });
+  assert.strictEqual(appPendingRecovery.service.settle(NOW), true);
+  assert.strictEqual(appPendingRecovery.writes.length, 0);
+  assert.strictEqual(appPendingRecovery.service.restoreUnlockedLevels([], NOW), true);
+  assert.deepStrictEqual(appPendingRecovery.raw.storage[STORAGE_KEY],
+    saved(3, NOW + INTERVAL), 'restore commits a previously pending App-local recovery');
+  assert.strictEqual(appPendingRecovery.service.snapshot(NOW).persisted, true);
+
+  const appRestoreFailure = createStaminaFixture(saved(5, null), { authorityMode: 'app-local' });
+  appRestoreFailure.failStorage(true);
+  assert.strictEqual(appRestoreFailure.service.restoreUnlockedLevels(['0:2']), false);
+  assert.strictEqual(appRestoreFailure.service.isPermanentlyUnlocked('0:2'), false,
+    'a failed App restore cannot grant an in-memory permanent unlock');
+  assert.deepStrictEqual(appRestoreFailure.raw.storage[STORAGE_KEY], saved(5, null));
+
+  const appUnlockFailure = createStaminaFixture(saved(5, null), { authorityMode: 'app-local' });
+  appUnlockFailure.failStorage(true);
+  const rejectedUnlock = appUnlockFailure.service.unlockOrdinaryLevel('0:3');
+  assert.strictEqual(rejectedUnlock.reason, 'persist-failed');
+  assert.strictEqual(rejectedUnlock.snapshot.balance, 5);
+  assert.strictEqual(appUnlockFailure.service.isPermanentlyUnlocked('0:3'), false);
+  assert.deepStrictEqual(appUnlockFailure.raw.storage[STORAGE_KEY], saved(5, null));
+
+  const appRefundFailure = createStaminaFixture(saved(4, NOW + INTERVAL, ['0:4']), {
+    authorityMode: 'app-local'
+  });
+  appRefundFailure.failStorage(true);
+  assert.strictEqual(appRefundFailure.service.refundQuickClear('0:4', 1000).reason,
+    'refund-persist-failed');
+  assert.strictEqual(appRefundFailure.service.snapshot().balance, 4);
+  assert.strictEqual(appRefundFailure.service.quickClearRefundState('0:4').status, 'available',
+    'an App write failure does not confirm or retain a hidden refund');
+  assert.deepStrictEqual(appRefundFailure.raw.storage[STORAGE_KEY],
+    saved(4, NOW + INTERVAL, ['0:4']));
+  appRefundFailure.failStorage(false);
+  assert.strictEqual(appRefundFailure.service.refundQuickClear('0:4', 1000).refunded, 1);
+  const refundRestart = new StaminaService(appRefundFailure.platform, {
+    clock: appRefundFailure.clock, authorityMode: 'app-local'
+  });
+  assert.strictEqual(refundRestart.refundQuickClear('0:4', 1000).refunded, 0);
 }
 
 module.exports = run;

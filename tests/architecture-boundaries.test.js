@@ -284,11 +284,13 @@ function run() {
   assert(!/\b(?:wx|GameRunner|Canvas|setInterval|setTimeout|requestAnimationFrame)\b/.test(staminaSource),
     'stamina uses platform storage and timestamps without core, UI or timer dependencies');
   const openLevel = appSource.slice(appSource.indexOf('  openLevel('), appSource.indexOf('  createOrdinaryRunner('));
-  assert(openLevel.indexOf('progression.accessStatus') < openLevel.indexOf('createOrdinaryRunner') &&
-    openLevel.indexOf('createOrdinaryRunner') < openLevel.indexOf('unlockOrdinaryLevel'),
+  const runnerCreation = openLevel.indexOf('createOrdinaryRunner');
+  const firstStaminaUnlock = openLevel.search(/\.unlockOrdinaryLevel\s*\(/);
+  assert(openLevel.indexOf('progression.accessStatus') < runnerCreation &&
+    runnerCreation < firstStaminaUnlock,
   'commercial access must be checked before Runner creation and stamina unlock');
-  assert.strictEqual((openLevel.match(/\.unlockOrdinaryLevel\s*\(/g) || []).length, 2,
-    'openLevel may route one unlock through cloud sync or the local fallback');
+  assert.strictEqual((openLevel.match(/\.unlockOrdinaryLevel\s*\(/g) || []).length, 3,
+    'openLevel may route one unlock through App-local stamina, cloud sync or the legacy fallback');
   assert(!/\.unlockOrdinaryLevel\s*\(/.test(appSource.replace(openLevel, '')), 'only openLevel may unlock with stamina');
   assert(!/consumeOrdinaryAttempt/.test(appSource), 'replaying a level must not use per-attempt debits');
   ['gameplay', 'mechanics', 'ui'].forEach(dir => javascriptFiles(path.join(SRC_DIR, dir)).forEach(file => {

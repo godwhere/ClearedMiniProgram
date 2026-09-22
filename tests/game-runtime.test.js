@@ -6,6 +6,16 @@ const LocaleService = require('../src/services/locale-service.js');
 const HintAccessService = require('../src/services/hint-access-service.js');
 const solutions = require('../data/solutions.js');
 const appProductConfig = require('./fixtures/app-product-policy.js');
+const capabilityOnlyPolicy = Object.freeze({
+  dailyEnabled: appProductConfig.dailyEnabled,
+  adsEnabled: appProductConfig.adsEnabled,
+  rewardedShareEnabled: appProductConfig.rewardedShareEnabled,
+  resultShareEnabled: appProductConfig.resultShareEnabled,
+  hintMode: appProductConfig.hintMode,
+  freeLevelKeys: appProductConfig.freeLevelKeys,
+  fullGameEntitlementId: appProductConfig.fullGameEntitlementId,
+  iceTrialRequiresFullGame: appProductConfig.iceTrialRequiresFullGame
+});
 
 function clone(value) {
   return value === undefined ? undefined : JSON.parse(JSON.stringify(value));
@@ -62,7 +72,7 @@ function testPlatform(options) {
 }
 
 function run() {
-  assert.strictEqual(gameRuntime.runtimeContractVersion, 2);
+  assert.strictEqual(gameRuntime.runtimeContractVersion, 3);
 
   const platform = testPlatform({ language: 'zh-Hans' });
   const local = gameRuntime.createLocalServices(platform, {
@@ -144,7 +154,7 @@ function run() {
   const appPlatform = testPlatform({ language: 'en-US' });
   const fullGameStore = {};
   const appLocal = gameRuntime.createLocalServices(appPlatform, {
-    productPolicy: appProductConfig,
+    productPolicy: capabilityOnlyPolicy,
     fullGameStore,
     dailyStore: { forbidden: true },
     hintAccess: { forbidden: true }
@@ -168,7 +178,7 @@ function run() {
 
   const forbidden = { daily: 0, ads: 0, share: 0, rewards: 0, engagement: 0 };
   const appMode = gameRuntime.startGame(appPlatform, {
-    productPolicy: appProductConfig,
+    productPolicy: capabilityOnlyPolicy,
     appOptions: Object.assign({}, appLocal, {
       solutionCatalog: solutions,
       dailyService: { resolve() { forbidden.daily++; return null; } },
