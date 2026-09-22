@@ -33,6 +33,14 @@ const ShareService = require('./services/share-service.js');
 const RewardService = require('./services/reward-service.js');
 const rewardConfig = require('./config/rewards.js');
 
+const WECHAT_PRODUCT_CONFIG = Object.freeze({
+  dailyEnabled: true,
+  adsEnabled: true,
+  rewardedShareEnabled: true,
+  resultShareEnabled: true,
+  hintMode: adConfig.rules.hintMode
+});
+
 function cloudConfigForEnvironment(environmentVersion, loadLocalConfig) {
   if (environmentVersion === 'release') {
     // A formal package uses only the checked-in production lane, never the
@@ -68,13 +76,15 @@ function start(options) {
   const isDeveloperRuntime = ['develop', 'trial'].includes(environmentVersion);
   const cloudConfig = cloudConfigForEnvironment(environmentVersion, loadLocalCloudConfig);
   const local = gameRuntime.createLocalServices(platform, {
+    productPolicy: WECHAT_PRODUCT_CONFIG,
     subpackageConfig,
     staminaConfig,
     dailyDebugUnlimited: dailyConfig.debugUnlimitedEntries === true,
     dailyTimeZone: dailyConfig.timeZone,
     rewardConfig
   });
-  const { locale, subpackages, progress, stamina, dailyStore, rewardUnlocks, preferences, hintAccess } = local;
+  const { productPolicy, locale, subpackages, progress, stamina, dailyStore,
+    rewardUnlocks, preferences, hintAccess } = local;
   const sessions = new SessionStore(platform);
   const syncStore = new SyncStore(platform);
   const transport = cloudConfig.enabled === true ? new CloudFunctionTransport(platform, cloudConfig) : null;
@@ -114,6 +124,7 @@ function start(options) {
       platform.isDevTools() === true
   });
   const app = gameRuntime.startGame(platform, { appOptions: {
+    productPolicy,
     stamina, preferences, rewardUnlocks, syncStore, economy, authoritativeApplier,
     progress, dailyStore, auth, progressSync, behavior, ads, engagement, profile, share, rewards, hintAccess, locale,
     subpackages,

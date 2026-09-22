@@ -74,6 +74,26 @@ function run() {
     assert(sound.rect.x > 62, 'narrow layout clears the avatar region');
   });
 
+  const appHome = renderer(390);
+  const appHomeModel = Object.assign(homeModel(0), {
+    dailyExtraEntryAvailable: true,
+    productCapabilities: {
+      dailyEnabled: false,
+      adsEnabled: false,
+      rewardedShareEnabled: false,
+      resultShareEnabled: false,
+      hintMode: 'free'
+    }
+  });
+  appHome.renderer.render(appHomeModel, 1);
+  assert(!appHome.renderer.hits.some(hit =>
+    hit.id === 'home:dailyChallenge' || hit.id === 'daily:extraEntry'));
+  const appGallery = appHome.renderer.hits.find(hit => hit.id === 'home:corridor');
+  const appStart = appHome.renderer.hits.find(hit => hit.id === 'home:start');
+  assert(appGallery && appStart);
+  assert.strictEqual(appGallery.rect.w, appStart.rect.w,
+    'removing the daily entry leaves the existing gallery action as the full first row');
+
   const gallery = renderer(390);
   const model = {
     scene: 'themes', soundEnabled: true, pressedId: null, currentThemeId: 'classic',
@@ -100,6 +120,19 @@ function run() {
   assert.deepStrictEqual(gallery.renderer.hits.map(hit => hit.id).sort(), ['reward:apply', 'reward:later']);
   assert.strictEqual(JSON.stringify(dialog), JSON.stringify(Object.assign({}, model, { rewardDialog: dialog.rewardDialog })),
     'dialog drawing does not write reward state');
+
+  const disabledExternal = Object.assign({}, model, {
+    productCapabilities: { adsEnabled: false, rewardedShareEnabled: false },
+    rewardDialog: {
+      dialogId: 2, rewardId: 'theme:festival', mode: 'condition', state: 'idle',
+      conditionType: 'share', title: '节日', message: '不可用',
+      primaryAction: 'reward:unlock', primaryLabel: '分享', primaryEnabled: true,
+      secondaryAction: 'reward:close', secondaryLabel: '关闭'
+    }
+  });
+  gallery.renderer.render(disabledExternal, 3);
+  assert.deepStrictEqual(gallery.renderer.hits.map(hit => hit.id), ['reward:close'],
+    'a disabled external reward cannot regain an actionable hit through a stale ViewModel');
 }
 
 module.exports = run;

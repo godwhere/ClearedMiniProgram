@@ -70,6 +70,16 @@ function run() {
   share.renderer.clearInteractionHits();
   share.renderer.drawDailyResult({ result: {}, dailyResultVisibleAt: 0, dailyExtraEntryAvailable: true, dailyExtraEntryPending: true }, 1);
   assert(!share.renderer.hits.some(hit => hit.id === 'daily:extraEntry'));
+  share.renderer.clearInteractionHits();
+  share.renderer.drawResult({ result: { elapsedMs: 1, bestMs: 1 }, resultVisibleAt: 0,
+    shareAvailable: true, productCapabilities: { resultShareEnabled: false } }, 1);
+  assert(!share.renderer.hits.some(hit => hit.id === 'result:share'));
+  share.renderer.clearInteractionHits();
+  share.renderer.drawDailyResult({ result: {}, dailyResultVisibleAt: 0,
+    shareAvailable: true, dailyExtraEntryAvailable: true,
+    productCapabilities: { dailyEnabled: false, adsEnabled: false, resultShareEnabled: false } }, 1);
+  assert(!share.renderer.hits.some(hit =>
+    hit.id === 'dailyResult:share' || hit.id === 'daily:extraEntry'));
   [280, 320, 390].forEach(width => {
     ['native', 'missing', 'throws'].forEach(measurement => {
       ['play', 'daily'].forEach(scene => {

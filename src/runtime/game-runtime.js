@@ -10,27 +10,40 @@ const RewardUnlockService = require('../services/reward-unlock-service.js');
 const HintAccessService = require('../services/hint-access-service.js');
 const LocaleService = require('../services/locale-service.js');
 const defaultRewardConfig = require('../config/rewards.js');
+const ProductPolicy = require('./product-policy.js');
 
 const runtimeContractVersion = 1;
 
 function createLocalServices(platform, options) {
   if (!platform) throw new Error('platform-required');
   const opts = options || {};
+  const productPolicy = ProductPolicy.create(opts.productPolicy);
   const locale = opts.locale || new LocaleService(platform);
   const progress = opts.progress || new ProgressStore(platform);
   const subpackages = opts.subpackages !== undefined
     ? opts.subpackages
     : (opts.subpackageConfig ? new SubpackageService(platform, opts.subpackageConfig) : null);
   const stamina = opts.stamina || new StaminaService(platform, opts.staminaConfig);
-  const dailyStore = opts.dailyStore || new DailyProgressStore(platform, {
-    debugUnlimited: opts.dailyDebugUnlimited === true
-  });
+  const dailyStore = productPolicy.isEnabled('daily')
+    ? (Object.prototype.hasOwnProperty.call(opts, 'dailyStore')
+      ? (opts.dailyStore || null)
+      : new DailyProgressStore(platform, {
+        debugUnlimited: opts.dailyDebugUnlimited === true
+      }))
+    : null;
   const rewardUnlocks = opts.rewardUnlocks || new RewardUnlockService(
     platform,
     opts.rewardConfig || defaultRewardConfig
   );
+  const hintNeedsDailyAccess = ['share', 'tiered'].includes(productPolicy.hintMode());
+  const hintAccess = hintNeedsDailyAccess
+    ? (Object.prototype.hasOwnProperty.call(opts, 'hintAccess')
+      ? (opts.hintAccess || null)
+      : new HintAccessService(platform, { timeZone: opts.dailyTimeZone }))
+    : null;
 
   return {
+    productPolicy,
     locale,
     subpackages,
     progress,
@@ -38,9 +51,7 @@ function createLocalServices(platform, options) {
     dailyStore,
     rewardUnlocks,
     preferences: opts.preferences || new PreferencesService(progress),
-    hintAccess: opts.hintAccess || new HintAccessService(platform, {
-      timeZone: opts.dailyTimeZone
-    })
+    hintAccess
   };
 }
 
@@ -48,12 +59,20 @@ function startGame(platform, options) {
   if (!platform) throw new Error('platform-required');
   const opts = options || {};
   const appOptions = opts.appOptions || {};
-  const app = new ClearedApp(platform, appOptions);
-  const preferences = appOptions.preferences;
-  const authoritativeApplier = appOptions.authoritativeApplier;
-  const economy = appOptions.economy;
-  const progressSync = appOptions.progressSync;
-  const share = appOptions.share;
+  const configuredRules = (appOptions.adConfig && appOptions.adConfig.rules) || {};
+  const policyInput = Object.prototype.hasOwnProperty.call(opts, 'productPolicy')
+    ? opts.productPolicy
+    : appOptions.productPolicy;
+  const productPolicy = ProductPolicy.create(policyInput, {
+    hintMode: configuredRules.hintMode || 'tiered'
+  });
+  const resolvedAppOptions = Object.assign({}, appOptions, { productPolicy });
+  const app = new ClearedApp(platform, resolvedAppOptions);
+  const preferences = resolvedAppOptions.preferences;
+  const authoritativeApplier = resolvedAppOptions.authoritativeApplier;
+  const economy = resolvedAppOptions.economy;
+  const progressSync = resolvedAppOptions.progressSync;
+  const share = app.share;
 
   if (preferences && typeof preferences.bind === 'function') {
     preferences.bind({

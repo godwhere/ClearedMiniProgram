@@ -39,6 +39,7 @@ function resultRewardFeedback(model, result, claimedKey, translate) {
 
 function rewardUnlockStatus(reward, translate) {
   if (!reward || reward.owned !== false) return '';
+  if (reward.externalDisabled === true) return translate('gallery.unavailable');
   if (reward.conditionType === 'ordinary_level') {
     return translate('gallery.unlockAtLevel', { level: reward.displayLevel || '?' });
   }
@@ -909,11 +910,14 @@ class CanvasRenderer {
 
     const buttonHeight = 54;
     const buttonGap = 12;
+    const dailyEnabled = !model.productCapabilities ||
+      model.productCapabilities.dailyEnabled !== false;
     // The home actions use a two-row composition: daily challenge and themes
     // share the first row, while the resume/start action spans the second row.
     // Keep the geometry explicit so hit regions and rendering stay in lockstep
     // across screen sizes and safe-area insets.
-    const buttonStackHeight = buttonHeight * 2 + buttonGap + (model.dailyExtraEntryAvailable ? 52 : 0);
+    const buttonStackHeight = buttonHeight * 2 + buttonGap +
+      (dailyEnabled && model.dailyExtraEntryAvailable ? 52 : 0);
     const configuredBottomInset = skin.layout && skin.layout.homeButtonBottomInset;
     const buttonBottomInset = Number.isFinite(Number(configuredBottomInset))
       ? Math.max(0, Number(configuredBottomInset))
@@ -961,7 +965,7 @@ class CanvasRenderer {
     // home indicator.
     const buttonX = (width - buttonWidth) / 2;
     const columnWidth = (buttonWidth - buttonGap) / 2;
-    const dailyEntryKnown = model && (model.dailyDebugUnlimited === true ||
+    const dailyEntryKnown = dailyEnabled && model && (model.dailyDebugUnlimited === true ||
       (model.dailyEntriesRemaining !== undefined && model.dailyEntryLimit !== undefined));
     const dailyEntryRemaining = dailyEntryKnown ? Number(model.dailyEntriesRemaining) : 0;
     const dailyEntryLimit = dailyEntryKnown ? Number(model.dailyEntryLimit) : 0;
@@ -972,7 +976,7 @@ class CanvasRenderer {
       })
       : this.t('home.dailyChallenge');
     // Remaining entries live in the label; only unavailable states need a hint.
-    if (dailyEntryKnown && model.dailyDebugUnlimited !== true) {
+    if (dailyEnabled && dailyEntryKnown && model.dailyDebugUnlimited !== true) {
       const dailyStatus = model.dailyAvailable === false
         ? this.t('home.noChallengeToday')
         : dailyEntryRemaining > 0
@@ -980,34 +984,36 @@ class CanvasRenderer {
           : this.t('home.noAttemptsToday');
       if (dailyStatus) this.text(dailyStatus, width / 2, firstY - 13, 11, { alpha: 0.58 });
     }
-    const dailyButtonRect = {
-      x: buttonX,
-      y: firstY,
-      w: columnWidth,
-      h: buttonHeight
-    };
-    this.button('home:dailyChallenge', dailyButtonRect, dailyButtonLabel, {
-      fill: skin.colors.primaryButton,
-      stroke: skin.colors.primaryButtonStroke,
-      fontSize: dailyEntryKnown && model.dailyDebugUnlimited !== true
-        ? Math.min(19, (columnWidth - 16) / 8) : 19,
-      enabled: model.dailyAvailable !== false && model.dailyEntryAvailable !== false
-    }, model.pressedId);
-    if (model.dailyDebugUnlimited === true) {
-      this.text(this.t('home.unlimitedAttempts'), dailyButtonRect.x + dailyButtonRect.w - 8,
-        dailyButtonRect.y + dailyButtonRect.h - 7, 10, {
-          align: 'right',
-          baseline: 'bottom',
-          alpha: 0.68
-        });
+    if (dailyEnabled) {
+      const dailyButtonRect = {
+        x: buttonX,
+        y: firstY,
+        w: columnWidth,
+        h: buttonHeight
+      };
+      this.button('home:dailyChallenge', dailyButtonRect, dailyButtonLabel, {
+        fill: skin.colors.primaryButton,
+        stroke: skin.colors.primaryButtonStroke,
+        fontSize: dailyEntryKnown && model.dailyDebugUnlimited !== true
+          ? Math.min(19, (columnWidth - 16) / 8) : 19,
+        enabled: model.dailyAvailable !== false && model.dailyEntryAvailable !== false
+      }, model.pressedId);
+      if (model.dailyDebugUnlimited === true) {
+        this.text(this.t('home.unlimitedAttempts'), dailyButtonRect.x + dailyButtonRect.w - 8,
+          dailyButtonRect.y + dailyButtonRect.h - 7, 10, {
+            align: 'right',
+            baseline: 'bottom',
+            alpha: 0.68
+          });
+      }
     }
     const galleryAction = model && model.homeMigration === true
       ? 'home:corridor' : 'home:themes';
     const galleryLabel = this.t(model && model.homeMigration === true ? 'home.corridor' : 'home.themes');
     this.button(galleryAction, {
-      x: buttonX + columnWidth + buttonGap,
+      x: dailyEnabled ? buttonX + columnWidth + buttonGap : buttonX,
       y: firstY,
-      w: columnWidth,
+      w: dailyEnabled ? columnWidth : buttonWidth,
       h: buttonHeight
     }, galleryLabel, {
       fill: skin.colors.primaryButton,
@@ -1029,11 +1035,12 @@ class CanvasRenderer {
       startButtonRect.x + startButtonRect.w - 16, startButtonRect.y + startButtonRect.h / 2, 12, {
         align: 'right', alpha: 0.68, maxWidth: Math.max(1, startButtonRect.w / 2 - 56)
       });
-    if (model.dailyExtraEntryAvailable) this.button('daily:extraEntry', {
+    if (dailyEnabled && model.dailyExtraEntryAvailable) this.button('daily:extraEntry', {
       x: buttonX, y: firstY + buttonHeight * 2 + buttonGap + 10, w: buttonWidth, h: 42
     }, this.t(model.dailyExtraEntryPending ? 'common.processing' : 'home.watchForExtraAttempt'),
     { fontSize: 15, enabled: !model.dailyExtraEntryPending }, model.pressedId);
-    if (model.dailyRewardMessage) this.text(model.dailyRewardMessage, width / 2, firstY - 29, 12, { maxWidth: buttonWidth });
+    if (dailyEnabled && model.dailyRewardMessage) this.text(model.dailyRewardMessage,
+      width / 2, firstY - 29, 12, { maxWidth: buttonWidth });
   }
 
   drawCurrency(currency, rect) {
@@ -2625,8 +2632,11 @@ class CanvasRenderer {
     // The daily result has one extra status line (round count and remaining
     // entries). Keep a minimum panel height so that line never overlaps the
     // action buttons on compact phones.
-    const sharing = model.shareAvailable === true;
-    const extraEntry = model.dailyExtraEntryAvailable === true;
+    const capabilities = model.productCapabilities || {};
+    const sharing = capabilities.resultShareEnabled !== false &&
+      model.shareAvailable === true;
+    const extraEntry = capabilities.dailyEnabled !== false &&
+      capabilities.adsEnabled !== false && model.dailyExtraEntryAvailable === true;
     const extraRows = Number(sharing) + Number(extraEntry);
     const panel = this.drawResultPanel(300 + extraRows * 52);
     const panelY = panel.y;
@@ -2709,7 +2719,9 @@ class CanvasRenderer {
     }
     if (now < model.resultVisibleAt) return;
 
-    const sharing = model.shareAvailable === true;
+    const sharing = (!model.productCapabilities ||
+      model.productCapabilities.resultShareEnabled !== false) &&
+      model.shareAvailable === true;
     const panel = this.drawResultPanel(sharing ? 300 : 246);
     const panelY = panel.y;
     this.drawIcon('check', width / 2, panelY + 47, 40);
@@ -2772,15 +2784,20 @@ class CanvasRenderer {
     this.text(dialog.message || '', width / 2, panel.y + 124, 13, { alpha: 0.72, maxWidth: width - 32 });
     this.text(this.t(unlocked ? 'reward.unlockSucceeded' : 'reward.unlockRequirement'),
       width / 2, panel.y + 146, 12, { alpha: 0.68 });
+    const capabilities = model.productCapabilities || {};
+    const externalDisabled =
+      (dialog.conditionType === 'rewarded_ad' && capabilities.adsEnabled === false) ||
+      (dialog.conditionType === 'share' && capabilities.rewardedShareEnabled === false);
+    const primaryAction = externalDisabled ? null : dialog.primaryAction;
     const gap = 10;
-    const buttonCount = Number(!!dialog.secondaryAction) + Number(!!dialog.primaryAction);
+    const buttonCount = Number(!!dialog.secondaryAction) + Number(!!primaryAction);
     if (!buttonCount) return;
     const buttonWidth = Math.min(142, (width - 48 - gap * (buttonCount - 1)) / buttonCount);
     const x = (width - buttonWidth * buttonCount - gap * (buttonCount - 1)) / 2;
     const y = panel.y + panel.h - 72;
     if (dialog.secondaryAction) this.button(dialog.secondaryAction,
       { x, y, w: buttonWidth, h: 46 }, dialog.secondaryLabel || this.t('common.close'), { fontSize: 15 }, model.pressedId);
-    if (dialog.primaryAction) this.button(dialog.primaryAction,
+    if (primaryAction) this.button(primaryAction,
       { x: x + (dialog.secondaryAction ? buttonWidth + gap : 0), y, w: buttonWidth, h: 46 }, dialog.primaryLabel || this.t('common.confirm'),
       { fontSize: 15, enabled: dialog.primaryEnabled !== false && !['working', 'loading'].includes(dialog.state) }, model.pressedId);
   }

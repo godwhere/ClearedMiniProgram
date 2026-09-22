@@ -24,6 +24,7 @@ const tests = [
   ['cloudbase disabled local behavior', require('./cloudbase-disabled.test.js')],
   ['production release readiness', require('./release-readiness.test.js')],
   ['cloud runtime config selection', require('./cloud-runtime-config.test.js')],
+  ['product capability policy', require('./product-policy.test.js')],
   ['shared game runtime composition', require('./game-runtime.test.js')],
   ['platform input and lifecycle contract', require('./platform-contract.test.js')],
   ['level records, gallery navigation and beginner instructions', require('./level-ui.test.js')],

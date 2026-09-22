@@ -28,6 +28,7 @@ const BoardInputController = require('./gameplay/board-input-controller.js');
 const dailyProgressAdapter = require('./services/daily-progress-adapter.js');
 const buildDailyViewModel = require('./ui/view-models/daily-view-model.js');
 const i18n = require('./i18n/index.js');
+const ProductPolicy = require('./runtime/product-policy.js');
 
 function compatibilityLocale() {
   let locale = 'zh-CN';
@@ -50,9 +51,20 @@ function compatibilityLocale() {
 // level/catalog pipeline.  Keep direct app construction (including older
 // hosts and focused renderer tests) safe while those optional modules are
 // absent or while a host injects its own implementation.
+const OPTIONAL_MODULE_LOADERS = Object.freeze({
+  './services/clear-effect-service.js': () => require('./services/clear-effect-service.js'),
+  './services/daily-challenge-service.js': () => require('./services/daily-challenge-service.js'),
+  './services/daily-progress-store.js': () => require('./services/daily-progress-store.js'),
+  '../data/daily-challenges.js': () => require('../data/daily-challenges.js'),
+  '../data/daily-solutions.js': () => require('../data/daily-solutions.js'),
+  '../data/portal-solutions.js': () => require('../data/portal-solutions.js')
+});
+
 function optionalRequire(path, fallback) {
+  const load = OPTIONAL_MODULE_LOADERS[path];
+  if (!load) return fallback;
   try {
-    return require(path);
+    return load();
   } catch (error) {
     return fallback;
   }
@@ -225,6 +237,12 @@ function fallbackClearEffects(progress, canUse) {
 class ClearedApp {
   constructor(platform, options) {
     const opts = options || {};
+    const configuredAdConfig = opts.adConfig || adConfig;
+    this.productPolicy = ProductPolicy.create(opts.productPolicy, {
+      hintMode: configuredAdConfig.rules && configuredAdConfig.rules.hintMode
+        ? configuredAdConfig.rules.hintMode : 'tiered'
+    });
+    this.productCapabilities = this.productPolicy.capabilities;
     this.platform = platform;
     this.locale = opts.locale || compatibilityLocale();
     this.subpackages = opts.subpackages || null;
@@ -252,8 +270,12 @@ class ClearedApp {
     this.syncStore = opts.syncStore || (this.progressSync && this.progressSync.store) || null;
     this.behavior = opts.behavior || null;
     this.profile = opts.profile || null;
-    this.share = opts.share || null;
-    this.rewards = opts.rewards || null;
+    this.share = (this.productCapabilities.rewardedShareEnabled ||
+      this.productCapabilities.resultShareEnabled) && opts.share
+      ? opts.share : null;
+    this.rewards = this.productCapabilities.dailyEnabled &&
+      this.productCapabilities.adsEnabled && opts.rewards
+      ? opts.rewards : null;
     this.dailyExtraRequest = null;
     this.dailyRewardMessage = null;
     this.pendingShare = null;
@@ -275,7 +297,11 @@ class ClearedApp {
           this.stamina.isPermanentlyUnlocked && this.stamina.isPermanentlyUnlocked(`${setIndex}:${levelIndex}`))
       }
     );
-    this.ads = opts.ads || new AdsService(platform, opts.adConfig || adConfig);
+    this.ads = this.productCapabilities.adsEnabled
+      ? (Object.prototype.hasOwnProperty.call(opts, 'ads')
+        ? (opts.ads || null)
+        : new AdsService(platform, configuredAdConfig))
+      : null;
     this.hintRequest = null;
     this.hintFeedback = null;
     this.runSequence = 0;
@@ -303,25 +329,34 @@ class ClearedApp {
       ? Math.ceil(this.staminaSnapshot.remainingMs / 1000) : -1;
     this.staminaFeedback = null;
     this.homeStaminaExpanded = false;
-    const usingBuiltInDailyManifest = opts.dailyManifest === undefined;
-    this.dailyManifest = usingBuiltInDailyManifest
-      ? defaultDailyManifest
-      : opts.dailyManifest;
+    const usingBuiltInDailyManifest = this.productCapabilities.dailyEnabled &&
+      opts.dailyManifest === undefined;
+    this.dailyManifest = this.productCapabilities.dailyEnabled
+      ? (usingBuiltInDailyManifest ? defaultDailyManifest : opts.dailyManifest)
+      : null;
     // A custom manifest should be able to rely on the runner's BFS fallback
     // without being rejected merely because its level IDs are absent from the
     // built-in solution table. Hosts can still opt into the built-in table by
     // passing dailySolutions explicitly.
-    this.dailySolutions = opts.dailySolutions === undefined
-      ? (usingBuiltInDailyManifest ? defaultDailySolutions : null)
-      : opts.dailySolutions;
+    this.dailySolutions = this.productCapabilities.dailyEnabled
+      ? (opts.dailySolutions === undefined
+        ? (usingBuiltInDailyManifest ? defaultDailySolutions : null)
+        : opts.dailySolutions)
+      : null;
     // Debug builds may explicitly bypass the daily entry budget so the two
     // levels can be exercised repeatedly. Production/direct construction keeps
     // the configured finite limit unless this opt-in is present.
     this.dailyDebugUnlimited = opts.dailyDebugUnlimited === true ||
       opts.debugDailyUnlimited === true;
     this.debugDailyUnlimited = this.dailyDebugUnlimited;
-    this.dailyService = opts.dailyService || opts.dailyChallengeService || null;
-    if (!this.dailyService && DailyChallengeService) {
+    const suppliedDailyService = Object.prototype.hasOwnProperty.call(opts, 'dailyService')
+      ? opts.dailyService
+      : (Object.prototype.hasOwnProperty.call(opts, 'dailyChallengeService')
+        ? opts.dailyChallengeService : undefined);
+    this.dailyService = this.productCapabilities.dailyEnabled && suppliedDailyService !== undefined
+      ? (suppliedDailyService || null) : null;
+    if (this.productCapabilities.dailyEnabled && suppliedDailyService === undefined &&
+        DailyChallengeService) {
       try {
         this.dailyService = new DailyChallengeService(this.dailyManifest, {
           clock: this.dailyClock,
@@ -335,8 +370,14 @@ class ClearedApp {
         this.dailyService = null;
       }
     }
-    this.dailyProgress = opts.dailyStore || opts.dailyProgressStore || null;
-    if (!this.dailyProgress && DailyProgressStore) {
+    const suppliedDailyProgress = Object.prototype.hasOwnProperty.call(opts, 'dailyStore')
+      ? opts.dailyStore
+      : (Object.prototype.hasOwnProperty.call(opts, 'dailyProgressStore')
+        ? opts.dailyProgressStore : undefined);
+    this.dailyProgress = this.productCapabilities.dailyEnabled && suppliedDailyProgress !== undefined
+      ? (suppliedDailyProgress || null) : null;
+    if (this.productCapabilities.dailyEnabled && suppliedDailyProgress === undefined &&
+        DailyProgressStore) {
       try {
         this.dailyProgress = new DailyProgressStore(platform, {
           clock: this.dailyClock,
@@ -369,13 +410,46 @@ class ClearedApp {
     if (!this.clearEffects || typeof this.clearEffects.current !== 'function') {
       this.clearEffects = fallbackClearEffects(this.progress, canUse);
     }
-    this.hintAccess = opts.hintAccess || new HintAccessService(platform, {
-      clock: this.dailyClock,
-      timeZone: opts.dailyTimeZone || opts.timeZone || (this.dailyService && this.dailyService.timeZone) || 'Asia/Shanghai'
+    const hintNeedsDailyAccess = ['share', 'tiered'].includes(this.productPolicy.hintMode());
+    const suppliedHintAccess = Object.prototype.hasOwnProperty.call(opts, 'hintAccess')
+      ? opts.hintAccess : undefined;
+    this.hintAccess = hintNeedsDailyAccess
+      ? (suppliedHintAccess !== undefined
+        ? (suppliedHintAccess || null)
+        : new HintAccessService(platform, {
+          clock: this.dailyClock,
+          timeZone: opts.dailyTimeZone || opts.timeZone ||
+            (this.dailyService && this.dailyService.timeZone) || 'Asia/Shanghai'
+        }))
+      : null;
+    const configuredRules = Object.assign({}, configuredAdConfig.rules || {}, {
+      hintMode: this.productPolicy.hintMode()
     });
-    this.engagement = opts.engagement || new EngagementService({ ads: this.ads, share: this.share,
-      hintAccess: this.hintAccess, rewardUnlocks: this.rewardUnlocks,
-      behavior: this.behavior, config: (opts.adConfig || adConfig).rules });
+    if (!this.productCapabilities.adsEnabled) {
+      configuredRules.hintRewardedEnabled = false;
+      configuredRules.rewardUnlockRewardedEnabled = false;
+    }
+    if (!this.productCapabilities.dailyEnabled || !this.productCapabilities.adsEnabled) {
+      configuredRules.dailyExtraEntryEnabled = false;
+    }
+    const unrestrictedCapabilities = this.productCapabilities.dailyEnabled &&
+      this.productCapabilities.adsEnabled &&
+      this.productCapabilities.rewardedShareEnabled &&
+      this.productCapabilities.resultShareEnabled &&
+      this.productPolicy.hintMode() === ((configuredAdConfig.rules &&
+        configuredAdConfig.rules.hintMode) || 'tiered');
+    this.engagement = unrestrictedCapabilities && opts.engagement
+      ? opts.engagement
+      : new EngagementService({
+        ads: this.ads,
+        share: this.share,
+        rewards: this.rewards,
+        hintAccess: this.hintAccess,
+        rewardUnlocks: this.rewardUnlocks,
+        auth: this.auth,
+        behavior: this.behavior,
+        config: configuredRules
+      });
     this.hints = new HintService(
       opts.solutionCatalog || null,
       this.dailySolutions,
@@ -1145,7 +1219,8 @@ class ClearedApp {
   }
 
   buildModel() {
-    const homeDaily = this.scene === 'home' ? this.resolveDaily() : null;
+    const dailyEnabled = this.productCapabilities.dailyEnabled;
+    const homeDaily = dailyEnabled && this.scene === 'home' ? this.resolveDaily() : null;
     const homeDailyEntry = homeDaily && homeDaily.status === 'available'
       ? this.dailyEntryState(homeDaily)
       : {
@@ -1154,7 +1229,7 @@ class ClearedApp {
         entriesRemaining: 0,
         allowed: false
       };
-    const activeDaily = (this.scene === 'daily' || this.scene === 'dailyResult')
+    const activeDaily = dailyEnabled && (this.scene === 'daily' || this.scene === 'dailyResult')
       ? this.daily
       : null;
     const dailyResolution = activeDaily
@@ -1165,11 +1240,13 @@ class ClearedApp {
         challenge: activeDaily.challenge
       })
       : homeDaily;
-    const hintContext = this.hintContext();
+    const hintContext = this.productPolicy.hintMode() === 'free'
+      ? null : this.hintContext();
     const hintState = this.engagement.hintState ? this.engagement.hintState(hintContext) : { mode: 'free', action: 'view' };
     const hintEnabled = this.isHintPreviewActive() || (!this.hintRequest && !['busy', 'unavailable'].includes(hintState.action));
     const base = {
       scene: this.scene,
+      productCapabilities: this.productCapabilities,
       clearFeedback: this.clearFeedback && this.clearFeedback.runner === this.activeRunner()
         ? { startedAt: this.clearFeedback.startedAt, durationMs: this.clearFeedback.durationMs } : null,
       currency: this.rewardDisplayView(),
@@ -1180,9 +1257,11 @@ class ClearedApp {
       homeStaminaExpanded: this.scene === 'home' && this.homeStaminaExpanded,
       pressedId: this.pressedId,
       accountProfile: (this.scene === 'home' || this.scene === 'account') && this.profile ? this.profile.current() : null,
-      shareAvailable: !!(this.share && this.share.isResultEnabled() && this.shareContext().completed),
+      shareAvailable: !!(this.productCapabilities.resultShareEnabled && this.share &&
+        this.share.isResultEnabled() && this.shareContext().completed),
       sharePending: !!this.pendingShare,
-      dailyExtraEntryAvailable: !!(this.engagement.canRequestDailyExtraEntry && this.engagement.canRequestDailyExtraEntry() &&
+      dailyExtraEntryAvailable: !!(dailyEnabled && this.productCapabilities.adsEnabled &&
+        this.engagement.canRequestDailyExtraEntry && this.engagement.canRequestDailyExtraEntry() &&
         dailyResolution && dailyResolution.status === 'available' &&
         (this.scene === 'home' ? !homeDailyEntry.allowed : this.scene === 'dailyResult' &&
           activeDaily && activeDaily.result && activeDaily.result.outcome !== OUTCOME.FAILED && activeDaily.entriesRemaining <= 0)),
@@ -1202,11 +1281,11 @@ class ClearedApp {
       hintUntil: this.hintUntil,
       hintPreview: this.hintPreview,
       hintLabel: this.hintButtonLabel(hintState, hintContext),
-      dailyAvailable: !!(homeDaily && homeDaily.status === 'available'),
-      dailyEntryAvailable: !!homeDailyEntry.allowed,
-      dailyCanEnter: !!homeDailyEntry.allowed,
+      dailyAvailable: !!(dailyEnabled && homeDaily && homeDaily.status === 'available'),
+      dailyEntryAvailable: !!(dailyEnabled && homeDailyEntry.allowed),
+      dailyCanEnter: !!(dailyEnabled && homeDailyEntry.allowed),
       dailyDateKey: homeDaily && homeDaily.dateKey ? homeDaily.dateKey : null,
-      dailyCompleted: this.dailyCompletionState(homeDaily),
+      dailyCompleted: dailyEnabled && this.dailyCompletionState(homeDaily),
       dailyEntriesUsed: homeDailyEntry.entriesUsed,
       dailyEntryLimit: homeDailyEntry.entryLimit,
       dailyEntriesRemaining: this.dailyDebugUnlimited ? null : homeDailyEntry.entriesRemaining,
@@ -1315,7 +1394,19 @@ class ClearedApp {
     }
 
     if (this.scene === 'themes') {
-      const themes = this.themeDescriptors();
+      const themes = this.themeDescriptors().map(theme => {
+        const reward = theme && theme.reward;
+        const externalDisabled = reward && (
+          (reward.conditionType === 'rewarded_ad' && !this.productCapabilities.adsEnabled) ||
+          (reward.conditionType === 'share' && !this.productCapabilities.rewardedShareEnabled)
+        );
+        return externalDisabled
+          ? Object.assign({}, theme, { reward: Object.assign({}, reward, {
+            actionEnabled: false,
+            externalDisabled: true
+          }) })
+          : theme;
+      });
       const themePageCount = this.themePageCount(themes);
       const rawPageIndex = Number(this.themePageIndex);
       this.themePageIndex = clamp(
@@ -1355,7 +1446,19 @@ class ClearedApp {
     }
 
     if (this.scene === 'effects') {
-      const effects = this.effectDescriptors();
+      const effects = this.effectDescriptors().map(effect => {
+        const reward = effect && effect.reward;
+        const externalDisabled = reward && (
+          (reward.conditionType === 'rewarded_ad' && !this.productCapabilities.adsEnabled) ||
+          (reward.conditionType === 'share' && !this.productCapabilities.rewardedShareEnabled)
+        );
+        return externalDisabled
+          ? Object.assign({}, effect, { reward: Object.assign({}, reward, {
+            actionEnabled: false,
+            externalDisabled: true
+          }) })
+          : effect;
+      });
       const pageCount = this.effectPageCount(effects);
       const rawPageIndex = Number(this.effectPageIndex);
       this.effectPageIndex = clamp(
@@ -1980,7 +2083,18 @@ class ClearedApp {
   performAction(action) {
     if (typeof action !== 'string' || !action) return false;
     if (this.disposed) return false;
+    const dailyAction = action === 'home:daily' || action === 'home:dailyChallenge' ||
+      action.indexOf('daily:') === 0 || action.indexOf('dailyResult:') === 0 ||
+      action.indexOf('dailyFailure:') === 0;
+    if (dailyAction && !this.productCapabilities.dailyEnabled) return false;
+    if ((action === 'result:share' || action === 'dailyResult:share') &&
+        !this.productCapabilities.resultShareEnabled) return false;
     if (this.rewardDialog) {
+      const conditionType = this.rewardDialog.conditionType;
+      const externalDisabled =
+        (conditionType === 'rewarded_ad' && !this.productCapabilities.adsEnabled) ||
+        (conditionType === 'share' && !this.productCapabilities.rewardedShareEnabled);
+      if ((action === 'reward:unlock' || action === 'reward:retry') && externalDisabled) return false;
       if (action === 'reward:unlock' || action === 'reward:retry') return this.requestRewardUnlock(action === 'reward:retry');
       if (action === 'reward:apply') return this.applyReward();
       if (action === 'reward:later' || action === 'reward:close') return this.dismissRewardDialog();
@@ -2371,6 +2485,7 @@ class ClearedApp {
   }
 
   hintContext() {
+    if (!this.hintAccess || typeof this.hintAccess.dateKey !== 'function') return null;
     let levelKey = null;
     if (this.scene === 'play' && this.runContext && this.runContext.progressionScope === 'ordinary') {
       levelKey = HintAccessService.levelKey({ source: 'catalog',
@@ -2468,6 +2583,7 @@ class ClearedApp {
     const runner = this.activeRunner();
     if (!runner || this.runnerTerminal(runner) || !['play', 'daily'].includes(this.scene)) return false;
     if (this.isHintPreviewActive()) return this.scene === 'daily' ? this.showDailyHint() : this.showHint();
+    if (this.scene === 'play' && this.productPolicy.hintMode() === 'free') return this.showHint();
     if (this.hintRequest) return false;
     const context = this.hintContext();
     const state = this.engagement.hintState ? this.engagement.hintState(context) : { mode: 'free', action: 'view' };
@@ -2884,8 +3000,11 @@ class ClearedApp {
     }
     const ordinary = this.progress && typeof this.progress.exportRewardCompletions === 'function'
       ? this.progress.exportRewardCompletions() : { ok: false, reason: 'storage-read-failed' };
-    const daily = this.dailyProgress && typeof this.dailyProgress.exportRewardCompletions === 'function'
-      ? this.dailyProgress.exportRewardCompletions() : { ok: false, reason: 'storage-read-failed' };
+    const disabledDailySource = this.productPolicy.dailyCompletionSource();
+    const daily = disabledDailySource ||
+      (this.dailyProgress && typeof this.dailyProgress.exportRewardCompletions === 'function'
+        ? this.dailyProgress.exportRewardCompletions()
+        : { ok: false, reason: 'storage-read-failed' });
     if (!ordinary.ok || !daily.ok) return { ok: false, reason: 'source-read-failed', amountDelta: 0, newRewards: [] };
     const result = this.rewardUnlocks.reconcile({ ordinary, daily });
     if (result.ok) {
@@ -2944,6 +3063,11 @@ class ClearedApp {
     if (!preview) return false;
     const status = preview.reward;
     const unlocked = status.owned === true;
+    const externalEnabled = status.conditionType === 'rewarded_ad'
+      ? this.productCapabilities.adsEnabled
+      : status.conditionType === 'share'
+        ? this.productCapabilities.rewardedShareEnabled
+        : true;
     const currency = this.rewardDisplayView();
     const balance = Number.isSafeInteger(currency.displayBalance) ? currency.displayBalance : currency.balance;
     const hasPending = Number.isSafeInteger(currency.pendingRewardAmount) && currency.pendingRewardAmount > 0;
@@ -2968,19 +3092,21 @@ class ClearedApp {
       dialogId: ++this.rewardDialogSequence,
       rewardId,
       mode: unlocked ? 'unlocked' : 'condition',
+      conditionType: status.conditionType || null,
       state: 'idle',
       title: localizedTitle === titleKey ? (preview && preview.name ? preview.name : rewardId) : localizedTitle,
       message: unlocked ? this.t('reward.permanentlyUnlocked') : message,
       primaryAction: unlocked ? 'reward:apply' :
-        (['currency', 'rewarded_ad', 'share'].includes(status.conditionType) ? 'reward:unlock' : null),
+        (externalEnabled && ['currency', 'rewarded_ad', 'share'].includes(status.conditionType)
+          ? 'reward:unlock' : null),
       primaryLabel: unlocked ? this.t('reward.applyNow') : status.conditionType === 'currency' ? this.t('reward.confirmPurchase')
         : status.conditionType === 'rewarded_ad' ? this.t('reward.watchAd') : status.conditionType === 'share' ? this.t('reward.startShare') : null,
-      primaryEnabled: unlocked || status.actionEnabled,
+      primaryEnabled: unlocked || (externalEnabled && status.actionEnabled),
       secondaryAction: unlocked ? 'reward:later' : 'reward:close',
       secondaryLabel: unlocked ? this.t('reward.maybeLater') : this.t('common.close'),
       preview
     };
-    if (!currency.available || status.action === 'retry-save') {
+    if (this.rewardDialog.primaryAction && (!currency.available || status.action === 'retry-save')) {
       this.rewardDialog.primaryAction = 'reward:retry';
       this.rewardDialog.primaryLabel = this.t(!currency.available ? 'common.retryRead' : 'common.retrySave');
       this.rewardDialog.primaryEnabled = true;
@@ -3010,6 +3136,10 @@ class ClearedApp {
       return restored;
     }
     const status = this.rewardUnlocks.status(rewardId);
+    if ((status.conditionType === 'rewarded_ad' && !this.productCapabilities.adsEnabled) ||
+        (status.conditionType === 'share' && !this.productCapabilities.rewardedShareEnabled)) {
+      return false;
+    }
     dialog.state = 'working';
     dialog.message = this.t(retry ? 'reward.retryingSave' : 'common.processingEllipsis');
     const generation = ++this.rewardRequestGeneration;
@@ -3781,7 +3911,7 @@ class ClearedApp {
     ++this.skinLoadRequestId;
     if (this.engagement && this.engagement.cancelRewardUnlocks) this.engagement.cancelRewardUnlocks();
     this.clearHintRequest();
-    this.ads.dispose();
+    if (this.ads && typeof this.ads.dispose === 'function') this.ads.dispose();
     this.leaveAccount();
     if (this.profile) this.profile.dispose();
     if (this.share) this.share.uninstall();

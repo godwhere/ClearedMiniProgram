@@ -203,7 +203,8 @@ function run() {
     '../services/reward-unlock-service.js',
     '../services/hint-access-service.js',
     '../services/locale-service.js',
-    '../config/rewards.js'
+    '../config/rewards.js',
+    './product-policy.js'
   ], 'the shared composition root may depend only on reusable local runtime modules');
   assert(!/platform\/wechat|cloudbase|backend|api-client|auth-service|session-store|sync-store|cloud-function/.test(gameRuntimeSource),
     'the shared composition root cannot select a concrete host, cloud environment or online service');
@@ -237,9 +238,18 @@ function run() {
     './services/daily-progress-adapter.js',
     './ui/view-models/daily-view-model.js',
     './i18n/index.js',
+    './runtime/product-policy.js',
+    './services/clear-effect-service.js',
+    './services/daily-challenge-service.js',
+    './services/daily-progress-store.js',
+    '../data/daily-challenges.js',
+    '../data/daily-solutions.js',
+    '../data/portal-solutions.js',
     './services/legacy-migration-builder.js',
     './services/authoritative-state-applier.js'
-  ], 'P1 registers the retained direct and method-local App dependency surface');
+  ], 'the App dependency surface uses only bundler-enumerable literal requires');
+  assert(!/\brequire\s*\(\s*path\s*\)/.test(appSource),
+    'optional App dependencies cannot fall back to a variable require path');
   const optionalAppDependencies = [];
   const optionalPattern = /optionalRequire\s*\(\s*['"]([^'"]+)['"]/g;
   let optionalMatch;
@@ -251,7 +261,14 @@ function run() {
     '../data/daily-challenges.js',
     '../data/daily-solutions.js',
     '../data/portal-solutions.js'
-  ], 'P1 registers every retained optional App dependency for later product pruning');
+  ], 'every retained optional App dependency has an explicit literal loader entry');
+  const productPolicySource = fs.readFileSync(path.join(SRC_DIR, 'runtime', 'product-policy.js'), 'utf8');
+  assert(!/full_game_v1|\b0:0\b|\b1:3\b|10000/.test(productPolicySource),
+    'the shared product-policy contract cannot hard-code App production values');
+  runtime.forEach(file => {
+    assert(!/tests[\\/]fixtures[\\/]app-product-policy/.test(fs.readFileSync(file, 'utf8')),
+      `${file} cannot import the App test product fixture`);
+  });
   const staminaSource = fs.readFileSync(path.join(SRC_DIR, 'services', 'stamina-service.js'), 'utf8');
   assert.deepStrictEqual(dependencies(staminaSource), ['../config/stamina.js'],
     'stamina may depend only on its stable configuration');

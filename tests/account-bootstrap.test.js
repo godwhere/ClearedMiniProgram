@@ -26,6 +26,15 @@ async function run() {
       callFunction() { throw Error('cloud disabled during HTTP auth'); } };
     const app = bootstrap.start();
     assert.strictEqual(app.scene, 'home'); assert.deepStrictEqual(api.events, ['frame']);
+    assert.deepStrictEqual(app.productCapabilities, {
+      dailyEnabled: true,
+      adsEnabled: true,
+      rewardedShareEnabled: true,
+      resultShareEnabled: true,
+      hintMode: 'tiered'
+    });
+    assert(app.dailyService && app.dailyProgress && app.ads && app.share && app.hintAccess,
+      'the WeChat bootstrap explicitly retains its existing daily, ad, share and hint services');
     assert.strictEqual(app.rewardUnlocks.view().balance, 0);
     await app.resumeOnline();
     assert.strictEqual(api.events.filter(e => e === 'login').length, 1);

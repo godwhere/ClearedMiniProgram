@@ -3,6 +3,9 @@
 const assert = require('assert');
 const gameRuntime = require('../src/runtime/game-runtime.js');
 const LocaleService = require('../src/services/locale-service.js');
+const HintAccessService = require('../src/services/hint-access-service.js');
+const solutions = require('../data/solutions.js');
+const appProductConfig = require('./fixtures/app-product-policy.js');
 
 function clone(value) {
   return value === undefined ? undefined : JSON.parse(JSON.stringify(value));
@@ -137,6 +140,101 @@ function run() {
     failedPlatform.storage,
     LocaleService.STORAGE_KEY
   ), false);
+
+  const appPlatform = testPlatform({ language: 'en-US' });
+  const appLocal = gameRuntime.createLocalServices(appPlatform, {
+    productPolicy: appProductConfig,
+    dailyStore: { forbidden: true },
+    hintAccess: { forbidden: true }
+  });
+  assert.strictEqual(appLocal.dailyStore, null);
+  assert.strictEqual(appLocal.hintAccess, null);
+  assert.deepStrictEqual(appLocal.productPolicy.capabilities, {
+    dailyEnabled: false,
+    adsEnabled: false,
+    rewardedShareEnabled: false,
+    resultShareEnabled: false,
+    hintMode: 'free'
+  });
+  assert.strictEqual(Object.prototype.hasOwnProperty.call(
+    appPlatform.storage,
+    HintAccessService.STORAGE_KEY
+  ), false, 'free hints do not create a daily hint-access record');
+
+  const forbidden = { daily: 0, ads: 0, share: 0, rewards: 0, engagement: 0 };
+  const appMode = gameRuntime.startGame(appPlatform, {
+    productPolicy: appProductConfig,
+    appOptions: Object.assign({}, appLocal, {
+      solutionCatalog: solutions,
+      dailyService: { resolve() { forbidden.daily++; return null; } },
+      dailyStore: { exportRewardCompletions() { forbidden.daily++; return { ok: true, days: [] }; } },
+      ads: { onLevelCompleted() { forbidden.ads++; } },
+      share: {
+        install() { forbidden.share++; },
+        isResultEnabled() { forbidden.share++; return true; }
+      },
+      rewards: { recover() { forbidden.rewards++; return Promise.resolve({ grants: [] }); } },
+      engagement: {
+        hintState() { forbidden.engagement++; return { mode: 'share', action: 'share' }; },
+        requestHint() { forbidden.engagement++; return { granted: false }; }
+      }
+    })
+  });
+  assert.strictEqual(appMode.dailyService, null);
+  assert.strictEqual(appMode.dailyProgress, null);
+  assert.strictEqual(appMode.dailyManifest, null);
+  assert.strictEqual(appMode.dailySolutions, null);
+  assert.strictEqual(appMode.ads, null);
+  assert.strictEqual(appMode.share, null);
+  assert.strictEqual(appMode.rewards, null);
+  assert.strictEqual(appMode.hintAccess, null);
+  assert.strictEqual(appMode.engagement.ads, null);
+  assert.strictEqual(appMode.engagement.share, null);
+  assert.strictEqual(appMode.engagement.rewards, null);
+  assert.strictEqual(appMode.engagement.hintAccess, null);
+  assert.deepStrictEqual(forbidden, { daily: 0, ads: 0, share: 0, rewards: 0, engagement: 0 });
+
+  appMode.tick(Date.now());
+  const model = appMode.buildModel();
+  assert.strictEqual(model.productCapabilities, appMode.productCapabilities);
+  assert.strictEqual(model.dailyAvailable, false);
+  assert.strictEqual(model.shareAvailable, false);
+  assert(!appMode.renderer.hits.some(hit => hit.id === 'home:dailyChallenge'));
+  assert(!appMode.renderer.hits.some(hit => hit.id === 'daily:extraEntry'));
+  assert.strictEqual(appMode.performAction('home:dailyChallenge'), false);
+  assert.strictEqual(appMode.performAction('home:daily'), false);
+  assert.strictEqual(appMode.performAction('daily:extraEntry'), false);
+  assert.strictEqual(appMode.performAction('result:share'), false);
+
+  assert.strictEqual(appMode.openRewardDialog('theme:ocean'), true);
+  assert.strictEqual(appMode.rewardDialog.conditionType, 'rewarded_ad');
+  assert.strictEqual(appMode.rewardDialog.primaryAction, null);
+  appMode.tick(Date.now() + 1);
+  assert(!appMode.renderer.hits.some(hit => hit.id === 'reward:unlock'));
+  assert.strictEqual(appMode.performAction('reward:unlock'), false);
+  assert.strictEqual(appMode.performAction('reward:close'), true);
+  assert.strictEqual(appMode.openRewardDialog('theme:festival'), true);
+  assert.strictEqual(appMode.rewardDialog.conditionType, 'share');
+  assert.strictEqual(appMode.rewardDialog.primaryAction, null);
+  assert.strictEqual(appMode.performAction('reward:unlock'), false);
+  assert.strictEqual(appMode.performAction('reward:close'), true);
+
+  assert.strictEqual(appMode.openLevel(0, 0), true);
+  appMode.performAction('play:hint');
+  assert(appMode.hintPreview,
+    'ordinary hints use the local free path without an access ledger');
+  assert.strictEqual(Object.prototype.hasOwnProperty.call(
+    appPlatform.storage,
+    HintAccessService.STORAGE_KEY
+  ), false);
+  assert.strictEqual(appMode.progress.recordCompletion(0, 0, 1000).firstClear, true);
+  assert.strictEqual(appMode.progress.save(), true);
+  const recovered = appMode.recoverRewardUnlocks();
+  assert.strictEqual(recovered.ok, true);
+  assert.strictEqual(appMode.rewardUnlocks.view().balance, 100,
+    'the disabled daily completion source does not block ordinary reconciliation');
+  assert.deepStrictEqual(forbidden, { daily: 0, ads: 0, share: 0, rewards: 0, engagement: 0 });
+  appMode.dispose();
 }
 
 module.exports = run;
