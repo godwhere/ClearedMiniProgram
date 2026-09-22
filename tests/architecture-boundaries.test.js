@@ -192,6 +192,66 @@ function run() {
     `\\brunner\\s*\\.\\s*(?:${MUTABLE_RUNNER_FIELDS.join('|')})\\b`
   );
   const appSource = fs.readFileSync(path.join(SRC_DIR, 'app.js'), 'utf8');
+  const gameRuntimeSource = fs.readFileSync(path.join(SRC_DIR, 'runtime', 'game-runtime.js'), 'utf8');
+  assert.deepStrictEqual(dependencies(gameRuntimeSource), [
+    '../app.js',
+    '../services/subpackage-service.js',
+    '../services/progress-store.js',
+    '../services/stamina-service.js',
+    '../services/daily-progress-store.js',
+    '../services/preferences-service.js',
+    '../services/reward-unlock-service.js',
+    '../services/hint-access-service.js',
+    '../services/locale-service.js',
+    '../config/rewards.js'
+  ], 'the shared composition root may depend only on reusable local runtime modules');
+  assert(!/platform\/wechat|cloudbase|backend|api-client|auth-service|session-store|sync-store|cloud-function/.test(gameRuntimeSource),
+    'the shared composition root cannot select a concrete host, cloud environment or online service');
+  assert.deepStrictEqual(dependencies(appSource), [
+    '../data/catalog-v2.js',
+    '../core/game-runner.js',
+    './services/progress-store.js',
+    './services/stamina-service.js',
+    './config/stamina.js',
+    './services/skin-service.js',
+    './services/ads-service.js',
+    './services/engagement-service.js',
+    './services/progression-service.js',
+    './services/audio-service.js',
+    './services/hint-service.js',
+    './services/hint-access-service.js',
+    './services/reward-unlock-service.js',
+    './config/rewards.js',
+    './config/ads.js',
+    './config/progression.js',
+    './config/audio.js',
+    './ui/canvas-renderer.js',
+    './ui/portal-instructions.js',
+    './ui/account-layout.js',
+    './skins/index.js',
+    './mechanics/index.js',
+    './gameplay/run-context.js',
+    '../data/ice-trial.js',
+    './gameplay/completion-policies.js',
+    './gameplay/board-input-controller.js',
+    './services/daily-progress-adapter.js',
+    './ui/view-models/daily-view-model.js',
+    './i18n/index.js',
+    './services/legacy-migration-builder.js',
+    './services/authoritative-state-applier.js'
+  ], 'P1 registers the retained direct and method-local App dependency surface');
+  const optionalAppDependencies = [];
+  const optionalPattern = /optionalRequire\s*\(\s*['"]([^'"]+)['"]/g;
+  let optionalMatch;
+  while ((optionalMatch = optionalPattern.exec(appSource))) optionalAppDependencies.push(optionalMatch[1]);
+  assert.deepStrictEqual(optionalAppDependencies, [
+    './services/clear-effect-service.js',
+    './services/daily-challenge-service.js',
+    './services/daily-progress-store.js',
+    '../data/daily-challenges.js',
+    '../data/daily-solutions.js',
+    '../data/portal-solutions.js'
+  ], 'P1 registers every retained optional App dependency for later product pruning');
   const staminaSource = fs.readFileSync(path.join(SRC_DIR, 'services', 'stamina-service.js'), 'utf8');
   assert.deepStrictEqual(dependencies(staminaSource), ['../config/stamina.js'],
     'stamina may depend only on its stable configuration');

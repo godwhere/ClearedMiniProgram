@@ -48,19 +48,20 @@ Cleared 是一款连线填格益智游戏：连接颜色相同的两个端点，
 
 ## 技术结构
 
-实际入口是 `game.js -> src/bootstrap.js -> src/app.js`。`bootstrap` 只负责创建并注入依赖，`app` 负责场景状态、业务执行顺序和结算编排；规则、输入、渲染、平台和存档各自保持明确边界。
+微信入口是 `game.js -> src/bootstrap.js -> src/runtime/game-runtime.js -> src/app.js`。`bootstrap` 选择微信平台、环境与在线服务；`game-runtime` 创建通用本地服务并连接 App；`app` 负责场景状态、业务执行顺序和结算编排。规则、输入、渲染、平台和存档各自保持明确边界。
 
 ```text
 game.js
-└── src/bootstrap.js                 组合根与环境配置
-    └── src/app.js                   场景、反馈和结算编排
-        ├── src/gameplay/            关卡上下文、输入控制和完成策略
-        ├── src/services/            进度、体力、奖励、提示、同步等领域服务
-        │   └── daily-progress-adapter.js  无状态的每日存档接口兼容与结果归一化
-        ├── src/ui/                  Canvas 场景和纯棋盘 ViewModel 渲染
-        │   └── view-models/daily-view-model.js  每日场景纯字段映射
-        ├── src/platform/wechat.js   微信 API 的唯一适配边界
-        └── core/                    不依赖 wx、Canvas 或存档的纯规则
+└── src/bootstrap.js                 微信组合根、环境配置与在线服务
+    └── src/runtime/game-runtime.js  通用本地服务与 App 装配
+        └── src/app.js               场景、反馈和结算编排
+            ├── src/gameplay/        关卡上下文、输入控制和完成策略
+            ├── src/services/        进度、体力、奖励、提示、同步等领域服务
+            │   └── daily-progress-adapter.js  无状态的每日存档接口兼容与结果归一化
+            ├── src/ui/              Canvas 场景和纯棋盘 ViewModel 渲染
+            │   └── view-models/daily-view-model.js  每日场景纯字段映射
+            ├── src/platform/wechat.js  微信 API 的唯一适配边界
+            └── core/                不依赖 wx、Canvas 或存档的纯规则
 
 data/                                关卡、解答、难度和每日题面
 src/mechanics/                       Portal、冰封等 data-only 机制声明
@@ -83,7 +84,7 @@ tests/                               规则、服务、渲染、同步和启动�
 - 金币仍只有一份云确认钱包；`RewardUnlockService` 额外派生待同步奖励的只读显示合计，App 负责传递，Renderer 只负责绘制，不读取云待办或计算奖励。
 - 原始关卡保存在 JSON 中，提交到小游戏的是生成后的 JavaScript 模块；发布测试会回放正式解答并校验目录、难度和兼容关系。
 - `scripts/theme-extraction/runs/` 存放本地生成的素材检查结果，并由 Git 忽略；仓库只保存正式主题素材。
-- `game.js` 是仓库中唯一的客户端入口。
+- `game.js` 仍是微信客户端唯一可执行入口；`game-runtime.js` 只导出可注入平台的通用装配，不选择宿主或在线环境。
 
 更完整的依赖方向和扩展规则见 [玩法拓展架构](docs/gameplay-extension-architecture.md)。
 
@@ -194,7 +195,7 @@ node scripts/generate-level-modules.js
 
 - [玩法拓展架构](docs/gameplay-extension-architecture.md)：规则层、输入、提示、渲染和结算的职责边界。
 - [微信小游戏英文本地化方案](docs/localization.md)：系统语言默认、双语词典和账号页语言切换。
-- [独立 App 架构准备方案](docs/app-portability-plan.md)：复用已完成的双语能力，规划平台适配、独立账号与存档；明确保持微信编译／预览／上传流程的硬边界、包预算与分阶段验收。P0 本地基线已刷新，P1 及之后的运行代码阶段尚未实施。
+- [独立 App 架构准备方案](docs/app-portability-plan.md)：复用已完成的双语能力，规划平台适配、独立账号与存档；明确保持微信编译／预览／上传流程的硬边界、包预算与分阶段验收。P0 与 P1 已完成本地实施，P2 及之后阶段尚未实施。
 - [Portal 机制](docs/portal-mechanic.md)：传送门状态机、分段手势、数据与解答格式。
 - [冰封玩法](docs/ice-trial.md)：两层地板规则、提示流程及主线接入边界。
 - [关卡难度系统](docs/level-difficulty-system.md)：评分方法、排序规则和舒缓关节奏。

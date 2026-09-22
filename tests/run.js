@@ -24,6 +24,7 @@ const tests = [
   ['cloudbase disabled local behavior', require('./cloudbase-disabled.test.js')],
   ['production release readiness', require('./release-readiness.test.js')],
   ['cloud runtime config selection', require('./cloud-runtime-config.test.js')],
+  ['shared game runtime composition', require('./game-runtime.test.js')],
   ['level records, gallery navigation and beginner instructions', require('./level-ui.test.js')],
   ['stamina service', require('./stamina-service.test.js')],
   ['stamina app', require('./stamina-app.test.js')],

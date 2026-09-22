@@ -1,5 +1,5 @@
 const WechatPlatform = require('./platform/wechat.js');
-const ClearedApp = require('./app.js');
+const gameRuntime = require('./runtime/game-runtime.js');
 const skins = require('./skins/index.js');
 const effects = require('./effects/index.js');
 const adConfig = require('./config/ads.js');
@@ -10,19 +10,14 @@ const dailyManifest = require('../data/daily-challenges.js');
 const dailySolutions = require('../data/daily-solutions.js');
 const dailyConfig = require('./config/daily.js');
 const mechanics = require('./mechanics/index.js');
-const SubpackageService = require('./services/subpackage-service.js');
 const subpackageConfig = require('./config/subpackages.js');
-const ProgressStore = require('./services/progress-store.js');
-const StaminaService = require('./services/stamina-service.js');
 const staminaConfig = require('./config/stamina.js');
-const DailyProgressStore = require('./services/daily-progress-store.js');
 const SessionStore = require('./services/session-store.js');
 const SyncStore = require('./services/sync-store.js');
 const ApiClient = require('./services/api-client.js');
 const AuthService = require('./services/auth-service.js');
 const ProgressSyncService = require('./services/progress-sync-service.js');
 const AuthoritativeStateApplier = require('./services/authoritative-state-applier.js');
-const PreferencesService = require('./services/preferences-service.js');
 const EconomyService = require('./services/economy-service.js');
 const BehaviorService = require('./services/behavior-service.js');
 const EngagementService = require('./services/engagement-service.js');
@@ -36,10 +31,7 @@ const engagementConfig = require('./config/engagement.js');
 const ProfileService = require('./services/profile-service.js');
 const ShareService = require('./services/share-service.js');
 const RewardService = require('./services/reward-service.js');
-const HintAccessService = require('./services/hint-access-service.js');
-const RewardUnlockService = require('./services/reward-unlock-service.js');
 const rewardConfig = require('./config/rewards.js');
-const LocaleService = require('./services/locale-service.js');
 
 function cloudConfigForEnvironment(environmentVersion, loadLocalConfig) {
   if (environmentVersion === 'release') {
@@ -72,18 +64,19 @@ function start(options) {
   const loadLocalCloudConfig = options && typeof options.loadLocalCloudConfig === 'function'
     ? options.loadLocalCloudConfig : null;
   const platform = new WechatPlatform();
-  const locale = new LocaleService(platform);
   const environmentVersion = platform.getMiniProgramEnvironmentVersion();
   const isDeveloperRuntime = ['develop', 'trial'].includes(environmentVersion);
   const cloudConfig = cloudConfigForEnvironment(environmentVersion, loadLocalCloudConfig);
-  const subpackages = new SubpackageService(platform, subpackageConfig);
-  const progress = new ProgressStore(platform);
-  const stamina = new StaminaService(platform, staminaConfig);
-  const dailyStore = new DailyProgressStore(platform, { debugUnlimited: dailyConfig.debugUnlimitedEntries === true });
-  const rewardUnlocks = new RewardUnlockService(platform, rewardConfig);
+  const local = gameRuntime.createLocalServices(platform, {
+    subpackageConfig,
+    staminaConfig,
+    dailyDebugUnlimited: dailyConfig.debugUnlimitedEntries === true,
+    dailyTimeZone: dailyConfig.timeZone,
+    rewardConfig
+  });
+  const { locale, subpackages, progress, stamina, dailyStore, rewardUnlocks, preferences, hintAccess } = local;
   const sessions = new SessionStore(platform);
   const syncStore = new SyncStore(platform);
-  const preferences = new PreferencesService(progress);
   const transport = cloudConfig.enabled === true ? new CloudFunctionTransport(platform, cloudConfig) : null;
   const api = new ApiClient(platform, sessions, backendConfig, { transport });
   const auth = new AuthService(platform, api, sessions, syncStore,
@@ -102,7 +95,6 @@ function start(options) {
   const rewards = new RewardService(platform, api, auth, syncStore,
     { enabled: engagementConfig.rewards.dailyExtraEntryEnabled === true || engagementConfig.share.rewardsEnabled === true }, behavior);
   const share = new ShareService(platform, api, auth, syncStore, engagementConfig.share, behavior, locale);
-  const hintAccess = new HintAccessService(platform, { timeZone: dailyConfig.timeZone });
   const engagement = new EngagementService({ ads, share, rewards, rewardUnlocks, auth, behavior, hintAccess, config: Object.assign({}, adConfig.rules,
     { dailyExtraEntryEnabled: adConfig.rules.dailyExtraEntryEnabled === true && engagementConfig.rewards.dailyExtraEntryEnabled === true }),
     shareEntitlement: rewardId => syncStore.authorityMode('entitlements') === 'cloud-authoritative'
@@ -121,7 +113,7 @@ function start(options) {
     unlockAllLevelsInDevTools: typeof platform.isDevTools === 'function' &&
       platform.isDevTools() === true
   });
-  const app = new ClearedApp(platform, {
+  const app = gameRuntime.startGame(platform, { appOptions: {
     stamina, preferences, rewardUnlocks, syncStore, economy, authoritativeApplier,
     progress, dailyStore, auth, progressSync, behavior, ads, engagement, profile, share, rewards, hintAccess, locale,
     subpackages,
@@ -142,15 +134,7 @@ function start(options) {
     dailyDebugUnlimited: dailyConfig.debugUnlimitedEntries === true,
     dailyTestDateKey: isDeveloperRuntime && typeof cloudConfig.dailyTestDateKey === 'string'
       ? cloudConfig.dailyTestDateKey : ''
-  });
-  preferences.bind({ skins: app.skins, clearEffects: app.clearEffects, audio: app.audio,
-    canUse: (kind, itemId) => app.rewardUnlocks.canUse(kind, itemId) });
-  authoritativeApplier.accountGuard = app.accountGuard;
-  economy.accountGuard = app.accountGuard;
-  progressSync.prepareMigrationSnapshot = () => app.prepareLegacyMigration();
-  app.start();
-  share.install(() => app.shareContext());
-  share.captureEntry(platform.getLaunchOptions());
+  } });
   // Local boot is synchronous. Online work is always scheduled afterwards.
   behavior.track('app_launch', { scene: 'home' });
   Promise.resolve().then(() => app.resumeOnline('launch')).then(() => behavior.flush('launch')).catch(function () {});
