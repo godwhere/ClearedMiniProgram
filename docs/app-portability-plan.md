@@ -1,9 +1,9 @@
 # 微信小游戏到独立 App：架构准备方案与严格代码边界
 
 > 初稿日期：2026-09-08；本次更新：2026-09-22。
-> 状态：语言本地化已完成本地实现，作为现有能力保留；App 化仍是方案，尚未开始代码实施。2026-09-21 已冻结 App 首版的单机、六关试玩、一次性买断、无每日挑战／广告、回廊解锁及“独立 App 宿主工程＋现有游戏源码唯一来源”方向；2026-09-22 收紧权益生命周期、阶段出口、策略归属和方法级施工边界。开发者工具、真机、商店沙盒与上架证据仍待后续阶段分别取得。
-> 当前授权：根据本轮用户要求，仅更新并提交本方案文档到仓库 `main`；不修改运行代码、配置、存档、服务器、云服务或当前微信小游戏产品行为，不执行安装包上传、送审或发布。本文中的后续施工白名单不是本轮代码实施授权。
-> 本轮远端审阅起点：`0fde16caa6c9732306141d2884cd8cfda0194f8f`。该节点相对 `3f673682113aaa9fe6ac2fec7df7fb9777561d55` 仅修改本文，因此运行代码仍以该历史节点为对照。这里不推断用户本地工作区是否干净。`5010d7ce067bf0f412cd28dba452218c3b95bf26` 是 2026-09-09 的历史账号页／本地化核验节点；初稿基线为 `cf8bcab8776f742aea0f2cff9830d3a72732f0d8`。任何代码施工开始前仍须重新刷新 HEAD、差异、测试、分包和包体。
+> 状态：语言本地化已完成本地实现，作为现有能力保留；App 化已于 2026-09-22 完成 P0 基线刷新，P1 及之后的运行代码阶段尚未实施。2026-09-21 已冻结 App 首版的单机、六关试玩、一次性买断、无每日挑战／广告、回廊解锁及“独立 App 宿主工程＋现有游戏源码唯一来源”方向；2026-09-22 收紧权益生命周期、阶段出口、策略归属和方法级施工边界。开发者工具、模拟器、真机、商店沙盒与上架证据按后续阶段分别取得，不能互相替代。
+> 当前授权：用户已于 2026-09-22 授权按本文顺序分任务实施，并要求每完成一个独立任务后使用 GitHub Desktop 提交。只能由真机完成的验收暂缓；允许使用本机 Android／iOS 模拟器验证可覆盖的行为。该授权不放宽阶段白名单、停工条件、数据与产品边界，也不包含服务器／云服务变更、安装包上传、送审或发布。
+> 本轮 P0 审计起点：本地 `main` 的 `984303becf8afab1dcd4fc855cc4128f4e1d9460`，tree 为 `544090431fc5c514b38898d47bb2ecf75dffce33`；开始时工作区干净并跟踪 `origin/main`。`0fde16caa6c9732306141d2884cd8cfda0194f8f` 是上一轮远端文档审阅起点，`5010d7ce067bf0f412cd28dba452218c3b95bf26` 是 2026-09-09 的历史账号页／本地化核验节点，初稿基线为 `cf8bcab8776f742aea0f2cff9830d3a72732f0d8`。每个代码阶段仍须以届时最新 HEAD 重新刷新差异、测试、分包和包体。
 > 客户端根目录 C：`/Users/ethan/Projects/ClearedMiniProgram`。下文施工路径相对 C，除非另有说明；独立 App 宿主根目录记为 H，实际路径在 P4 冻结，必须位于 C 之外。
 > 相关约束：[玩法架构](gameplay-extension-architecture.md)、[单方案结算](single-mode-settlement-plan.md)、[当前联网方式](cloudbase-local-first-sync.md)、[奖励解锁](reward-unlock-system.md)、[体力](stamina-system.md)、[每日挑战](daily-challenge-mode.md)、[回廊与特效](corridor-and-clear-effects.md)、[App 编排减负](app-orchestration-refactor-plan.md)、[主题分包](package-splitting.md)、[已实现的语言本地化](localization.md)。
 
@@ -449,9 +449,9 @@ App 首版不包含每日挑战，因此不建立 App 每日时区、日期迁�
 
 ## 6. 分阶段实施与文件白名单
 
-下表和各阶段清单是后续施工边界，不是本次文档任务的代码实施授权。每阶段须独立核对差异、测试与出口，不把跨阶段工作合成一个大改动。
+下表和各阶段清单是当前实施授权的严格施工边界。整体目标授权不等于合并各阶段权限；每阶段须独立核对差异、测试与出口并单独提交，不把跨阶段工作合成一个大改动。
 
-**方法级边界的使用规则：** 下文列出的现有方法以本轮远端基线为依据；“拟新增”名称是设计，不声称已经存在。每个子阶段开始前，以该阶段 P0 记录补齐实际文件、方法／构造区段、调用者、允许新增的状态、必须保持的副作用顺序和测试用例。只列出文件名不构成整文件修改许可。若当前代码已改名、抽出或存在未覆盖调用点，先更新该子阶段清单再施工；不得以“同一功能相关”为由自动扩展到未列方法。
+**方法级边界的使用规则：** 下文列出的现有方法以本轮 P0 本地基线为依据；“拟新增”名称是设计，不声称已经存在。每个子阶段开始前，以该阶段 P0 记录补齐实际文件、方法／构造区段、调用者、允许新增的状态、必须保持的副作用顺序和测试用例。只列出文件名不构成整文件修改许可。若当前代码已改名、抽出或存在未覆盖调用点，先更新该子阶段清单再施工；不得以“同一功能相关”为由自动扩展到未列方法。
 
 ### P0：刷新基线，冻结合同
 
@@ -470,6 +470,59 @@ App 首版不包含每日挑战，因此不建立 App 每日时区、日期迁�
 - 确认后续阶段是否仍能使用下列文件白名单；如必须扩展，在施工前说明最小增量与原因。
 
 写入仅限 `docs/app-portability-plan.md` 和 README 的相关说明。本次文档整理提供了审阅基线，但不替代未来实施前的 P0 刷新。
+
+#### P0 实施记录：2026-09-22
+
+本节是上述审计起点的本地快照，只证明 P0。后续提交会改变 HEAD；P4 锁文件必须使用届时实际共享提交与 tree，不能复用本节哈希冒充新构建输入。
+
+| 项目 | 刷新结果 |
+| --- | --- |
+| Git 与工作区 | `main` at `984303becf8afab1dcd4fc855cc4128f4e1d9460`，tree `544090431fc5c514b38898d47bb2ecf75dffce33`；开始时无未提交差异 |
+| 聚合回归 | `node tests/run.js` 通过 105／105 组 |
+| 微信包预算 | 主包 1,442,500 bytes；10 个主题分包＋`audio-bgm` 共 11 个分包通过；总计 16,415,611 bytes |
+| 发布配置预检 | `node scripts/check-release-readiness.js --mode rollout` 返回 `ready:true`、无失败项；仅为本地配置证据 |
+| 微信入口与配置 | `game.js → src/bootstrap.js::start()` 保持；`compileType: game`、现有 AppID、`packOptions`、`game.json` 和 `src/config/subpackages.js` 未改 |
+| App 工程隔离 | C 内未发现 `ios/`、`android/`、`node_modules` 或 Capacitor 配置；尚未创建 H |
+| 设备与发布证据 | 本阶段未执行开发者工具、Android／iOS 模拟器、真机、实际上传、商店沙盒、送审或发布 |
+
+当前目录为 5 个 set、168 个主线关卡。目录前六项依次为 `0:0`、`0:1`、`1:0`、`1:1`、`1:2`、`1:3`；有序 `levelKey` 列表 SHA-256 为 `ff2a25e8ae237a2a23f061c4cb679c8465b4da0a9ceec5c88803b3446abef6b6`，规范化 catalog 快照 SHA-256 为 `a8ea41b487ebe360ce5d7ab3827eca414e2e93822a278be9515f24bdcde38f68`。`full_game_v1` 仍只是冻结的逻辑权益 ID；`runtimeContractVersion`、App 生产策略 hash 和 H 均尚未产出，不填写假值。
+
+当前 `src/config/rewards.js` 快照 SHA-256 为 `ffba0f34f5339962ea295410622a4fadc6625bb8db354879567324174273dc33`。需要由 H 覆盖为 `currency:10000` 的现有条目恰为五项：`theme:ocean`、`theme:spring`、`theme:music`、`theme:vehicles` 的 `rewarded_ad`，以及 `theme:festival` 的 `share`。共享目录本身不改；P2.5-C 必须用覆盖后的真实 `RewardUnlockService` 实例验证。
+
+**平台与持久化基线：**
+
+| 合同 | 当前所有者、调用者与缺口 |
+| --- | --- |
+| Canvas／安全区 | `WechatPlatform` 创建首个屏幕 Canvas；`resize()` 使用逻辑宽高、将 DPR 限制为 1—2，并令 `safeBottom` 表示底部坐标。`CanvasRenderer` 和账号布局消费 `platform.metrics`；尺寸变化后 App 重新连接 `renderer.ctx` |
+| 输入 | `bindPointer()` 将 touch 转为 `{x,y,id}`，逐点分发 start／move／end／cancel 并返回解绑函数；`ClearedApp.start()` 绑定，`dispose()` 调用 `unbindPointer()` |
+| 帧循环 | `startLoop()` 先停止旧循环，向 App 传入 `Date.now()` 的绝对毫秒值；Canvas RAF 缺失时回退约 33ms 定时器。hide 和 dispose 停止循环，show 重新启动 |
+| 生命周期 | `bindLifecycle()` 当前注册 hide／show／resize／音频中断匿名监听但不返回解绑函数；重复挂载无法完整解除，是 P2 的已确认缺口 |
+| 图片与分包 | `createImage()` 明确回调成功／失败；`SubpackageService` 通过 `loadSubpackage()` 处理不支持、失败、进度和完成；Renderer／Portal overlay 保留缺图回退 |
+| 存储 | `getStorage()` 的旧兼容接口会把缺失与异常都表示为 `null`；`readStorageResult()` 区分 `{found:false}` 与 `storage-read-failed`；`setStorage()` 同步返回布尔值。Progress、奖励、体力等写入以该布尔值决定是否确认状态，P1—P4 不得伪装异步成功 |
+
+现有物理 key 冻结为：`cleared:minigame:progress:v2`（兼容读取 `cleared:progress:v1`）、`daily:v1`、`reward-unlocks:v1`、`stamina:v1`、`online:v1`、`migration-archives:v1`、`locale:v1`、`session:v1`、`economy-requests:v1`、`rewards:v1`、`share-entry:v1`、`hint-access:v1` 和 `events:v1`，均带 `cleared:minigame:` 前缀。P0 不迁移或重写任何 key。
+
+`SyncStore` 当前六域为 `progress/daily/economy/entitlements/stamina/preferences`，合法模式只有 `legacy-local/migration-freeze/cloud-authoritative/local-backup`；`app-local` 尚未实现。核心四域随全局模式变化，stamina／preferences 按既有阶段独立推进。身份隔离继续由 `ownerId`、`environmentId`、`bindingEpoch`、`activationSequence` 和 App 的 `accountGeneration` 共同保护；历史 `local-backup`、迁移冻结、pending application／restore 仍失败关闭。这里的 `entitlements` 仍指回廊拥有权，不是商店完整版权益。
+
+`bootstrap.start()` 只创建一个 `LocaleService`，并把同一实例传给 App、Renderer、ProfileService 与 ShareService。独立 key、手动偏好优先、系统语言归一化、未知正式语言回退 `en-US`、旧轻量宿主中文兼容和写失败时“当前会话生效但 `persisted:false`”的合同均已由现有测试覆盖；P1 只保持连接，不迁移状态。
+
+**依赖与直接构造基线：**
+
+- `src/app.js` 当前有 29 个顶层字面量 `require`、2 个方法内字面量 `require`（`LegacyMigrationBuilder`、`AuthoritativeStateApplier`），以及 6 个经 `optionalRequire(path, fallback)` 传入变量路径的已知可选模块：ClearEffect、DailyChallenge、DailyProgress、每日 manifest、每日 solutions 和 Portal solutions。按字面量静态解析的递归闭包为 79 个 JavaScript 文件。
+- 该闭包仍包含广告配置／服务、每日服务／存档／数据、奖励、体力、SyncStore 及历史权威应用代码。P1 只验证新组合根的直接依赖并登记这些传递项；P2.5-A 处理默认能力，P4 才能以真实 bundle 证明最终依赖与数据裁剪。
+- 生产直接构造者为 `src/bootstrap.js`。另有 22 个测试模块直接 `new ClearedApp`：`account-app`、`app-portal`、`app-smoke`、`clear-effect-system`、`cloud-session-migration`、`cloud-stale-callback`、`daily-app`、`daily-entry-grant`、`daily-mechanic-pack`、`hint-share`、`hint-tiered`、`ice-mainline`、`ice-trial`、`level-difficulty`、`level-ui`、`localization`、`reward-unlock-app`、`share-entry`、`stamina-app`、`stamina-renderer`、`theme-system` 及 `tests/helpers/mainline-pack-fixture.js`。P1 必须保留这些调用者的构造兼容，不以批量改测试掩盖默认行为变化。
+
+**P2.5 方法级施工清单确认：**
+
+| 子阶段 | 当前实际区段与状态所有者 | 失败路径和独立出口 |
+| --- | --- | --- |
+| A 能力裁剪 | `app.js` 的 `optionalRequire`、`constructor()` 可选服务区、`buildModel()`、`performAction()`、`recoverRewardUnlocks()` 和普通 `showHint()`；Renderer 仅限 `drawHome()`、`drawDailyResult()`、`drawRewardDialog()` 及对应 hit 分支；产品能力只读状态归拟新增 ProductPolicy | 显式 disabled 不得落回默认构造；禁用 action 必须安全拒绝；空每日完成源仍让普通奖励核对成功；微信默认构造和现有每日／广告路径不变 |
+| B 内容与商店消费合同 | `ProgressionService` 的 `constructor()`、拟新增 `accessStatus()`，并组合但不改写 `isUnlocked()`／`nextLevel()`／`resumeTarget()`；App 的 `constructor()`、`buildModel()`、`performAction()`、`openLevel()`、`openIceTrial()`、`start()`、`dispose()`；Renderer 的 `drawHome()`、`drawLevels()`、`drawResult()`、`drawAccount()` 与拟新增商店弹层；只读权益权威归宿主 provider | 门禁必须先于 Runner 创建和体力扣除；取消／pending／失败不写普通资产；面板关闭只废弃旧 UI 反馈；旧 revision 不覆盖新快照；fake 只证明消费者合同 |
+| C App 本地权威 | App 的 `authorityMode()`、`recoverRewardUnlocks()`、`openLevel()`、`requestRewardUnlock()`、普通完成／体力退款／设置保存判断；RewardUnlockService 的构造、`setAuthorityMode()`、`reconcile()`、`purchase()`、`write()`；StaminaService 的构造、`setAuthorityMode()`、`restoreUnlockedLevels()`、`unlockOrdinaryLevel()`、`refundQuickClear()`、`flush()` | 未知／受保护模式失败关闭；奖励账本写失败不改已确认余额，体力扣除＋永久进入权同写，回廊余额＋拥有权同写；重启可按持久化首通事实幂等补办；同步测试存储不冒充原生提交 |
+
+商店权益 provider、界面投影和宿主归并队列当前均不存在，因此不存在可误认的第二权益所有者。P2.5-B 新增后必须覆盖第 4.8 节的乱序、重复、pending、撤销、失效实例、写失败和关闭面板反例；P4 再验证实际宿主所有者。
+
+仓库没有 `scripts/check-markdown-links.js`，因此该不存在的命令未列作 P0 成功证据；本文与 README 的本地 Markdown 链接在提交前另以只读检查核对。P0 只更新本文和 README，没有运行行为、微信配置、存档、云端或真实数据变化。
 
 ### P1：仅抽离通用装配
 
@@ -700,7 +753,7 @@ App 侧需要将 CommonJS 内容打包为宿主可运行的资源，并编译原
 | 文档／测试 | 当前 `docs/`、README、`tests/`、`scripts/` 均由 `packOptions.ignore` 排除；新增或更新本文不增加该源码统计口径的上传包体 |
 | 包体 | 每阶段重新测量；不得为通过预算提高阈值、移走必需资源或把加载失败伪装成功 |
 
-2026-09-21 的既有文档更新没有修改 `game.js`、`game.json`、`project.config.json`、`project.private.config.json`、`src/config/subpackages.js` 或云配置。本次 2026-09-22 更新同样只修改本文。今后若必须变化，先报告原因并单独批准，不能继续宣称处于“上传配置不变”的原范围内。
+2026-09-21 的既有文档更新、2026-09-22 的执行合同收口及本次 P0 均没有修改 `game.js`、`game.json`、`project.config.json`、`project.private.config.json`、`src/config/subpackages.js` 或云配置。从 P1 起如必须变化，先报告原因并单独批准，不能继续宣称处于“上传配置不变”的原范围内。
 
 ### 7.4 上传兼容性验收顺序
 
@@ -815,7 +868,7 @@ git diff --check
 - 不改稳定关卡 ID、机制版本、action／hit ID、已发布 manifest ID 和当前微信存档 key。
 - 不清空、自动迁移或覆盖真实玩家数据，不清理历史待办与恢复保护。
 - 不打开历史备份模式，不改变微信云端资产权威。
-- 不部署云服务，不改两台服务器，不上传安装包、送审或发布；不提交或推送运行代码。本轮用户要求的本文文档提交除外，不能把这项授权推广到后续施工。
+- 不部署云服务，不改两台服务器，不上传安装包、送审或发布；本地运行代码提交只能包含当前独立阶段白名单内、已完成验证的差异，并须使用 GitHub Desktop。未经另行授权不推送任何提交。
 - 不通过删除测试、放宽协议白名单或移除信任边界来兼容 App。
 - 不在业务层散布微信、iOS、Android 分支。
 - 不在微信运行链路引入 DOM、原生插件、npm 运行依赖或新构建步骤。
@@ -865,7 +918,7 @@ git diff --check
 
 推荐顺序为 **P0 刷新 → P1 通用装配 → P2 平台合同 → P2.5-A 能力裁剪 → P2.5-B 内容门禁与购买界面合同 → P2.5-C App 本地权威 → P3 本地化回归 → P4 第二宿主验证 → P4.5 最小原生存储验证 → P5 正式 App 专项**。
 
-原 P3 的建设不再重复执行；每个涉及微信运行代码的阶段均须遵守第 7.3—7.4 节。P2.5 的三个子阶段分别批准与验收，不能用一句“实施 P2.5”获得所有大文件的无界修改权。P4.5 需要独立测试工程清单和授权，不默认为本轮文档任务可执行。
+原 P3 的建设不再重复执行；每个涉及微信运行代码的阶段均须遵守第 7.3—7.4 节。P2.5 的三个子阶段分别实施、验收和提交，不能把总体授权解释为任意时点拥有所有大文件的无界修改权。P4.5 仍须在 P4 完成后先列出独立测试工程清单；当前授权只允许执行模拟器可覆盖的部分，必须依赖真机的项目按用户要求暂缓并记录证据缺口。
 
 语言本地化已完成，账号页、文案和测试的后续修改已在历史核验期间提交为 `5010d7c`。各阶段以届时最新工作区为基线，不按早期提交覆盖这些内容，也不重新选择语言存储位置。
 
@@ -937,3 +990,10 @@ git diff --check
 - 同步更新 V01／V20／V21／V24 等验收措辞，增加 V28—V30，更新停工条件和执行顺序；产品模式、六关、回廊价格、无广告／每日、数据隔离和微信发布工作流不变。
 - 本轮通过 GitHub 读取文档、相关源码和边界测试，并针对交易处理与存储语义查阅官方资料。仅进行文档与边界核对；没有重新执行 `node tests/run.js`、包预算、release 预检或本地 `git diff --check`，没有开发者工具、真机、原生存储、商店沙盒或发布证据。第 7.5 节及历史测试数字保持历史记录身份。
 - 本轮写入范围仅为本文；README 索引与现有运行结构没有变化，因此不修改 README 或其他专题文档。没有实施任何 App 代码阶段、改微信配置／云服务／真实存档、建立 App 工程或执行安装包上传。
+
+### 13.8 P0 本地基线刷新：2026-09-22
+
+- 用户授权开始按阶段实施，并要求每完成一个独立任务后使用 GitHub Desktop 提交；真机专属验收暂缓，模拟器可用于其能够覆盖的验证。
+- 从干净的本地 `main` `984303becf8afab1dcd4fc855cc4128f4e1d9460` 重新清点入口、平台、存储、权威域、直接构造者、App 依赖闭包、固定六关和回廊覆盖对象。
+- 完整 Node 回归 105／105、包预算和 rollout 配置预检通过；P0 未执行开发者工具、模拟器、真机、商店、上传、审核或发布。
+- 本阶段只更新本文与 README 的实施状态，没有运行行为、配置、存档、云端或真实数据变化；P1 仍须作为下一项独立代码任务实施和提交。
