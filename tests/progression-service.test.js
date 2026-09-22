@@ -63,6 +63,42 @@ function run() {
   assert.strictEqual(catalogProgression.isUnlocked(2, 0), false);
   catalogProgress.complete(1, 4);
   assert.strictEqual(catalogProgression.isUnlocked(2, 0), true, 'completing level 7 unlocks level 8');
+
+  const paidProgress = new ProgressMock();
+  paidProgress.complete(0, 0);
+  paidProgress.complete(0, 1);
+  const commerciallyGated = new ProgressionService(paidProgress, sets,
+    { unlockAcrossSets: true }, {
+      contentAccess(target) {
+        return target.setIndex === 0
+          ? { allowed: true, reason: 'free_preview' }
+          : { allowed: false, reason: 'requires_full_game', entitlementStatus: 'not_owned' };
+      },
+      isPermanentlyUnlocked() { return true; }
+    });
+  assert.strictEqual(commerciallyGated.accessStatus(0, 1).allowed, true);
+  assert.deepStrictEqual(commerciallyGated.accessStatus(1, 0), {
+    allowed: false,
+    commercialAllowed: false,
+    progressionUnlocked: false,
+    reason: 'requires_full_game',
+    entitlementStatus: 'not_owned'
+  }, 'completion and permanent stamina access cannot bypass the commercial gate');
+  assert.strictEqual(commerciallyGated.isUnlocked(1, 0), true,
+    'the existing progression query retains its original semantics');
+  assert.strictEqual(commerciallyGated.accessStatus(9, 0).reason, 'unknown_level');
+
+  const previewProgression = new ProgressionService(new ProgressMock(), sets,
+    { unlockAcrossSets: true }, {
+      contentAccess() { return { allowed: true, reason: 'free_preview' }; }
+    });
+  assert.strictEqual(previewProgression.accessStatus(0, 0).allowed, true);
+  assert.deepStrictEqual(previewProgression.accessStatus(0, 1), {
+    allowed: false,
+    reason: 'progress_locked',
+    commercialAllowed: true,
+    progressionUnlocked: false
+  }, 'commercially free levels still obey the original progression prerequisite');
 }
 
 module.exports = run;

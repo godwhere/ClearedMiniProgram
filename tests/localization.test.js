@@ -207,6 +207,29 @@ function run() {
     'the English home screen no longer uses the literal Chinese-title translation');
   assert(!view.renderer.hits.some(hit => /^home:language:/.test(hit.id)),
     'the language selector belongs only to the account screen');
+  view.renderer.drawStoreDialog({
+    fullGame: { status: 'not_owned' },
+    storeDialog: {
+      title: enLocale.t('store.title'),
+      message: enLocale.t('store.status.not_owned'),
+      state: 'idle',
+      purchaseAction: 'store:purchaseFullGame',
+      purchaseLabel: enLocale.t('store.purchase'),
+      purchaseEnabled: true,
+      restoreAction: 'store:restorePurchases',
+      restoreLabel: enLocale.t('store.restore'),
+      restoreEnabled: true,
+      retryAction: null,
+      closeAction: 'store:close',
+      closeLabel: enLocale.t('store.close')
+    }
+  });
+  assert(view.text.includes('Unlock Full Game'));
+  assert(view.text.includes('Restore Purchases'));
+  assert(view.renderer.hits.some(hit => hit.id === 'store:purchaseFullGame'));
+  assert(view.renderer.hits.some(hit => hit.id === 'store:restorePurchases'));
+  assert(view.renderer.hits.some(hit => hit.id === 'store:close'));
+  assert(!view.text.some(value => CJK.test(value)), 'the English store panel cannot leak Chinese UI copy');
 
   assert.strictEqual(portalInstructions.initial(enLocale),
     'The path enters one portal and exits another');

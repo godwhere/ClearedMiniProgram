@@ -4,7 +4,7 @@
 >
 > Status: Phases 1–3 implemented locally; automated Phase 4 checks pass. WeChat DevTools, device, and release checks remain pending.
 >
-> Current implementation boundary: the bilingual runtime, device-local preference, account-page selector, Portal/share/profile integration, and automated checks are implemented. Cloud services, gameplay, economy, account data, and existing player-save domains remain unchanged.
+> Current implementation boundary: the bilingual runtime, device-local preference, account-page selector, Portal/share/profile integration, standalone-App purchase/restore semantic copy, and automated checks are implemented. The App store copy is exercised only with the P2.5-B fake provider; Cloud services, gameplay, economy, account data, existing player-save domains, and real store integration remain unchanged.
 >
 > Product boundary: this plan applies only to the WeChat Mini Game. A future standalone App will have separate users, accounts, storage, and online data, with no migration or interoperability implied by this work.
 
@@ -115,6 +115,8 @@ No text-bearing art change is planned. If implementation discovers Chinese embed
 
 Daily Portal/ice boards reuse the existing localized portal and ice instruction bands. `portal.instruction.mixed` provides a two-line Chinese/English explanation for the combined board; waiting for an exit still uses the standard Portal prompt. Daily ice hints reuse the existing localized manual-step labels and swipe/arrow controls. These instructions are presentation only and never affect date, level IDs, or settlement.
 
+The standalone-App P2.5-B consumer reuses these same catalogs for `store.*` purchase, restore, pending, cancellation, failure, revocation, and retry copy. Stable `store:*` action IDs and entitlement status values are never translated or inferred from displayed words. A localized price is shown only when supplied by the host store snapshot; missing metadata never falls back to a hard-coded amount. The default WeChat product policy has no full-game gate, so these controls remain unreachable in the current Mini Game product.
+
 ## 6. American English writing rules
 
 - Translate intent and player action, not Chinese grammar.
@@ -181,7 +183,7 @@ The complete catalog receives a final consistency pass in context. This table is
 Phases 1–3 were completed locally on 2026-09-09:
 
 - `src/i18n/index.js` now owns the two supported locale IDs, tag normalization, safe lookup, named interpolation, native locale display names, and catalog validation helpers.
-- The data-only `zh-CN` and `en-US` catalogs contain 333 matching semantic keys. This includes all current player-visible literals plus stable-ID mappings for 110 named catalog levels, the Ice trial, themes, categories, effects, mechanics, and daily difficulty labels.
+- The data-only `zh-CN` and `en-US` catalogs contain 356 matching semantic keys. This includes all current player-visible literals, P2.5-B purchase／restore states, plus stable-ID mappings for 110 named catalog levels, the Ice trial, themes, categories, effects, mechanics, and daily difficulty labels.
 - `tests/localization.test.js` checks key and placeholder parity, English CJK exclusion, safe lookup behavior, normalization, data-only boundaries, stable source-ID coverage, localized service output, and the account selector hit contract.
 - `src/services/locale-service.js` owns system-language resolution and the independent device preference; bootstrap injects the same service into app, renderer, share, and profile consumers.
 - Canvas scenes, app-generated feedback, Portal instructions, share titles, and the native profile authorization control now resolve copy at runtime. The account screen owns the selector using the two stable account-language action IDs.

@@ -20,6 +20,38 @@ class ProgressionService {
     }
     this.isPermanentlyUnlocked = typeof options.isPermanentlyUnlocked === 'function'
       ? options.isPermanentlyUnlocked : () => false;
+    this.contentAccess = typeof options.contentAccess === 'function'
+      ? options.contentAccess : () => ({ allowed: true, reason: 'not_gated' });
+  }
+
+  accessStatus(setIndex, levelIndex) {
+    const set = this.sets[setIndex];
+    if (!set || !(set.Games || [])[levelIndex]) {
+      return { allowed: false, commercialAllowed: false, progressionUnlocked: false,
+        reason: 'unknown_level' };
+    }
+    let commercial;
+    try {
+      commercial = this.contentAccess({ type: 'level', setIndex, levelIndex });
+    } catch (error) {
+      commercial = null;
+    }
+    if (!commercial || commercial.allowed !== true) {
+      return Object.assign({}, commercial && typeof commercial === 'object' ? commercial : {}, {
+        allowed: false,
+        commercialAllowed: false,
+        progressionUnlocked: false,
+        reason: commercial && typeof commercial.reason === 'string'
+          ? commercial.reason : 'content_access_unavailable'
+      });
+    }
+    const progressionUnlocked = this.isUnlocked(setIndex, levelIndex);
+    return Object.assign({}, commercial, {
+      allowed: progressionUnlocked,
+      commercialAllowed: true,
+      progressionUnlocked,
+      reason: progressionUnlocked ? commercial.reason : 'progress_locked'
+    });
   }
 
   isUnlocked(setIndex, levelIndex) {

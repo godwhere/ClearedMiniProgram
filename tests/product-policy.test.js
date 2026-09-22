@@ -37,6 +37,53 @@ function run() {
   assert.deepStrictEqual(app.dailyCompletionSource(), { ok: true, days: [] });
   assert.strictEqual(Object.isFrozen(app.dailyCompletionSource()), true);
   assert.strictEqual(Object.isFrozen(app.dailyCompletionSource().days), true);
+  assert.strictEqual(app.hasFullGameGate(), true);
+  const initial = app.defaultEntitlementSnapshot();
+  assert.deepStrictEqual(initial, {
+    productId: 'full_game_v1', status: 'unknown', source: null,
+    transactionId: null, verifiedAt: null, revision: 0,
+    verifiedCache: false, price: null
+  });
+  assert.strictEqual(Object.isFrozen(initial), true);
+  assert.deepStrictEqual(app.contentAccess({ type: 'level', setIndex: 0, levelIndex: 0 }, initial), {
+    allowed: true, reason: 'free_preview', entitlementStatus: 'unknown'
+  });
+  assert.deepStrictEqual(app.contentAccess({ type: 'level', setIndex: 1, levelIndex: 4 }, initial), {
+    allowed: false, reason: 'requires_full_game', entitlementStatus: 'unknown'
+  });
+  assert.deepStrictEqual(app.contentAccess({ type: 'iceTrial' }, initial), {
+    allowed: false, reason: 'requires_full_game', entitlementStatus: 'unknown'
+  });
+  const owned = app.normalizeEntitlementSnapshot({
+    productId: 'full_game_v1', status: 'owned_verified', source: 'fake',
+    transactionId: 'tx-1', verifiedAt: 100, revision: 2,
+    price: { localized: '$1.99', currencyCode: 'USD' }
+  });
+  assert.strictEqual(owned.ok, true);
+  assert.strictEqual(Object.isFrozen(owned.snapshot), true);
+  assert.strictEqual(Object.isFrozen(owned.snapshot.price), true);
+  assert.strictEqual(app.contentAccess({ type: 'level', setIndex: 1, levelIndex: 4 }, owned.snapshot).allowed, true);
+  const cached = app.normalizeEntitlementSnapshot({
+    productId: 'full_game_v1', status: 'temporarily_unavailable', source: 'cache',
+    transactionId: 'tx-1', verifiedAt: 100, revision: 3, verifiedCache: true
+  });
+  assert.strictEqual(app.contentAccess({ type: 'iceTrial' }, cached.snapshot).allowed, true);
+  const unavailable = app.normalizeEntitlementSnapshot(Object.assign({}, cached.snapshot, {
+    revision: 4, verifiedCache: false
+  }));
+  assert.strictEqual(app.contentAccess({ type: 'iceTrial' }, unavailable.snapshot).allowed, false);
+  assert.strictEqual(app.normalizeEntitlementSnapshot({
+    productId: 'wrong', status: 'owned_verified', revision: 99
+  }).ok, false, 'a different logical product cannot grant access');
+  assert.strictEqual(app.normalizeEntitlementSnapshot({
+    productId: 'full_game_v1', status: 'owned_verified', source: 'fake', revision: 99
+  }).ok, false, 'verified ownership requires a successful verification timestamp');
+  assert.strictEqual(app.contentAccess({ type: 'unknown' }, owned.snapshot).reason, 'invalid_content_target');
+  assert.strictEqual(compatibility.hasFullGameGate(), false);
+  assert.strictEqual(compatibility.contentAccess({ type: 'unknown' }, null).allowed, true);
+  assert.strictEqual(compatibility.contentAccess({
+    type: 'level', setIndex: 1, levelIndex: 4
+  }, null).allowed, true, 'the compatibility/WeChat policy adds no seventh-level commercial gate');
 
   const freeCompatibility = ProductPolicy.create(undefined, { hintMode: 'free' });
   assert.strictEqual(freeCompatibility.hintMode(), 'free');

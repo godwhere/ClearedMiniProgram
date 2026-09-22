@@ -62,7 +62,7 @@ function testPlatform(options) {
 }
 
 function run() {
-  assert.strictEqual(gameRuntime.runtimeContractVersion, 1);
+  assert.strictEqual(gameRuntime.runtimeContractVersion, 2);
 
   const platform = testPlatform({ language: 'zh-Hans' });
   const local = gameRuntime.createLocalServices(platform, {
@@ -142,13 +142,18 @@ function run() {
   ), false);
 
   const appPlatform = testPlatform({ language: 'en-US' });
+  const fullGameStore = {};
   const appLocal = gameRuntime.createLocalServices(appPlatform, {
     productPolicy: appProductConfig,
+    fullGameStore,
     dailyStore: { forbidden: true },
     hintAccess: { forbidden: true }
   });
   assert.strictEqual(appLocal.dailyStore, null);
   assert.strictEqual(appLocal.hintAccess, null);
+  assert.strictEqual(appLocal.fullGameStore, fullGameStore);
+  assert.strictEqual(appLocal.contentAccess({ type: 'level', setIndex: 0, levelIndex: 0 },
+    appLocal.productPolicy.defaultEntitlementSnapshot()).allowed, true);
   assert.deepStrictEqual(appLocal.productPolicy.capabilities, {
     dailyEnabled: false,
     adsEnabled: false,
@@ -181,6 +186,7 @@ function run() {
     })
   });
   assert.strictEqual(appMode.dailyService, null);
+  assert.strictEqual(appMode.fullGameStore, fullGameStore);
   assert.strictEqual(appMode.dailyProgress, null);
   assert.strictEqual(appMode.dailyManifest, null);
   assert.strictEqual(appMode.dailySolutions, null);

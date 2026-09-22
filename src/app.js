@@ -243,6 +243,19 @@ class ClearedApp {
         ? configuredAdConfig.rules.hintMode : 'tiered'
     });
     this.productCapabilities = this.productPolicy.capabilities;
+    this.contentAccessQuery = typeof opts.contentAccess === 'function'
+      ? opts.contentAccess
+      : (target, snapshot) => this.productPolicy.contentAccess(target, snapshot);
+    this.fullGameStore = opts.fullGameStore || null;
+    this.fullGameSnapshot = this.productPolicy.defaultEntitlementSnapshot();
+    this.fullGameRevision = -1;
+    this.storeDialog = null;
+    this.storeDialogSequence = 0;
+    this.storeOperationSequence = 0;
+    if (this.fullGameStore && typeof this.fullGameStore.current === 'function') {
+      try { this.acceptFullGameSnapshot(this.fullGameStore.current()); } catch (error) {}
+    }
+    if (this.fullGameRevision < 0) this.fullGameRevision = this.fullGameSnapshot.revision;
     this.platform = platform;
     this.locale = opts.locale || compatibilityLocale();
     this.subpackages = opts.subpackages || null;
@@ -293,6 +306,7 @@ class ClearedApp {
       opts.progressionConfig || progressionConfig,
       {
         levels: catalog.levels,
+        contentAccess: target => this.checkContentAccess(target),
         isPermanentlyUnlocked: (setIndex, levelIndex) => !!(this.stamina &&
           this.stamina.isPermanentlyUnlocked && this.stamina.isPermanentlyUnlocked(`${setIndex}:${levelIndex}`))
       }
@@ -638,6 +652,17 @@ class ClearedApp {
   start() {
     if (this.disposed || this.started) return;
     this.started = true;
+    if (this.fullGameStore && typeof this.fullGameStore.subscribe === 'function') {
+      try {
+        const unbind = this.fullGameStore.subscribe(value => {
+          const snapshot = value && value.snapshot ? value.snapshot : value;
+          this.acceptFullGameSnapshot(snapshot);
+        });
+        this.unbindFullGameStore = typeof unbind === 'function' ? unbind : null;
+      } catch (error) {
+        this.unbindFullGameStore = null;
+      }
+    }
     this.unbindPointer = this.platform.bindPointer({
       start: point => this.onPointerStart(point),
       move: point => this.onPointerMove(point),
@@ -646,7 +671,10 @@ class ClearedApp {
     });
     const unbindLifecycle = this.platform.bindLifecycle({
       hide: () => this.onHide(),
-      show: options => this.onShow(options),
+      show: options => {
+        this.onShow(options);
+        this.refreshFullGameEntitlement('foreground');
+      },
       resize: () => {
         this.renderer.ctx = this.platform.context;
         if (this.scene === 'account' && this.profile) {
@@ -663,6 +691,7 @@ class ClearedApp {
     });
     this.unbindLifecycle = typeof unbindLifecycle === 'function' ? unbindLifecycle : null;
     this.startLoop();
+    this.refreshFullGameEntitlement('start');
     this.prepareCurrentSkinAssets();
     this.showNextRewardNotice();
   }
@@ -1244,6 +1273,10 @@ class ClearedApp {
       ? null : this.hintContext();
     const hintState = this.engagement.hintState ? this.engagement.hintState(hintContext) : { mode: 'free', action: 'view' };
     const hintEnabled = this.isHintPreviewActive() || (!this.hintRequest && !['busy', 'unavailable'].includes(hintState.action));
+    const homeTarget = this.progression.resumeTarget(this.progress.state.lastPlayed);
+    const homeAccess = homeTarget
+      ? this.progression.accessStatus(homeTarget.setIndex, homeTarget.levelIndex)
+      : { allowed: false, reason: 'unknown_level' };
     const base = {
       scene: this.scene,
       productCapabilities: this.productCapabilities,
@@ -1251,6 +1284,9 @@ class ClearedApp {
         ? { startedAt: this.clearFeedback.startedAt, durationMs: this.clearFeedback.durationMs } : null,
       currency: this.rewardDisplayView(),
       rewardDialog: this.rewardDialog ? cloneData(this.rewardDialog) : null,
+      storeDialog: this.storeDialogView(),
+      fullGame: this.fullGameView(),
+      homeStartRequiresFullGame: homeAccess.reason === 'requires_full_game',
       stamina: Object.assign({}, this.staminaSnapshot),
       staminaFeedback: this.staminaFeedback ? Object.assign({}, this.staminaFeedback) : null,
       accountFeedback: this.accountFeedback ? Object.assign({}, this.accountFeedback) : null,
@@ -1321,7 +1357,8 @@ class ClearedApp {
         backupMode: !!(this.cloudBackup && this.cloudBackup.enabled()),
         backupDirty: !!(backup && backup.dirty),
         backupConfirmRestore: !!(backup && backup.confirmRestore),
-        backupConfirmCommit: !!(backup && backup.confirmBackup)
+        backupConfirmCommit: !!(backup && backup.confirmBackup),
+        showFullGameStore: this.productPolicy.hasFullGameGate()
       });
     }
 
@@ -1366,6 +1403,7 @@ class ClearedApp {
         .slice(pageStart, pageStart + LEVEL_PAGE_SIZE)
         .map((entry, offset) => {
           const game = entry.game || {};
+          const access = this.progression.accessStatus(entry.setIndex, entry.levelIndex);
           const mechanicId = game.Mechanic === undefined
             ? (game.mechanic === undefined ? null : game.mechanic)
             : game.Mechanic;
@@ -1378,7 +1416,9 @@ class ClearedApp {
             levelIndex: entry.levelIndex,
             completed: this.progress.isCompleted(entry.setIndex, entry.levelIndex),
             bestMs: this.progress.bestTime(entry.setIndex, entry.levelIndex),
-            unlocked: this.progression.isUnlocked(entry.setIndex, entry.levelIndex),
+            unlocked: access.allowed,
+            actionable: access.allowed || access.reason === 'requires_full_game',
+            requiresFullGame: access.reason === 'requires_full_game',
             mechanicId: typeof mechanicId === 'string' && mechanicId ? mechanicId : null
           };
         });
@@ -1487,6 +1527,10 @@ class ClearedApp {
         : -1;
       const boardView = this.buildBoardViewModel(this.runner, this.clearAnimation);
       const portalStatus = boardView && boardView.mechanic.portal;
+      const nextTarget = context && !trial
+        ? this.progression.nextLevel(context.setIndex, activeLevelIndex) : null;
+      const nextAccess = nextTarget
+        ? this.progression.accessStatus(nextTarget.setIndex, nextTarget.levelIndex) : null;
       return Object.assign(base, {
         trial,
         set,
@@ -1508,7 +1552,8 @@ class ClearedApp {
         firstClearRewardAmount: rewardConfig.currency.ordinaryFirstClear,
         staminaRefund: context && !trial ? this.stamina.quickClearRefundState(`${context.setIndex}:${activeLevelIndex}`) : null,
         resultVisibleAt: this.resultVisibleAt,
-        hasNext: !!(context && !trial && this.progression.nextLevel(context.setIndex, activeLevelIndex)),
+        hasNext: !!nextTarget,
+        nextRequiresFullGame: !!(nextAccess && nextAccess.reason === 'requires_full_game'),
         portals: portalStatus ? portalStatus.portals : [],
         portalStatus,
         expectedExit: portalStatus ? portalStatus.expectedExit : null,
@@ -1528,6 +1573,191 @@ class ClearedApp {
       if (this.locale && typeof this.locale.t === 'function') return this.locale.t(key, params);
     } catch (error) {}
     return i18n.translate('zh-CN', key, params);
+  }
+
+  acceptFullGameSnapshot(input) {
+    if (this.disposed) return false;
+    const normalized = this.productPolicy.normalizeEntitlementSnapshot(input);
+    if (!normalized.ok || normalized.snapshot.revision <= this.fullGameRevision) return false;
+    this.fullGameSnapshot = normalized.snapshot;
+    this.fullGameRevision = normalized.snapshot.revision;
+    this.invalidate();
+    return true;
+  }
+
+  checkContentAccess(target) {
+    let result;
+    try { result = this.contentAccessQuery(target, this.fullGameSnapshot); } catch (error) {}
+    if (!result || typeof result !== 'object') {
+      return { allowed: false, reason: 'content_access_unavailable', entitlementStatus: 'unknown' };
+    }
+    return Object.assign({}, result, {
+      allowed: result.allowed === true,
+      reason: typeof result.reason === 'string'
+        ? result.reason : (result.allowed === true ? 'allowed' : 'content_access_unavailable')
+    });
+  }
+
+  fullGameView() {
+    const snapshot = this.fullGameSnapshot || this.productPolicy.defaultEntitlementSnapshot();
+    return {
+      configured: this.productPolicy.hasFullGameGate(),
+      available: !!(this.fullGameStore && typeof this.fullGameStore.current === 'function'),
+      status: snapshot.status,
+      revision: snapshot.revision,
+      price: snapshot.price ? Object.assign({}, snapshot.price) : null
+    };
+  }
+
+  storeDialogView() {
+    const dialog = this.storeDialog;
+    if (!dialog || dialog.originScene !== this.scene) return null;
+    const view = this.fullGameView();
+    const operation = dialog.operation || null;
+    const statusKey = operation && operation.status !== 'idle'
+      ? `store.operation.${operation.status}`
+      : `store.status.${view.status}`;
+    const localizedPrice = view.price && view.price.localized;
+    const owned = view.status === 'owned_verified' ||
+      (view.status === 'temporarily_unavailable' && this.fullGameSnapshot.verifiedCache === true);
+    return {
+      dialogId: dialog.dialogId,
+      title: this.t('store.title'),
+      message: this.t(statusKey),
+      state: operation ? operation.status : 'idle',
+      purchaseAction: owned ? null : 'store:purchaseFullGame',
+      purchaseLabel: localizedPrice
+        ? this.t('store.purchaseWithPrice', { price: localizedPrice })
+        : this.t('store.purchase'),
+      purchaseEnabled: !!(this.fullGameStore && typeof this.fullGameStore.purchase === 'function') &&
+        (!operation || operation.status !== 'working'),
+      restoreAction: 'store:restorePurchases',
+      restoreLabel: this.t('store.restore'),
+      restoreEnabled: !!(this.fullGameStore && typeof this.fullGameStore.restore === 'function') &&
+        (!operation || operation.status !== 'working'),
+      retryAction: operation && operation.retryable === true ? 'store:retry' : null,
+      retryLabel: this.t('store.retry'),
+      closeAction: 'store:close',
+      closeLabel: this.t('store.close'),
+      providerAvailable: !!(this.fullGameStore &&
+        (typeof this.fullGameStore.purchase === 'function' ||
+          typeof this.fullGameStore.restore === 'function'))
+    };
+  }
+
+  openStoreDialog(accessStatus) {
+    if (!this.productPolicy.hasFullGameGate()) return false;
+    this.storeDialog = {
+      dialogId: ++this.storeDialogSequence,
+      originScene: this.scene,
+      accessStatus: accessStatus && typeof accessStatus === 'object'
+        ? Object.assign({}, accessStatus) : null,
+      operation: null
+    };
+    this.pointer = null;
+    this.pressedId = null;
+    if (this.boardInput && this.boardInput.isActive()) this.boardInput.cancel(null, 'store-dialog');
+    if (this.renderer) this.renderer.clearInteractionHits();
+    this.invalidate();
+    return true;
+  }
+
+  finishFullGameOperation(dialogId, operationId, result, fallbackStatus) {
+    if (result && result.snapshot) this.acceptFullGameSnapshot(result.snapshot);
+    if (!this.storeDialog || this.storeDialog.dialogId !== dialogId ||
+        operationId !== this.storeOperationSequence) return result;
+    if (this.storeDialog.originScene !== this.scene) {
+      this.dismissStoreDialog();
+      return result;
+    }
+    const supplied = result && result.operation && typeof result.operation === 'object'
+      ? result.operation : null;
+    const validStatuses = ['success', 'cancelled', 'pending', 'failed', 'not_found'];
+    const status = supplied && validStatuses.includes(supplied.status)
+      ? supplied.status : fallbackStatus;
+    this.storeDialog.operation = {
+      status,
+      retryable: supplied ? supplied.retryable === true : status === 'failed'
+    };
+    this.invalidate();
+    return result;
+  }
+
+  runFullGameOperation(method, operationType, reason) {
+    const provider = this.fullGameStore;
+    const dialog = this.storeDialog;
+    if (dialog && dialog.originScene !== this.scene) {
+      this.dismissStoreDialog();
+      return false;
+    }
+    if (dialog && dialog.operation && dialog.operation.status === 'working') return false;
+    if (!dialog || !provider || typeof provider[method] !== 'function') {
+      if (dialog) {
+        dialog.operation = { status: 'failed', retryable: method === 'refresh' };
+        this.invalidate();
+      }
+      return false;
+    }
+    const dialogId = dialog.dialogId;
+    const operationId = ++this.storeOperationSequence;
+    dialog.operation = { status: 'working', retryable: false, type: operationType };
+    this.pointer = null;
+    this.pressedId = null;
+    this.invalidate();
+    let task;
+    try { task = method === 'refresh' ? provider.refresh(reason) : provider[method](); }
+    catch (error) { task = Promise.reject(error); }
+    return Promise.resolve(task).then(result =>
+      this.finishFullGameOperation(dialogId, operationId, result, 'failed')
+    ).catch(() => this.finishFullGameOperation(dialogId, operationId, null, 'failed'));
+  }
+
+  refreshFullGameEntitlement(reason) {
+    const provider = this.fullGameStore;
+    if (!provider || typeof provider.refresh !== 'function') return false;
+    if (this.storeDialog && this.storeDialog.originScene !== this.scene) {
+      this.dismissStoreDialog();
+    }
+    const dialogId = this.storeDialog ? this.storeDialog.dialogId : null;
+    const operationId = ++this.storeOperationSequence;
+    if (this.storeDialog) {
+      this.storeDialog.operation = { status: 'working', retryable: false, type: 'refresh' };
+      this.invalidate();
+    }
+    let task;
+    try { task = provider.refresh(reason); } catch (error) { task = Promise.reject(error); }
+    return Promise.resolve(task).then(result => {
+      if (result && result.snapshot) this.acceptFullGameSnapshot(result.snapshot);
+      if (dialogId !== null) return this.finishFullGameOperation(dialogId, operationId, result, 'failed');
+      return result;
+    }).catch(() => {
+      if (dialogId !== null) this.finishFullGameOperation(dialogId, operationId, null, 'failed');
+      return { snapshot: this.fullGameSnapshot,
+        operation: { type: 'refresh', status: 'failed', retryable: true } };
+    });
+  }
+
+  requestFullGamePurchase() {
+    return this.runFullGameOperation('purchase', 'purchase');
+  }
+
+  restoreFullGamePurchase() {
+    if (this.storeDialog && this.storeDialog.originScene !== this.scene) {
+      this.dismissStoreDialog();
+    }
+    if (!this.storeDialog && !this.openStoreDialog()) return false;
+    return this.runFullGameOperation('restore', 'restore');
+  }
+
+  dismissStoreDialog() {
+    if (!this.storeDialog) return false;
+    ++this.storeOperationSequence;
+    this.storeDialog = null;
+    this.pointer = null;
+    this.pressedId = null;
+    if (this.renderer) this.renderer.clearInteractionHits();
+    this.invalidate();
+    return true;
   }
 
   handleBoardInputEvents(events) {
@@ -1552,6 +1782,14 @@ class ClearedApp {
     if (!point || this.pointer || this.boardInput.isActive()) return;
     this.audio.unlock();
     const hit = this.renderer.hitTest(point.x, point.y);
+    if (this.storeDialog) {
+      this.pointer = { mode: 'store', id: point.id, start: point, last: point,
+        hit: hit && hit.indexOf('store:') === 0 ? hit : null,
+        dialogId: this.storeDialog.dialogId };
+      this.pressedId = this.pointer.hit;
+      this.invalidate();
+      return;
+    }
     if (this.rewardDialog) {
       this.pointer = { mode: 'reward', id: point.id, start: point, last: point,
         hit: hit && hit.indexOf('reward:') === 0 ? hit : null, dialogId: this.rewardDialog.dialogId };
@@ -1594,6 +1832,10 @@ class ClearedApp {
   }
 
   onPointerMove(point) {
+    if (this.storeDialog) {
+      if (point && this.pointer && point.id === this.pointer.id) this.pointer.last = point;
+      return;
+    }
     if (this.rewardDialog) {
       if (point && this.pointer && point.id === this.pointer.id) this.pointer.last = point;
       return;
@@ -1612,6 +1854,18 @@ class ClearedApp {
   }
 
   onPointerEnd(point) {
+    if (this.storeDialog) {
+      const active = this.pointer;
+      if (!active || (point && point.id !== active.id)) return;
+      this.pointer = null;
+      this.pressedId = null;
+      const end = point || active.last;
+      if (active.mode === 'store' && active.dialogId === this.storeDialog.dialogId && active.hit &&
+          Math.abs(end.x - active.start.x) < 20 && Math.abs(end.y - active.start.y) < 20 &&
+          active.hit === this.renderer.hitTest(end.x, end.y)) this.performAction(active.hit);
+      this.invalidate();
+      return;
+    }
     if (this.rewardDialog) {
       const active = this.pointer;
       if (!active || (point && point.id !== active.id)) return;
@@ -2083,12 +2337,22 @@ class ClearedApp {
   performAction(action) {
     if (typeof action !== 'string' || !action) return false;
     if (this.disposed) return false;
+    if (this.storeDialog && this.storeDialog.originScene !== this.scene) {
+      this.dismissStoreDialog();
+    }
     const dailyAction = action === 'home:daily' || action === 'home:dailyChallenge' ||
       action.indexOf('daily:') === 0 || action.indexOf('dailyResult:') === 0 ||
       action.indexOf('dailyFailure:') === 0;
     if (dailyAction && !this.productCapabilities.dailyEnabled) return false;
     if ((action === 'result:share' || action === 'dailyResult:share') &&
         !this.productCapabilities.resultShareEnabled) return false;
+    if (this.storeDialog) {
+      if (action === 'store:purchaseFullGame') return this.requestFullGamePurchase();
+      if (action === 'store:restorePurchases') return this.restoreFullGamePurchase();
+      if (action === 'store:retry') return this.refreshFullGameEntitlement('user_retry');
+      if (action === 'store:close') return this.dismissStoreDialog();
+      return false;
+    }
     if (this.rewardDialog) {
       const conditionType = this.rewardDialog.conditionType;
       const externalDisabled =
@@ -2132,6 +2396,8 @@ class ClearedApp {
         activeResult.currencyReward.status === 'pending');
     }
     if (action.indexOf('reward:') === 0) return false;
+    if (action === 'store:restorePurchases') return this.restoreFullGamePurchase();
+    if (action.indexOf('store:') === 0) return false;
     if (action === 'account:language:prev' || action === 'account:language:next') {
       if (this.scene !== 'account') return false;
       const method = action === 'account:language:next'
@@ -2386,6 +2652,7 @@ class ClearedApp {
       this.boardInput.setRunner(null);
     } else if (action === 'play:reset') {
       if (!this.runner) return;
+      if (this.runContext && !this.allowCurrentRunReplay()) return false;
       this.resetCurrentLevel();
     } else if (action === 'play:undo') {
       if (this.runner && this.runner.undo()) {
@@ -2399,12 +2666,14 @@ class ClearedApp {
       this.requestHint();
     } else if (action === 'result:replay') {
       if (this.runContext && this.runContext.progressionScope === 'trial') {
+        if (!this.allowCurrentRunReplay()) return false;
         this.resetCurrentLevel();
       } else if (this.runContext) {
         this.openLevel(this.runContext.setIndex, this.runContext.levelIndex);
       }
     } else if (action === 'failure:retry') {
       if (this.scene === 'result' && this.result && this.result.outcome === OUTCOME.FAILED) {
+        if (this.runContext && !this.allowCurrentRunReplay()) return false;
         this.resetCurrentLevel();
       }
     } else if (action === 'result:next') {
@@ -2413,7 +2682,9 @@ class ClearedApp {
           this.runContext.setIndex,
           this.runContext.levelIndex
         );
-        if (target && this.progression.isUnlocked(target.setIndex, target.levelIndex)) {
+        const access = target
+          ? this.progression.accessStatus(target.setIndex, target.levelIndex) : null;
+        if (target && access && (access.allowed || access.reason === 'requires_full_game')) {
           this.openLevel(target.setIndex, target.levelIndex);
         } else {
           this.scene = 'levels';
@@ -3506,9 +3777,15 @@ class ClearedApp {
   }
 
   openIceTrial() {
+    const access = this.checkContentAccess({ type: 'iceTrial' });
+    if (!access.allowed) {
+      if (access.reason === 'requires_full_game') this.openStoreDialog(access);
+      return false;
+    }
     const context = createTrialRunContext(iceTrial);
     const runner = context && this.createOrdinaryRunner(context);
     if (!runner || runner.getMechanicState().id !== 'ice') return false;
+    if (this.storeDialog) this.dismissStoreDialog();
     this.clearHintRequest();
     this.runContext = context;
     this.runner = runner;
@@ -3520,7 +3797,11 @@ class ClearedApp {
     if (this.blockCoreWriteDuringMigration('progress')) return false;
     const context = createCatalogRunContext(catalog, setIndex, levelIndex);
     if (!context) return false;
-    if (!this.progression.isUnlocked(setIndex, levelIndex)) return false;
+    const access = this.progression.accessStatus(setIndex, levelIndex);
+    if (!access.allowed) {
+      if (access.reason === 'requires_full_game') this.openStoreDialog(access);
+      return false;
+    }
     const runner = this.createOrdinaryRunner(context);
     if (!runner) return false;
     const now = this.clockNow().getTime();
@@ -3535,6 +3816,7 @@ class ClearedApp {
       this.showStaminaFeedback(unlocked.reason, now);
       return false;
     }
+    if (this.storeDialog) this.dismissStoreDialog();
     this.clearStaminaFeedback();
     this.homeStaminaExpanded = false;
     this.clearHintRequest();
@@ -3566,6 +3848,17 @@ class ClearedApp {
     this.resultVisibleAt = 0;
     this.invalidate();
     return true;
+  }
+
+  allowCurrentRunReplay() {
+    if (!this.runContext) return false;
+    const target = this.runContext.progressionScope === 'trial'
+      ? { type: 'iceTrial' }
+      : { type: 'level', setIndex: this.runContext.setIndex, levelIndex: this.runContext.levelIndex };
+    const access = this.checkContentAccess(target);
+    if (access.allowed) return true;
+    if (access.reason === 'requires_full_game') this.openStoreDialog(access);
+    return false;
   }
 
   createOrdinaryRunner(context) {
@@ -3907,6 +4200,10 @@ class ClearedApp {
     this.accountGeneration++;
     if (this.unbindAccount) this.unbindAccount();
     if (this.unbindScope) this.unbindScope();
+    if (typeof this.unbindFullGameStore === 'function') this.unbindFullGameStore();
+    this.unbindFullGameStore = null;
+    ++this.storeOperationSequence;
+    this.storeDialog = null;
     ++this.rewardRequestGeneration;
     ++this.skinLoadRequestId;
     if (this.engagement && this.engagement.cancelRewardUnlocks) this.engagement.cancelRewardUnlocks();

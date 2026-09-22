@@ -1,7 +1,7 @@
 # 微信小游戏到独立 App：架构准备方案与严格代码边界
 
 > 初稿日期：2026-09-08；本次更新：2026-09-22。
-> 状态：语言本地化已完成本地实现，作为现有能力保留；App 化已于 2026-09-22 完成 P0 基线、P1 通用装配、P2 平台生命周期合同和 P2.5-A 能力裁剪，P2.5-B 及之后阶段尚未实施。2026-09-21 已冻结 App 首版的单机、六关试玩、一次性买断、无每日挑战／广告、回廊解锁及“独立 App 宿主工程＋现有游戏源码唯一来源”方向；2026-09-22 收紧权益生命周期、阶段出口、策略归属和方法级施工边界。开发者工具、模拟器、真机、商店沙盒与上架证据按后续阶段分别取得，不能互相替代。
+> 状态：语言本地化已完成本地实现，作为现有能力保留；App 化已于 2026-09-22 完成 P0 基线、P1 通用装配、P2 平台生命周期合同、P2.5-A 能力裁剪和 P2.5-B 内容门禁／购买界面消费合同，P2.5-C 及之后阶段尚未实施。P2.5-B 只用 fake provider 证明共享消费者，不代表真实商店、宿主权益归并或原生持久化已经接通。2026-09-21 已冻结 App 首版的单机、六关试玩、一次性买断、无每日挑战／广告、回廊解锁及“独立 App 宿主工程＋现有游戏源码唯一来源”方向；2026-09-22 收紧权益生命周期、阶段出口、策略归属和方法级施工边界。开发者工具、模拟器、真机、商店沙盒与上架证据按后续阶段分别取得，不能互相替代。
 > 当前授权：用户已于 2026-09-22 授权按本文顺序分任务实施，并要求每完成一个独立任务后使用 GitHub Desktop 提交。只能由真机完成的验收暂缓；允许使用本机 Android／iOS 模拟器验证可覆盖的行为。该授权不放宽阶段白名单、停工条件、数据与产品边界，也不包含服务器／云服务变更、安装包上传、送审或发布。
 > 本轮 P0 审计起点：本地 `main` 的 `984303becf8afab1dcd4fc855cc4128f4e1d9460`，tree 为 `544090431fc5c514b38898d47bb2ecf75dffce33`；开始时工作区干净并跟踪 `origin/main`。`0fde16caa6c9732306141d2884cd8cfda0194f8f` 是上一轮远端文档审阅起点，`5010d7ce067bf0f412cd28dba452218c3b95bf26` 是 2026-09-09 的历史账号页／本地化核验节点，初稿基线为 `cf8bcab8776f742aea0f2cff9830d3a72732f0d8`。每个代码阶段仍须以届时最新 HEAD 重新刷新差异、测试、分包和包体。
 > 客户端根目录 C：`/Users/ethan/Projects/ClearedMiniProgram`。下文施工路径相对 C，除非另有说明；独立 App 宿主根目录记为 H，实际路径在 P4 冻结，必须位于 C 之外。
@@ -485,7 +485,7 @@ App 首版不包含每日挑战，因此不建立 App 每日时区、日期迁�
 | App 工程隔离 | C 内未发现 `ios/`、`android/`、`node_modules` 或 Capacitor 配置；尚未创建 H |
 | 设备与发布证据 | 本阶段未执行开发者工具、Android／iOS 模拟器、真机、实际上传、商店沙盒、送审或发布 |
 
-当前目录为 5 个 set、168 个主线关卡。目录前六项依次为 `0:0`、`0:1`、`1:0`、`1:1`、`1:2`、`1:3`；有序 `levelKey` 列表 SHA-256 为 `ff2a25e8ae237a2a23f061c4cb679c8465b4da0a9ceec5c88803b3446abef6b6`，规范化 catalog 快照 SHA-256 为 `a8ea41b487ebe360ce5d7ab3827eca414e2e93822a278be9515f24bdcde38f68`。`full_game_v1` 仍只是冻结的逻辑权益 ID；`runtimeContractVersion`、App 生产策略 hash 和 H 均尚未产出，不填写假值。
+当前目录为 5 个 set、168 个主线关卡。目录前六项依次为 `0:0`、`0:1`、`1:0`、`1:1`、`1:2`、`1:3`；有序 `levelKey` 列表 SHA-256 为 `ff2a25e8ae237a2a23f061c4cb679c8465b4da0a9ceec5c88803b3446abef6b6`，规范化 catalog 快照 SHA-256 为 `a8ea41b487ebe360ce5d7ab3827eca414e2e93822a278be9515f24bdcde38f68`。`full_game_v1` 仍只是冻结的逻辑权益 ID；P2.5-B 后共享 `runtimeContractVersion` 为 `2`，App 生产策略 hash 和 H 均尚未产出，不填写假值。
 
 当前 `src/config/rewards.js` 快照 SHA-256 为 `ffba0f34f5339962ea295410622a4fadc6625bb8db354879567324174273dc33`。需要由 H 覆盖为 `currency:10000` 的现有条目恰为五项：`theme:ocean`、`theme:spring`、`theme:music`、`theme:vehicles` 的 `rewarded_ad`，以及 `theme:festival` 的 `share`。共享目录本身不改；P2.5-C 必须用覆盖后的真实 `RewardUnlockService` 实例验证。
 
@@ -520,7 +520,7 @@ App 首版不包含每日挑战，因此不建立 App 每日时区、日期迁�
 | B 内容与商店消费合同 | `ProgressionService` 的 `constructor()`、拟新增 `accessStatus()`，并组合但不改写 `isUnlocked()`／`nextLevel()`／`resumeTarget()`；App 的 `constructor()`、`buildModel()`、`performAction()`、`openLevel()`、`openIceTrial()`、`start()`、`dispose()`；Renderer 的 `drawHome()`、`drawLevels()`、`drawResult()`、`drawAccount()` 与拟新增商店弹层；只读权益权威归宿主 provider | 门禁必须先于 Runner 创建和体力扣除；取消／pending／失败不写普通资产；面板关闭只废弃旧 UI 反馈；旧 revision 不覆盖新快照；fake 只证明消费者合同 |
 | C App 本地权威 | App 的 `authorityMode()`、`recoverRewardUnlocks()`、`openLevel()`、`requestRewardUnlock()`、普通完成／体力退款／设置保存判断；RewardUnlockService 的构造、`setAuthorityMode()`、`reconcile()`、`purchase()`、`write()`；StaminaService 的构造、`setAuthorityMode()`、`restoreUnlockedLevels()`、`unlockOrdinaryLevel()`、`refundQuickClear()`、`flush()` | 未知／受保护模式失败关闭；奖励账本写失败不改已确认余额，体力扣除＋永久进入权同写，回廊余额＋拥有权同写；重启可按持久化首通事实幂等补办；同步测试存储不冒充原生提交 |
 
-商店权益 provider、界面投影和宿主归并队列当前均不存在，因此不存在可误认的第二权益所有者。P2.5-B 新增后必须覆盖第 4.8 节的乱序、重复、pending、撤销、失效实例、写失败和关闭面板反例；P4 再验证实际宿主所有者。
+P2.5-B 已新增共享 store provider 注入合同、只读界面投影和 fake 消费者测试；共享 App 不保存交易凭据、不写 owned，也不销毁宿主 provider。实际 App 宿主 provider 与归并队列仍不存在，因此 fake 只覆盖第 4.8 节适用于消费者的旧／重复 revision、pending、撤销、失效 App 实例、provider 失败和关闭面板反例；P4 再验证实际宿主唯一所有者、持久化和归并队列。
 
 仓库没有 `scripts/check-markdown-links.js`，因此该不存在的命令未列作 P0 成功证据；本文与 README 的本地 Markdown 链接在提交前另以只读检查核对。P0 只更新本文和 README，没有运行行为、微信配置、存档、云端或真实数据变化。
 
@@ -627,7 +627,7 @@ App 首版不包含每日挑战，因此不建立 App 每日时区、日期迁�
 | `src/runtime/product-policy.js` | 新增纯内容访问查询 | 消费宿主白名单和归一化权益快照，返回允许／结构化拒绝原因 | 不持有商店服务、交易队列或存档；不硬编码 App 六关 |
 | `src/runtime/game-runtime.js` | 装配参数、合同版本暴露 | 注入内容访问查询与 store provider | 不创建实际商店、不选择平台商品 ID |
 | `src/services/progression-service.js` | `constructor()` 的可选查询注入；拟新增 `accessStatus()` 组合查询 | 组合产品访问与原进度条件；已完成／体力永久解锁也不能绕过商业门禁 | `isUnlocked()` 的原进度规则、`nextLevel()` 的目录顺序、`resumeTarget()` 的原导航语义；不偷偷跳过受限内容 |
-| `src/app.js` | `constructor()` 的策略／provider 引用；`openLevel()`、`openIceTrial()` 的前置门禁；`performAction()` 中所有关卡入口与新增 store action；`buildModel()` 的访问／商店投影；`start()`／`dispose()` 仅接入／解除权益订阅 | 拟新增 `checkContentAccess()`、`openStoreDialog()`、`requestFullGamePurchase()`、`restoreFullGamePurchase()`、`dismissStoreDialog()`；仅界面代次、操作反馈、只读权益投影与解绑引用 | 不增第二份 owned 权威，不直接保存交易，不调用原生 SDK，不改 Runner／体力扣除／首通写入顺序 |
+| `src/app.js` | `constructor()` 的策略／provider 引用；`openLevel()`、`openIceTrial()` 的前置门禁；`performAction()` 中所有关卡入口（含重置／重试／试玩重玩）与新增 store action；`buildModel()` 的访问／商店投影；`start()`／`dispose()` 仅接入／解除权益订阅；`onPointerStart()`／`onPointerMove()`／`onPointerEnd()` 仅增加 store 弹层输入截获 | 拟新增 `checkContentAccess()`、当前 run 重玩查询、`openStoreDialog()`、`requestFullGamePurchase()`、`restoreFullGamePurchase()`、`dismissStoreDialog()`；仅界面场景代次、操作反馈、只读权益投影与解绑引用；弹层打开时阻止滑页或棋盘手势穿透 | 不增第二份 owned 权威，不直接保存交易，不调用原生 SDK，不改 Runner／体力扣除／首通写入顺序 |
 | `src/ui/canvas-renderer.js` | 首页／选关／结果页的访问状态绘制区段；拟新增 `drawStoreDialog()` 及对应 hit | 稳定 store action、双语面板、购买／恢复／重试／关闭反馈 | 不根据价格或文案判断授权，不复用云同步／回廊购买 action |
 | `src/i18n/locales/zh-CN.js`、`src/i18n/locales/en-US.js` | 仅新增购买／恢复、门禁和商店状态所需语义 key | 对称词条和占位符 | 原词条、语言默认、稳定 action／错误码 |
 | `tests/helpers/fake-full-game-store.js`（拟新增） | 可控快照、Promise 和订阅事件 | 模拟延迟、乱序、重复、失败和操作结果 | 不进入生产依赖图，不冒充原生验证 |
@@ -1042,3 +1042,13 @@ git diff --check
 - 禁用产品配置下没有每日／广告／分享服务引用、入口、hit 或有效 action；免费普通提示不写日期记录，空每日完成源不阻断普通奖励核对。微信 bootstrap 显式保留原能力和默认行为。
 - 完整 Node 回归 108／108、包预算和 rollout 配置预检通过；开发者工具、模拟器、真机、上传与发布未执行。
 - 本阶段没有实施完整版内容门禁、购买界面、真实商店、`app-local` 结算或第二宿主；这些仍分别归 P2.5-B、P2.5-C 与 P4。
+
+### 13.12 P2.5-B 内容门禁与购买／恢复界面合同：2026-09-22
+
+- `ProductPolicy` 新增不可变权益快照规范化与纯内容访问查询；App 的六关白名单和 `full_game_v1` 仍只存在于测试 fixture，共享生产源码没有硬编码这些取值。通用 runtime 合同版本升级为 `2`，只注入查询与宿主 store，不创建真实商店。
+- `ProgressionService.accessStatus()` 先组合商业访问、再应用原进度规则；首页继续、选关、结果页下一关、直接 `openLevel()` 与冰封试玩都复用同一门禁。受限入口在创建 Runner 或调用体力解锁前停止；已完成记录和永久体力解锁不能绕过撤销后的商业门禁。
+- Canvas 新增双语购买／恢复面板及稳定 `store:*` action；账号页保留可发现的恢复入口。缺少商店价格时只显示无价格购买文案，不猜测金额。购买、恢复和重试仅由明确点击触发。
+- 为防购买弹层上的空白触摸穿透到底层选关滑页或棋盘手势，`onPointerStart()`／`onPointerMove()`／`onPointerEnd()` 只增加与既有奖励弹层同类的 store 模态截获；该必要最小扩展已同步回 P2.5-B 方法边界，不改变普通输入路径。
+- 共享 App 只接受单调递增 revision 的只读权益快照：关闭面板仅丢弃旧界面反馈，不丢弃仍有效的 provider 更新；权益更新不自动进入关卡；`dispose()` 只解绑订阅，不调用宿主 provider 的 `dispose()`。
+- fake provider 回归覆盖未购买、pending、取消、可重试／不可重试失败、恢复成功／未找到、撤销后的活动重置／失败重试／试玩重玩、旧／重复／乱序 revision、关闭面板或切换场景后的成功更新、启动／回前台刷新失败及失效 App 解绑。完整 Node 回归 109／109；包预算通过（主包 1,485,237 bytes，11 个分包，总计 16,458,348 bytes），rollout 配置预检为 `ready:true`，`git diff --check` 通过。
+- 本阶段没有创建宿主权益所有者、真实 Apple／Google 商品或原生存储，也没有执行开发者工具、模拟器、真机、商店沙盒、上传、审核或发布；fake 成功不能作为这些边界的证据。`app-local` 结算仍归 P2.5-C，实际宿主归并与 bundle 验证仍归 P4。

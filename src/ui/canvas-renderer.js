@@ -255,7 +255,8 @@ class CanvasRenderer {
         break;
     }
     if (!this.drawAccountFeedback(model, now)) this.drawStaminaFeedback(model, now);
-    if (model.rewardDialog) this.drawRewardDialog(model);
+    if (model.storeDialog) this.drawStoreDialog(model);
+    else if (model.rewardDialog) this.drawRewardDialog(model);
   }
 
   begin(background) {
@@ -1026,7 +1027,10 @@ class CanvasRenderer {
       w: buttonWidth,
       h: buttonHeight
     };
-    this.button('home:start', startButtonRect, this.t(model.completedCount ? 'home.continue' : 'home.play'), {
+    const startLabel = model.homeStartRequiresFullGame
+      ? this.t('store.unlockFullGame')
+      : this.t(model.completedCount ? 'home.continue' : 'home.play');
+    this.button('home:start', startButtonRect, startLabel, {
       fill: skin.colors.primaryButton,
       stroke: skin.colors.primaryButtonStroke,
       fontSize: 19
@@ -1219,7 +1223,24 @@ class CanvasRenderer {
       this.button('account:restoreBackup', layout.restoreButton, this.t('account.restoreBackup'),
         { enabled: !model.syncPending, fontSize: 17 }, model.pressedId);
     }
-    this.button('account:privacy', layout.privacyButton, this.t('account.privacy'), { fontSize: 17 }, model.pressedId);
+    if (model.showFullGameStore === true) {
+      const gap = 8;
+      const width = (layout.privacyButton.w - gap) / 2;
+      this.button('store:restorePurchases', {
+        x: layout.privacyButton.x,
+        y: layout.privacyButton.y,
+        w: width,
+        h: layout.privacyButton.h
+      }, this.t('store.restore'), { fontSize: 15 }, model.pressedId);
+      this.button('account:privacy', {
+        x: layout.privacyButton.x + width + gap,
+        y: layout.privacyButton.y,
+        w: width,
+        h: layout.privacyButton.h
+      }, this.t('account.privacy'), { fontSize: 15 }, model.pressedId);
+    } else {
+      this.button('account:privacy', layout.privacyButton, this.t('account.privacy'), { fontSize: 17 }, model.pressedId);
+    }
   }
 
   drawFallbackLogo(x, y, size) {
@@ -2029,6 +2050,7 @@ class CanvasRenderer {
         ? item.action : `level:${slotIndex}`;
       const completed = item.completed === true;
       const unlocked = item.unlocked !== false;
+      const actionable = item.actionable === undefined ? unlocked : item.actionable === true;
       const hasBestTime = completed && unlocked && Number.isFinite(item.bestMs) && item.bestMs > 0;
       const pressed = model.pressedId === action;
       ctx.save();
@@ -2072,11 +2094,15 @@ class CanvasRenderer {
         ctx.globalAlpha = 0.42;
         this.drawIcon('lock', rect.x + rect.w / 2, rect.y + rect.h / 2 + 15, clamp(cell * 0.25, 11, 17));
         ctx.restore();
+        if (item.requiresFullGame === true) this.text(this.t('store.fullGameShort'),
+          rect.x + rect.w / 2, rect.y + rect.h - 5, clamp(cell * 0.13, 8, 10), {
+            baseline: 'bottom', alpha: 0.62, maxWidth: rect.w - 6
+          });
       } else if (completed) {
         this.text('✓', rect.x + rect.w - (hasBestTime ? 7 : 9), rect.y + (hasBestTime ? 7 : 10),
           hasBestTime ? 9 : 11, { alpha: 0.75, weight: 500 });
       }
-      this.addHit(action, rect, unlocked);
+      this.addHit(action, rect, actionable);
     });
 
     const controlY = safeBottom - controlsHeight + 8;
@@ -2752,7 +2778,8 @@ class CanvasRenderer {
       this.t(model.trial ? 'daily.backHome' : 'result.selectLevel'), { fontSize: 15 }, model.pressedId);
     this.button('result:replay', { x: x + buttonWidth + gap, y, w: buttonWidth, h: 46 }, this.t('result.replay'), { fontSize: 15 }, model.pressedId);
     if (!model.trial) this.button('result:next', { x: x + (buttonWidth + gap) * 2, y, w: buttonWidth, h: 46 },
-      this.t(model.hasNext ? 'result.nextLevel' : 'result.levelList'), { fontSize: 15 }, model.pressedId);
+      this.t(model.nextRequiresFullGame ? 'store.unlockFullGame'
+        : model.hasNext ? 'result.nextLevel' : 'result.levelList'), { fontSize: 15 }, model.pressedId);
     if (sharing) this.button('result:share', { x, y: y + 52, w: totalWidth, h: 44 },
       this.t('result.share'), { fontSize: 16, enabled: !model.sharePending }, model.pressedId);
   }
@@ -2800,6 +2827,40 @@ class CanvasRenderer {
     if (primaryAction) this.button(primaryAction,
       { x: x + (dialog.secondaryAction ? buttonWidth + gap : 0), y, w: buttonWidth, h: 46 }, dialog.primaryLabel || this.t('common.confirm'),
       { fontSize: 15, enabled: dialog.primaryEnabled !== false && !['working', 'loading'].includes(dialog.state) }, model.pressedId);
+  }
+
+  drawStoreDialog(model) {
+    const dialog = model.storeDialog;
+    if (!dialog) return;
+    this.interactionMap.clear();
+    const width = this.platform.metrics.width;
+    const panel = this.drawResultPanel(318,
+      { background: this.sceneBackground || this.skinService.current().colors.homeBackground });
+    this.drawIcon(model.fullGame && model.fullGame.status === 'owned_verified' ? 'check' : 'lock',
+      width / 2, panel.y + 43, 34);
+    this.text(dialog.title || this.t('store.title'), width / 2, panel.y + 80, 24,
+      { weight: 300, maxWidth: width - 48 });
+    this.text(dialog.message || '', width / 2, panel.y + 112, 13,
+      { alpha: 0.76, maxWidth: width - 42 });
+    this.text(this.t('store.description'), width / 2, panel.y + 139, 11,
+      { alpha: 0.58, maxWidth: width - 46 });
+    const buttonX = panel.x + 20;
+    const buttonWidth = panel.w - 40;
+    const working = dialog.state === 'working';
+    if (dialog.purchaseAction) this.button(dialog.purchaseAction,
+      { x: buttonX, y: panel.y + 162, w: buttonWidth, h: 42 }, dialog.purchaseLabel,
+      { fontSize: 15, enabled: dialog.purchaseEnabled !== false && !working }, model.pressedId);
+    const gap = 8;
+    const half = (buttonWidth - gap) / 2;
+    this.button(dialog.restoreAction,
+      { x: buttonX, y: panel.y + 212, w: dialog.retryAction ? half : buttonWidth, h: 40 },
+      dialog.restoreLabel, { fontSize: 14, enabled: dialog.restoreEnabled !== false && !working }, model.pressedId);
+    if (dialog.retryAction) this.button(dialog.retryAction,
+      { x: buttonX + half + gap, y: panel.y + 212, w: half, h: 40 }, dialog.retryLabel,
+      { fontSize: 14, enabled: !working }, model.pressedId);
+    this.button(dialog.closeAction,
+      { x: buttonX, y: panel.y + 260, w: buttonWidth, h: 38 }, dialog.closeLabel,
+      { fontSize: 14 }, model.pressedId);
   }
 
 }

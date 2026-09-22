@@ -12,12 +12,15 @@ const LocaleService = require('../services/locale-service.js');
 const defaultRewardConfig = require('../config/rewards.js');
 const ProductPolicy = require('./product-policy.js');
 
-const runtimeContractVersion = 1;
+const runtimeContractVersion = 2;
 
 function createLocalServices(platform, options) {
   if (!platform) throw new Error('platform-required');
   const opts = options || {};
   const productPolicy = ProductPolicy.create(opts.productPolicy);
+  const contentAccess = typeof opts.contentAccess === 'function'
+    ? opts.contentAccess
+    : (target, snapshot) => productPolicy.contentAccess(target, snapshot);
   const locale = opts.locale || new LocaleService(platform);
   const progress = opts.progress || new ProgressStore(platform);
   const subpackages = opts.subpackages !== undefined
@@ -44,6 +47,8 @@ function createLocalServices(platform, options) {
 
   return {
     productPolicy,
+    contentAccess,
+    fullGameStore: opts.fullGameStore || null,
     locale,
     subpackages,
     progress,
@@ -66,7 +71,18 @@ function startGame(platform, options) {
   const productPolicy = ProductPolicy.create(policyInput, {
     hintMode: configuredRules.hintMode || 'tiered'
   });
-  const resolvedAppOptions = Object.assign({}, appOptions, { productPolicy });
+  const contentAccess = typeof opts.contentAccess === 'function'
+    ? opts.contentAccess
+    : (typeof appOptions.contentAccess === 'function'
+      ? appOptions.contentAccess
+      : (target, snapshot) => productPolicy.contentAccess(target, snapshot));
+  const fullGameStore = Object.prototype.hasOwnProperty.call(opts, 'fullGameStore')
+    ? opts.fullGameStore : appOptions.fullGameStore;
+  const resolvedAppOptions = Object.assign({}, appOptions, {
+    productPolicy,
+    contentAccess,
+    fullGameStore: fullGameStore || null
+  });
   const app = new ClearedApp(platform, resolvedAppOptions);
   const preferences = resolvedAppOptions.preferences;
   const authoritativeApplier = resolvedAppOptions.authoritativeApplier;

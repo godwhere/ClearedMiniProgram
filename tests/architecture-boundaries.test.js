@@ -192,6 +192,7 @@ function run() {
     `\\brunner\\s*\\.\\s*(?:${MUTABLE_RUNNER_FIELDS.join('|')})\\b`
   );
   const appSource = fs.readFileSync(path.join(SRC_DIR, 'app.js'), 'utf8');
+  const bootstrapSource = fs.readFileSync(path.join(SRC_DIR, 'bootstrap.js'), 'utf8');
   const gameRuntimeSource = fs.readFileSync(path.join(SRC_DIR, 'runtime', 'game-runtime.js'), 'utf8');
   assert.deepStrictEqual(dependencies(gameRuntimeSource), [
     '../app.js',
@@ -263,8 +264,16 @@ function run() {
     '../data/portal-solutions.js'
   ], 'every retained optional App dependency has an explicit literal loader entry');
   const productPolicySource = fs.readFileSync(path.join(SRC_DIR, 'runtime', 'product-policy.js'), 'utf8');
+  assert.deepStrictEqual(dependencies(productPolicySource), [],
+    'product access policy remains a pure contract without services or persistence');
   assert(!/full_game_v1|\b0:0\b|\b1:3\b|10000/.test(productPolicySource),
     'the shared product-policy contract cannot hard-code App production values');
+  assert(!/(?:get|set)Storage|purchase\s*\(|restore\s*\(|subscribe\s*\(/.test(productPolicySource),
+    'product policy cannot own store operations, subscriptions or persistence');
+  assert(!/fullGameStore\s*\.\s*dispose\s*\(/.test(appSource),
+    'the shared App may unbind from but never dispose the host-owned store provider');
+  assert(!/fullGameStore|fullGameEntitlementId|freeLevelKeys/.test(bootstrapSource),
+    'the WeChat composition root cannot install an App store provider or commercial gate');
   runtime.forEach(file => {
     assert(!/tests[\\/]fixtures[\\/]app-product-policy/.test(fs.readFileSync(file, 'utf8')),
       `${file} cannot import the App test product fixture`);
@@ -275,6 +284,9 @@ function run() {
   assert(!/\b(?:wx|GameRunner|Canvas|setInterval|setTimeout|requestAnimationFrame)\b/.test(staminaSource),
     'stamina uses platform storage and timestamps without core, UI or timer dependencies');
   const openLevel = appSource.slice(appSource.indexOf('  openLevel('), appSource.indexOf('  createOrdinaryRunner('));
+  assert(openLevel.indexOf('progression.accessStatus') < openLevel.indexOf('createOrdinaryRunner') &&
+    openLevel.indexOf('createOrdinaryRunner') < openLevel.indexOf('unlockOrdinaryLevel'),
+  'commercial access must be checked before Runner creation and stamina unlock');
   assert.strictEqual((openLevel.match(/\.unlockOrdinaryLevel\s*\(/g) || []).length, 2,
     'openLevel may route one unlock through cloud sync or the local fallback');
   assert(!/\.unlockOrdinaryLevel\s*\(/.test(appSource.replace(openLevel, '')), 'only openLevel may unlock with stamina');

@@ -25,6 +25,7 @@ const tests = [
   ['production release readiness', require('./release-readiness.test.js')],
   ['cloud runtime config selection', require('./cloud-runtime-config.test.js')],
   ['product capability policy', require('./product-policy.test.js')],
+  ['full-game content access and store consumer', require('./full-game-access.test.js')],
   ['shared game runtime composition', require('./game-runtime.test.js')],
   ['platform input and lifecycle contract', require('./platform-contract.test.js')],
   ['level records, gallery navigation and beginner instructions', require('./level-ui.test.js')],
