@@ -38,6 +38,7 @@ function testPlatform(options) {
     bindLifecycle(handlers) {
       events.push('lifecycle-bound');
       this.lifecycleHandlers = handlers;
+      return () => { events.push('lifecycle-unbound'); this.lifecycleHandlers = null; };
     },
     startLoop(callback) { events.push('loop-started'); this.frame = callback; },
     stopLoop() { events.push('loop-stopped'); this.frame = null; },
@@ -102,13 +103,18 @@ function run() {
   assert.deepStrictEqual(platform.events.slice(0, 3), [
     'pointer-bound', 'lifecycle-bound', 'loop-started'
   ]);
+  app.start();
+  assert.strictEqual(platform.events.filter(event => event === 'pointer-bound').length, 1,
+    'starting an already-mounted App does not add duplicate listeners');
 
   const selected = local.locale.select('en-US');
   assert.deepStrictEqual(selected, { ok: true, persisted: true, locale: 'en-US' });
   assert.strictEqual(app.t('home.tagline'), 'CLEARED!');
   app.dispose();
+  app.dispose();
   assert.strictEqual(calls.uninstalled, 1);
   assert(platform.events.includes('pointer-unbound'));
+  assert(platform.events.includes('lifecycle-unbound'));
   assert(platform.events.includes('loop-stopped'));
 
   const restored = gameRuntime.createLocalServices(testPlatform({

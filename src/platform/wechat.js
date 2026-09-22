@@ -197,6 +197,10 @@ class WechatPlatform {
   }
 
   bindPointer(handlers) {
+    let enabled = true;
+    const remove = (method, callback) => {
+      try { if (typeof this.api[method] === 'function') this.api[method](callback); } catch (error) {}
+    };
     const points = (event, ended) => {
       const list = ended ? event.changedTouches : event.touches;
       if (!list || !list.length) return [];
@@ -207,7 +211,7 @@ class WechatPlatform {
       }));
     };
     const dispatch = (handler, event, ended) => {
-      if (!handler) return;
+      if (!enabled || !handler) return;
       const eventPoints = points(event, ended);
       if (!eventPoints.length) handler(null, event);
       else eventPoints.forEach(point => handler(point, event));
@@ -225,40 +229,69 @@ class WechatPlatform {
     if (this.api.onTouchCancel) this.api.onTouchCancel(callbacks.cancel);
 
     return () => {
-      if (this.api.offTouchStart) this.api.offTouchStart(callbacks.start);
-      if (this.api.offTouchMove) this.api.offTouchMove(callbacks.move);
-      if (this.api.offTouchEnd) this.api.offTouchEnd(callbacks.end);
-      if (this.api.offTouchCancel) this.api.offTouchCancel(callbacks.cancel);
+      if (!enabled) return;
+      enabled = false;
+      remove('offTouchStart', callbacks.start);
+      remove('offTouchMove', callbacks.move);
+      remove('offTouchEnd', callbacks.end);
+      remove('offTouchCancel', callbacks.cancel);
     };
   }
 
   bindLifecycle(handlers) {
-    if (this.api.onHide) {
-      this.api.onHide(() => {
+    let enabled = true;
+    const remove = (method, callback) => {
+      try { if (typeof this.api[method] === 'function') this.api[method](callback); } catch (error) {}
+    };
+    const callbacks = {
+      hide: () => {
+        if (!enabled) return;
         this.active = false;
         this.stopLoop();
         if (handlers.hide) handlers.hide();
-      });
-    }
-    if (this.api.onShow) {
-      this.api.onShow(options => {
+      },
+      show: options => {
+        if (!enabled) return;
         this.active = true;
         this.resize();
         if (handlers.show) handlers.show(options);
-      });
-    }
-    if (this.api.onWindowResize) {
-      this.api.onWindowResize(() => {
+      },
+      resize: () => {
+        if (!enabled) return;
         this.resize();
         if (handlers.resize) handlers.resize(this.metrics);
-      });
+      },
+      audioInterruptBegin: () => {
+        if (enabled && handlers.audioInterruptBegin) handlers.audioInterruptBegin();
+      },
+      audioInterruptEnd: () => {
+        if (enabled && handlers.audioInterruptEnd) handlers.audioInterruptEnd();
+      }
+    };
+    if (this.api.onHide) {
+      this.api.onHide(callbacks.hide);
+    }
+    if (this.api.onShow) {
+      this.api.onShow(callbacks.show);
+    }
+    if (this.api.onWindowResize) {
+      this.api.onWindowResize(callbacks.resize);
     }
     if (this.api.onAudioInterruptionBegin) {
-      this.api.onAudioInterruptionBegin(() => handlers.audioInterruptBegin && handlers.audioInterruptBegin());
+      this.api.onAudioInterruptionBegin(callbacks.audioInterruptBegin);
     }
     if (this.api.onAudioInterruptionEnd) {
-      this.api.onAudioInterruptionEnd(() => handlers.audioInterruptEnd && handlers.audioInterruptEnd());
+      this.api.onAudioInterruptionEnd(callbacks.audioInterruptEnd);
     }
+    return () => {
+      if (!enabled) return;
+      enabled = false;
+      remove('offHide', callbacks.hide);
+      remove('offShow', callbacks.show);
+      remove('offWindowResize', callbacks.resize);
+      remove('offAudioInterruptionBegin', callbacks.audioInterruptBegin);
+      remove('offAudioInterruptionEnd', callbacks.audioInterruptEnd);
+    };
   }
 
   startLoop(callback) {

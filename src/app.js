@@ -562,13 +562,15 @@ class ClearedApp {
   }
 
   start() {
+    if (this.disposed || this.started) return;
+    this.started = true;
     this.unbindPointer = this.platform.bindPointer({
       start: point => this.onPointerStart(point),
       move: point => this.onPointerMove(point),
       end: point => this.onPointerEnd(point),
       cancel: point => this.onPointerCancel(point)
     });
-    this.platform.bindLifecycle({
+    const unbindLifecycle = this.platform.bindLifecycle({
       hide: () => this.onHide(),
       show: options => this.onShow(options),
       resize: () => {
@@ -585,6 +587,7 @@ class ClearedApp {
       audioInterruptBegin: () => this.audio.pauseAll('interruption'),
       audioInterruptEnd: () => this.audio.resumeAll('interruption')
     });
+    this.unbindLifecycle = typeof unbindLifecycle === 'function' ? unbindLifecycle : null;
     this.startLoop();
     this.prepareCurrentSkinAssets();
     this.showNextRewardNotice();
@@ -3769,6 +3772,7 @@ class ClearedApp {
   }
 
   dispose() {
+    if (this.disposed) return;
     this.disposed = true;
     this.accountGeneration++;
     if (this.unbindAccount) this.unbindAccount();
@@ -3781,9 +3785,13 @@ class ClearedApp {
     this.leaveAccount();
     if (this.profile) this.profile.dispose();
     if (this.share) this.share.uninstall();
-    if (this.unbindPointer) this.unbindPointer();
+    if (typeof this.unbindPointer === 'function') this.unbindPointer();
+    if (typeof this.unbindLifecycle === 'function') this.unbindLifecycle();
+    this.unbindPointer = null;
+    this.unbindLifecycle = null;
     this.platform.stopLoop();
     this.audio.dispose();
+    this.started = false;
   }
 }
 
