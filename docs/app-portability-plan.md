@@ -1,8 +1,8 @@
 # 微信小游戏到独立 App：架构准备方案与严格代码边界
 
 > 初稿日期：2026-09-08；本次更新：2026-09-23。
-> 状态：语言本地化已完成本地实现，作为现有能力保留；App 化已完成 P0 基线、P1 通用装配、P2 平台生命周期合同、P2.5-A／B／C 共享源码实施、P3 本地化回归检查点及 P4 浏览器第二宿主验证。P4 宿主 `/Users/ethan/Projects/ClearedApp` 锁定共享提交与工具链，以真实 bundle 跑通六关、全部门禁、测试权益、Portal／冰封、回廊覆盖、双语与重载，并从干净克隆重现；它只证明浏览器／WebView 兼容性和宿主权益归并，不证明原生存储、真实商店或设备安装。P4.5 最小原生存储验证须独立批准，P5 正式 App 专项尚未授权。P2.5-B／P4 使用的 fake store 不代表真实购买已经接通。开发者工具、Android／iOS 模拟器、真机、商店沙盒与上架证据须按后续阶段分别取得，不能互相替代。
-> 当前授权：用户已于 2026-09-22 授权按本文顺序分任务实施，并要求每完成一个独立任务后使用 GitHub Desktop 提交。只能由真机完成的验收暂缓；允许使用本机 Android／iOS 模拟器验证可覆盖的行为。该授权不放宽阶段白名单、停工条件、数据与产品边界，也不包含服务器／云服务变更、安装包上传、送审或发布。
+> 状态：语言本地化已完成本地实现，作为现有能力保留；App 化已完成 P0 基线、P1 通用装配、P2 平台生命周期合同、P2.5-A／B／C 共享源码实施、P3 本地化回归检查点、P4 浏览器第二宿主验证及 P4.5 最小原生存储选型验证。P4 宿主 `/Users/ethan/Projects/ClearedApp` 锁定共享提交与工具链，以真实 bundle 跑通六关、全部门禁、测试权益、Portal／冰封、回廊覆盖、双语与重载，并从干净克隆重现。P4.5 又在指定 iOS 模拟器和 Android 模拟器上验证了系统 SQLite 的提交、强退重启、失败回滚和幂等恢复合同，但没有把样例接入正式游戏，也不证明真机耐久、真实备份恢复、真实商店或设备安装。P5 正式 App 专项仍须另行设计与授权；P2.5-B／P4 使用的 fake store 不代表真实购买已经接通。开发者工具、模拟器、真机、商店沙盒与上架证据不能互相替代。
+> 当前授权：用户已于 2026-09-22 授权按本文顺序分任务实施，并要求每完成一个独立任务后使用 GitHub Desktop 提交；又于 2026-09-23 独立批准并恢复 P4.5。只能由真机完成的验收继续暂缓；本轮已使用本机 Android／iOS 模拟器取得 P4.5 可覆盖的证据。该授权不放宽阶段白名单、停工条件、数据与产品边界，也不包含 P5、服务器／云服务变更、安装包上传、送审或发布。
 > 本轮 P0 审计起点：本地 `main` 的 `984303becf8afab1dcd4fc855cc4128f4e1d9460`，tree 为 `544090431fc5c514b38898d47bb2ecf75dffce33`；开始时工作区干净并跟踪 `origin/main`。`0fde16caa6c9732306141d2884cd8cfda0194f8f` 是上一轮远端文档审阅起点，`5010d7ce067bf0f412cd28dba452218c3b95bf26` 是 2026-09-09 的历史账号页／本地化核验节点，初稿基线为 `cf8bcab8776f742aea0f2cff9830d3a72732f0d8`。每个代码阶段仍须以届时最新 HEAD 重新刷新差异、测试、分包和包体。
 > 客户端根目录 C：`/Users/ethan/Projects/ClearedMiniProgram`。下文施工路径相对 C，除非另有说明；P4 已将独立 App 宿主根目录 H 冻结为 `/Users/ethan/Projects/ClearedApp`，位于 C 之外。
 > 相关约束：[玩法架构](gameplay-extension-architecture.md)、[单方案结算](single-mode-settlement-plan.md)、[当前联网方式](cloudbase-local-first-sync.md)、[奖励解锁](reward-unlock-system.md)、[体力](stamina-system.md)、[每日挑战](daily-challenge-mode.md)、[回廊与特效](corridor-and-clear-effects.md)、[App 编排减负](app-orchestration-refactor-plan.md)、[主题分包](package-splitting.md)、[已实现的语言本地化](localization.md)。
@@ -750,6 +750,16 @@ P2.5-A／B／C 未列出的 `core/`、`data/`、manifest、微信配置、云协
 
 出口为可审查的选型与提交合同证据，以及 P5 的最小影响清单，不是正式存档／卸载重装／购买验收。该阶段失败时，不以浏览器原型可玩为由继续扩大原生施工。
 
+实施状态（2026-09-23）：P4.5 已获独立批准并完成。独立宿主最终证据提交为 `c337878039348c7646b3b177afcd4fb1a8af8383`；iOS 26.5／Xcode 27.0 的 iPhone 17 Pro 模拟器与 Android 16／API 36 的 `Roco_API_36` 模拟器均以 Capacitor `8.5.2` 和系统 SQLite 通过 10／10 场景，Android 另有 3／3 仪器测试通过。选型结论是：系统 SQLite 可作为 P5 普通 App 本地状态的候选，但需采用真实异步提交链路。详细报告、截图、源码摘要与限制位于 H 的 `experiments/storage-spike/reports/`；第 13.17 节记录本轮证据。真机、实际备份／恢复、卸载／重装、真实空间耗尽、StoreKit／Play Billing、签名和发布仍未验。
+
+P4.5 输出的 P5 最小影响范围如下；它是设计输入，不构成 P5 施工授权：
+
+- 保留现有微信 `readStorageResult()`／`setStorage()` 同步合同，新增独立 App 异步存储接缝；不得直接把现有返回值改成 Promise，否则严格比较 `=== true` 与宽松比较 `!== false` 的既有调用者会分别失败关闭或误报已提交。
+- 共享侧只纳入 `src/runtime/game-runtime.js`、`src/services/progress-store.js`、`reward-unlock-service.js`、`stamina-service.js`、`locale-service.js`、三个设置消费者及 `src/app.js` 中经调用链证明必要的初始化、候选提交、恢复和生命周期区段。启动须先读盘，写入须按“最后确认状态 → 候选 → 等待原生提交 → 替换确认状态”串行化。
+- 完成结算先提交进度，再执行可幂等恢复的奖励或体力退款；RewardUnlock、Stamina、语言与设置只能在实际提交后报告持久化成功。Daily、CloudBase／SyncStore、广告、分享、账号、GameRunner、内容和 Renderer 默认不进入该迁移。
+- `full_game_v1` 不得由普通存档授予。P5 宿主须把经商店验证的商业权益保存到独立的 no-backup、安装绑定缓存，在发布 `owned` 以及 Apple `finish`／Google acknowledgment 之前完成可靠持久化；共享完整版权益消费者不因此取得存储所有权。
+- Android 本次实测使用 API 28 起可用的 `SQLiteDatabase.OpenParams`，而实验工程仍声明 `minSdk 24`。P5 必须选择最低 API 28，或另行实现并测试 API 24—27 兼容路径，不能从 API 36 结果外推。
+
 ### P5：正式 App 专项，另行设计与授权
 
 只有第二宿主与最小原生存储验证提供足够证据后，再完成：
@@ -972,7 +982,7 @@ git diff --check
 
 推荐顺序为 **P0 刷新 → P1 通用装配 → P2 平台合同 → P2.5-A 能力裁剪 → P2.5-B 内容门禁与购买界面合同 → P2.5-C App 本地权威 → P3 本地化回归 → P4 第二宿主验证 → P4.5 最小原生存储验证 → P5 正式 App 专项**。
 
-原 P3 的建设不再重复执行；每个涉及微信运行代码的阶段均须遵守第 7.3—7.4 节。P2.5 的三个子阶段分别实施、验收和提交，不能把总体授权解释为任意时点拥有所有大文件的无界修改权。P4.5 仍须在 P4 完成后先列出独立测试工程清单；当前授权只允许执行模拟器可覆盖的部分，必须依赖真机的项目按用户要求暂缓并记录证据缺口。
+原 P3 的建设不再重复执行；每个涉及微信运行代码的阶段均须遵守第 7.3—7.4 节。P2.5 的三个子阶段分别实施、验收和提交，不能把总体授权解释为任意时点拥有所有大文件的无界修改权。P4.5 已在先冻结独立测试工程清单后完成模拟器可覆盖的部分；必须依赖真机、操作系统实际备份／恢复与商店的项目按用户要求继续暂缓并记录证据缺口。下一阶段只有 P5，仍须独立设计、白名单和授权。
 
 语言本地化已完成，账号页、文案和测试的后续修改已在历史核验期间提交为 `5010d7c`。各阶段以届时最新工作区为基线，不按早期提交覆盖这些内容，也不重新选择语言存储位置。
 
@@ -1116,3 +1126,15 @@ git diff --check
 - Chrome 自动闭环以 390×844 逻辑视口和 DPR 上限 2 完成六关；从结果下一关、选关、首页继续、冰封入口和直接打开共五条路径都不能绕过完整版门禁。假商店解锁后完成 Portal 关和冰封试玩；重载后保留 7 条完成记录、`en-US` 手动偏好、已验证权益和 Portal 访问。五项回廊投影正确，BGM 与至少一个音效从本地加载，16 个请求中远端请求为 0，页面错误为 0。五张中英文／重载截图已人工核对该视口下的长英文、商店面板、账号页与首页，没有发现截断或布局阻塞；这不外推为其他尺寸或原生设备视觉证据。
 - 另从提交重新克隆 H，并使用全新的 pnpm store 执行 `pnpm install --frozen-lockfile` 和完整 `pnpm verify`；依赖、bundle hash、资源数、浏览器结果与原仓库一致，证明干净的两仓锁定输入可重现。C 本阶段只更新本文与 README 的实施状态，微信运行代码、配置、CloudBase、真实数据和发布流程没有变化。
 - P4 仅证明共享源码的浏览器／WebView 第二宿主兼容性。浏览器 localStorage、fake store 和桌面 Chrome 不能证明 Android／iOS 原生持久化、杀进程恢复、备份／卸载、真实购买／恢复／退款、安装包、性能或上架能力；本阶段未执行微信开发者工具、Android／iOS 模拟器、真机、商店沙盒、上传、审核、推送或发布。P4.5 须先获得独立批准并冻结测试工程文件清单，P5 仍需另行设计与授权。
+
+### 13.17 P4.5 最小原生存储验证：2026-09-23
+
+- 用户独立批准 P4.5 后，只在 H 的冻结白名单 `experiments/storage-spike/` 内建立隔离测试工程；C 的共享运行码、真实玩家存档、微信／CloudBase 数据、正式权益、商品、网络、签名和发布均未触碰。测试 bundle ID／命名空间为 `com.godwhere.cleared.storagespike`／`p45.synthetic.v1`，数据全部为合成状态。
+- 最终 H 提交为 `c337878039348c7646b3b177afcd4fb1a8af8383`、tree `b3563e664dc1af3aa5bbb2dba1bb5385220d43e7`；独立仓库仍未配置或发布远端。Capacitor 固定为 `8.5.2`；iOS 使用系统 SQLite3，Android 使用框架 `SQLiteDatabase`，不新增第三方数据库插件。
+- iPhone 17 Pro 模拟器／iOS 26.5／Xcode 27.0（`27A266a`）使用 SQLite `3.51.0`；`Roco_API_36` 模拟器／Android 16 API 36／Temurin JDK 21 使用 SQLite `3.44.3`。两端均为 WAL、`synchronous=FULL` 和原生事务；Android 记录框架有界 `busy_timeout=2500 ms`。两端构建通过，Android lint 与 3／3 仪器测试通过。
+- 两端各 10／10 场景通过：干净旧状态、写前失败、扣款后提交前强退、提交后回调前强退、明确成功后强退重读、同 operation ID 重试、并发排序、损坏读取失败关闭、事务内注入 `SQLITE_FULL`、进度先提交而奖励待办后幂等恢复。合成回廊交易只出现完整旧对 `(1000,false)` 或完整新对 `(600,true)`；native 结果与 JavaScript callback 分开记录，回调丢失后用相同 operation ID 重试不会重复扣款。
+- `node scripts/verify-reports.mjs` 验证 2 份平台报告、每份 10 个标准场景、当前输入文件 SHA-256 与有效 PNG 截图；`node scripts/verify-scope.mjs --require-reports` 验证 99 个路径全部属于冻结白名单。两张模拟器截图已人工核对，均显示正确平台、独立命名空间与重置后的合成旧状态。
+- C 仅更新本文的实施状态与证据边界；完整 Node 回归 110／110、包预算（主包 1,505,205 bytes，11 个分包，总计 16,478,316 bytes）和 rollout 配置预检 `ready:true` 均通过，`git diff --check` 通过。共享运行入口、微信配置、README 所述用户操作和包结构均未变化，因此本阶段不修改 README 或其他专题文档。
+- 选型建议仅覆盖普通 App 本地状态：P5 增加独立异步存储接缝并逐个迁移 runtime 初始化、Progress、RewardUnlock、Stamina、Locale、设置消费者及 App 的必要调用点；微信同步存储合同不变。精确文件／调用链、顺序、测试清单与商业权益隔离要求保存在 H 的 `reports/conclusion.md`。
+- 本轮仅核对 iOS Application Support 的 backup exclusion 属性为 false，以及 Android manifest／XML 明确允许普通数据库备份；没有执行实际 OS 备份／恢复、设备迁移、卸载／重装或 no-backup 商业权益缓存。强退是 `simctl terminate`／`adb force-stop`，空间不足为 `max_page_count` 故障注入，均不能替代真机断电、闪存耐久或真实磁盘耗尽。
+- P4.5 不含 `full_game_v1`，也未执行 StoreKit／Play Billing、购买／恢复／退款、Apple finish、Google acknowledgment、签名、安装包、性能、商店审核、上传、推送或发布。P5 是剩余的唯一设计／实施阶段，仍须另行授权；上述真机与外部平台验收在获得相应条件前继续暂缓。
