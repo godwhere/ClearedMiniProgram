@@ -2,7 +2,7 @@
 
 > 设计记录：2026-08-31  
 > 需求状态：已确认每日两关、每日进入次数 3 次；本文是实现契约。  
-> 当前实现：每日两关、默认 3 次进入、独立存档和联网结算；普通、Portal、冰封及 Portal v2 + 冰封混合题共用规则/输入/渲染。完整每日首通奖励 500，广告/分享增次默认关闭。北京时间 2026-09-16 至 09-25 新增十天机制包，见 [内容与验收](daily-mechanic-pack.md)。后文分阶段记录不是当前未实现清单。
+> 当前实现：每日两关、默认 3 次进入、独立存档和联网结算；普通、Portal、冰封及 Portal v2 + 冰封混合题共用规则/输入/渲染。完整每日首通奖励 500，广告/分享增次默认关闭。北京时间 2026-09-16 至 10-23 已连续排期 38 天；前十天见[十天机制包](daily-mechanic-pack.md)，其后四周见[未来四周关卡包](daily-four-week-pack.md)。后文分阶段记录不是当前未实现清单。
 > 运行时：微信小游戏单 Canvas 链路 game.js → src/bootstrap.js → src/app.js → src/ui/canvas-renderer.js
 
 ## 1. 已确认的产品规则
@@ -222,7 +222,7 @@ service.validateDay(day)      // -> { ok, errors }
 
 ## 7. 每日数据契约
 
-文件：data/daily-challenges.js。微信小游戏运行时使用 JS 模块；若保留 JSON 源，发布前必须生成 JS。
+文件：data/daily-challenges.js。微信小游戏运行时使用 JS 模块；若保留 JSON 源，发布前必须生成 JS。当前 manifest 合并原日期、`data/daily-mechanic-pack.js` 的十天机制包，以及 `data/daily-four-week-pack.js` 的 28 天排期；完整解答按稳定 level ID 合并。
 
 2026-09-07 追加 `daily-2026-09-07-v1`，保留原 8 月 31 日、9 月 1 日的内容和 ID。第 1 小关复用 3×3 热身，第 2 小关新增 8×10 中庭镂空：10 对棋子、中央 2×4 共 8 个镂空格、72 个可走格，10 条完整提示路径覆盖全部可走格。无传送门/冰块，不改变两关顺序、3 次进入、奖励、主线目录或同步协议；不需要为这个日期部署后端。
 
@@ -286,7 +286,7 @@ module.exports = {
 | Level Id | 是 | 稳定唯一；提示和每日存档使用它 |
 | LevelIndex | 是 | 只能为 0 或 1，且不得重复 |
 | Difficulty | 是 | level 0 为 intro，level 1 为 extreme |
-| PieceCount | 否 | 必须与 Lines.length 对应；热身为 2，十天机制包的挑战关为 8 |
+| PieceCount | 否 | 必须与 Lines.length 对应；热身为 2，当前 38 天机制排期的挑战关为 8 |
 | Width/Height | 是 | level 0 必须 3×3；level 1 必须 8×10 |
 | Blocked | 是 | 整数索引数组；去重、范围有效 |
 | Lines | 是 | 端点可走且互不重复；level 0 必须恰好 2 条 |

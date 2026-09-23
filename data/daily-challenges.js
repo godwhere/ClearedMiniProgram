@@ -1,6 +1,7 @@
 'use strict';
 
 const mechanicPack = require('./daily-mechanic-pack.js');
+const fourWeekPack = require('./daily-four-week-pack.js');
 
 // Versioned local manifest for the Daily Challenge mode. The ordinary
 // catalog (data/catalog-v2.js) deliberately remains independent from this
@@ -110,7 +111,8 @@ module.exports = {
     day('2026-08-31'),
     day('2026-09-01'),
     day('2026-09-07', courtyardLevel),
-    ...mechanicPack.map(level => day(level.DateKey, () => level))
+    ...mechanicPack.map(level => day(level.DateKey, () => level)),
+    ...fourWeekPack.map(level => day(level.DateKey, () => level))
   ],
   Challenges: [
     legacyChallenge('2026-08-31'),

@@ -122,7 +122,8 @@ function content() {
       restored.reset(); assert.strictEqual(restored.getBoardState().remainingLayers[ice], 2);
     }
   });
-  assert.strictEqual(service.resolve(new Date('2026-09-25T16:00:00Z')).status, 'unavailable');
+  assert.strictEqual(service.resolve(new Date('2026-09-25T16:00:00Z')).dateKey, '2026-09-26',
+    'the following four-week pack begins without a Shanghai-date gap');
   const mixed = pack[5]; const paths = solutions.ByChallengeId[mixed.Id];
   const invalid = [{ PortalRulesVersion: 1 }, { IceRulesVersion: 2 }, { IceCells: [] },
     { IceCells: [mixed.IceCells[0], mixed.IceCells[0]] }, { IceCells: [mixed.Lines[0].Start] },

@@ -18,7 +18,8 @@ function run() {
   ['output/pdf/example.pdf', 'tmp/previews/page.png'].forEach(file => {
     assert.strictEqual(budget.isIgnored(file, config.packOptions.ignore), true, 'local artifacts must not ship');
   });
-  ['data/daily-mechanic-pack.js', 'data/daily-mechanic-solutions.js'].forEach(file => {
+  ['data/daily-mechanic-pack.js', 'data/daily-mechanic-solutions.js',
+    'data/daily-four-week-pack.js', 'data/daily-four-week-solutions.js'].forEach(file => {
     assert.strictEqual(budget.isIgnored(file, config.packOptions.ignore), false, 'daily content must ship');
   });
   require('../src/skins/index.js').filter(skin => skin.id !== 'classic').forEach(skin => {

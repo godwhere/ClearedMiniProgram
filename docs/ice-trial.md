@@ -26,7 +26,7 @@
 
 ## 每日挑战与混合棋盘
 
-每日内容见 [十天机制包](daily-mechanic-pack.md)。纯冰封题保持 `Mechanic: ice`；混合题以 `Mechanic: portal`、`PortalRulesVersion: 2` 为主机制，附加 `IceRulesVersion: 1` 和 `IceCells`，不新增复合机制 ID。只支持这一明确组合，不把机制任意组合化。
+每日内容见[十天机制包](daily-mechanic-pack.md)及其后的[未来四周关卡包](daily-four-week-pack.md)。纯冰封题保持 `Mechanic: ice`；混合题以 `Mechanic: portal`、`PortalRulesVersion: 2` 为主机制，附加 `IceRulesVersion: 1` 和 `IceCells`，不新增复合机制 ID。只支持这一明确组合，不把机制任意组合化。
 
 混合棋盘的只读机制状态在 Portal 状态中附加 `ice: { id, rulesVersion, cells }`。Portal 的入口锁定、等待出口和续接本身不消耗冰；只有整条线路完成后才更新层数。两层由两条不同连线消耗，撤销/重置沿用相同快照。每日题面校验失败时拒绝进入，不以普通棋盘替代。
 

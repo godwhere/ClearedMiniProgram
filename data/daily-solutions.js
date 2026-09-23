@@ -77,8 +77,9 @@ const legacyExtremePaths = [
 ];
 
 const mechanicSolutions = require('./daily-mechanic-solutions.js');
+const fourWeekSolutions = require('./daily-four-week-solutions.js');
 const newIntroSolutions = {};
-require('./daily-mechanic-pack.js').forEach(level => {
+require('./daily-mechanic-pack.js').concat(require('./daily-four-week-pack.js')).forEach(level => {
   newIntroSolutions[`daily-${level.DateKey}-v1-intro-v1`] = introPaths;
 });
 
@@ -87,6 +88,7 @@ module.exports = {
   ByChallengeId: {
     ...newIntroSolutions,
     ...mechanicSolutions,
+    ...fourWeekSolutions,
     'daily-2026-08-31-v1-intro-v1': introPaths,
     'daily-2026-08-31-v1-extreme-v1': extremePaths,
     'daily-2026-09-01-v1-intro-v1': introPaths,

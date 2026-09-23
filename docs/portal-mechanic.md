@@ -239,7 +239,7 @@ v1 只允许一个固定双向门对，解答可继续使用 `PairId`，且两�
 
 `portal-validation` 对非法组合返回 `portal-ice-invalid`，同时验证完整解答的两次冰格覆盖。Runner 保持原 Portal 状态机，层数由完成线路重建；`getMechanicState()` 仅在混合题上增加只读 `ice` 字段。中英混合提示只出现在开始阶段，入口锁定/等出口仍沿用原提示。每日来源只改变结算域，不改变 Portal 规则。
 
-新增十题的排期、结构验证与发布边界见 [每日机制包](daily-mechanic-pack.md)。
+9 月 16—25 日十题的排期、结构验证与发布边界见[每日机制包](daily-mechanic-pack.md)；10 月 3—9 日 Portal 周和 10 月 17—23 日混合周见[未来四周关卡包](daily-four-week-pack.md)。
 
 ## 7. 代码边界
 

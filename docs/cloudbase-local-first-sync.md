@@ -16,9 +16,9 @@
 
 ## 每日新内容的联网合同
 
-2026-09-16 至 09-25 的 [十天机制包](daily-mechanic-pack.md) 沿用 `daily-YYYY-MM-DD-v1`，两项 levelId 分别追加 `-intro-v1`、`-extreme-v1`；每日默认三次进入、两关完成一次 500 奖励不变。Portal/冰封题面与解答不进入同步 payload；服务端接收原 `DAILY_ENTRY_RECORDED`/`DAILY_LEVEL_COMPLETED`，按固定 dateKey 和两项 ID 校验、幂等结算。跨北京时间午夜完成仍归进入时日期。
+2026-09-16 至 10-23 的连续 38 天排期（[十天机制包](daily-mechanic-pack.md)及[未来四周关卡包](daily-four-week-pack.md)）沿用 `daily-YYYY-MM-DD-v1`，两项 levelId 分别追加 `-intro-v1`、`-extreme-v1`；每日默认三次进入、两关完成一次 500 奖励不变。Portal/冰封题面与解答不进入同步 payload；服务端接收原 `DAILY_ENTRY_RECORDED`/`DAILY_LEVEL_COMPLETED`，按固定 dateKey 和两项 ID 校验、幂等结算。跨北京时间午夜完成仍归进入时日期。
 
-因此新增这十个日期不需要修改普通关卡目录或重新部署服务器。日期题面与混合运行时必须随新微信客户端上传才会到达玩家；云端兼容验证不等于客户端已上线，也不启用 local-backup。
+因此新增这些客户端日期不需要修改普通关卡目录或改变既有云协议。日期题面与混合运行时必须随新微信客户端上传才会到达玩家；本轮没有重新部署服务器，现有兼容结论不等于客户端已上线，也不启用 local-backup。
 
 ## 当前实际启用：低频云结算
 
