@@ -274,7 +274,7 @@ v1 只允许一个固定双向门对，解答可继续使用 `PairId`，且两�
 
 ## 8. 主线入口与测试内容
 
-当前 20 个 Portal 题由 4 个里程碑教学题和 16 个高阶混合章节题组成，全部通过主线选关进入。
+当前 32 个 Portal 题由 4 个里程碑教学题、16 个高阶混合章节题、6 个恢复题和 6 个天际包题组成，全部通过主线选关进入。
 独立试玩内容已退役，旧隐藏入口不再执行。测试直接使用主线题面；Blocked、三门网络和
 v1 兼容继续由不进入小游戏包的测试 fixture 验证，不能为测试恢复生产试玩入口。
 
@@ -287,7 +287,7 @@ v1 兼容继续由不进入小游戏包的测试 fixture 验证，不能为测�
 - `tests/hint-service-portal.test.js`：分段解、多出口搜索、等待态和无解；
 - `tests/app-portal.test.js`：两句提示切换、无 Portal 阶段震动、主线结算与导航、旧试玩入口不再执行；
 - `tests/renderer-portal.test.js`：提示位置/呼吸、棋盘不跳位、纯数字标题、选关页不叠加 Portal 徽标、LOCKED 入口居中放大/选中高亮、无 P1、多出口高亮和资源回退；
-- `tests/portal-publishing.test.js`：26 个主线 Portal 题、无逐关说明与残留试玩解、历史 63–67 内容质量门槛、高成本无门解、三门未用门 fixture、v1 兼容 fixture 和逐段回放；
+- `tests/portal-publishing.test.js`：32 个主线 Portal 题、无逐关说明与残留试玩解、历史 63–67 内容质量门槛、高成本无门解、三门未用门 fixture、v1 兼容 fixture 和逐段回放；
 - `tests/mixed-chapter.test.js`：68–97 的 19 普通/11 Portal 混排、6–9 色、双门、无凑数短线、完整提示、对称去重、无门分类与一/二色廉价旁路排除；93–97 另检查反向/变序回放、逐格完整提示与追加解锁衔接；
 - `tests/level-copilot-*.test.js`：开发期版本 16 的 5×5—8×10 连续 seed Schema、2／4 门单网络编译、每线一次跳转、长 seed 安全切分、有界候选枚举与尾段重连、Portal 感知矩形／正方形查重、共享校验、逐段 Runner 回放、必需／高成本可选分类、全传送线廉价旁路组合、2—5 级评分和独立评测集；该工具不进入小游戏包，也不改变本节运行时协议；
 - `node tests/run.js` 必须全量通过，现有普通关行为不得回归。
@@ -297,7 +297,7 @@ v1 兼容继续由不进入小游戏包的测试 fixture 验证，不能为测�
 
 ## 10. 发布门槛
 
-1. 连续编号 1—137 的普通主线关（含 26 个 Portal 题）和 Portal v1 兼容 fixture 零回归；新增六个简单双门受 `level-difficulty.test.js` 的禁门、提示和正反/变序回放约束；
+1. 连续编号 1—200 的普通主线关（含 32 个 Portal 题）和 Portal v1 兼容 fixture 零回归；六个恢复双门及六个天际双门分别受 `level-difficulty.test.js`、`horizon-pack.test.js` 的禁门、提示和正反/变序回放约束；
 2. Portal v2 题面、PortalId 解答和 required coverage 全部通过离线校验；
 3. 真实触摸完成“入口 → 松手 → 任一候选出口 → 普通终点”；
 4. 全部主线 Portal 复用两句提示；进门前为第一句，LOCKED/WAIT 为第二句，出口续接后隐藏，棋盘不跳位；

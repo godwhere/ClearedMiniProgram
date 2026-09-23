@@ -69,6 +69,7 @@ const tests = [
   ['ice mainline teaching, hints and ordinary settlement', require('./ice-mainline.test.js')],
   ['ten-level thaw pack, multi-ice coverage and difficulty transitions', require('./thaw-pack.test.js')],
   ['twenty-level meadow pack, limited ice and one challenge peak', require('./meadow-pack.test.js')],
+  ['32-level horizon pack, mixed mechanics and stable 200-level catalog', require('./horizon-pack.test.js')],
   ['game runner contract', require('./game-runner-contract.test.js')],
   ['run context and completion policies', require('./run-context.test.js')],
   ['progress store', require('./progress-store.test.js')],

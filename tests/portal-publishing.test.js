@@ -74,10 +74,11 @@ function requiredCells(level) {
 }
 
 function run() {
-  assert.strictEqual(Object.keys(portalSolutions.ByLevelId).length, 26,
-    'published Portal answers contain only the 26 mainline levels');
+  assert.strictEqual(Object.keys(portalSolutions.ByLevelId).length, 32,
+    'published Portal answers contain only the 32 mainline levels');
 
-  // 4 original milestones + 16 original chapter boards + 6 recovery boards.
+  // 4 original milestones + 16 original chapter boards + 6 recovery boards +
+  // 6 horizon boards.
   // Keep their answers in the ID-indexed Portal table.
   const hints = new HintService({ portalSolutions });
   const allPortalLevels = [];
@@ -100,8 +101,8 @@ function run() {
   });
 
   const chapterGames = (catalog.sets[4].Games || []).slice(30);
-  assert.strictEqual(chapterGames.length, 106,
-    'the stable chapter has 35 original, 40 recovery, one ice teaching, ten thaw and twenty meadow boards');
+  assert.strictEqual(chapterGames.length, 138,
+    'the stable chapter has 35 original, 40 recovery, one ice teaching, ten thaw, twenty meadow and 32 horizon boards');
   chapterGames.slice(0, 35).forEach((game, index) => {
     const expectedId = `portal-8x8-${String(index + 1).padStart(2, '0')}`;
     assert.strictEqual(game.Id, expectedId,
@@ -170,8 +171,8 @@ function run() {
     });
   });
 
-  assert.strictEqual(allPortalLevels.length, 26,
-    'the ordinary catalog must contain exactly 26 Portal levels');
+  assert.strictEqual(allPortalLevels.length, 32,
+    'the ordinary catalog must contain exactly 32 Portal levels');
 
   allPortalLevels.forEach(({ set, setIndex, game, levelIndex }) => {
     assert(!seenPortalIds.has(game.Id), `Duplicate portal level ID in ordinary catalog: ${game.Id}`);

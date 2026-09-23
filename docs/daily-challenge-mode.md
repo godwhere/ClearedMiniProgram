@@ -20,7 +20,7 @@
 - 授权增次已有独立接口，但默认关闭；免费重试当前失败小关与重新开始整轮是不同操作，见第 17 节。
 - 两小关均完成后按 dateKey 发放一次 500 首通奖励，第一关不发奖；现行联网模式使用低频云结算，详见 [联网合同](cloudbase-local-first-sync.md)。
 
-主线共 168 关，题面最大为 8×8，按 [难度系统](level-difficulty-system.md) 固定顺序开放；普通/Portal/冰封混排。每日内容不改变任何主线坐标、排序、解锁或统计。
+主线共 200 关，题面最大为 8×8，按 [难度系统](level-difficulty-system.md) 固定顺序开放；普通/Portal/冰封混排。每日内容不改变任何主线坐标、排序、解锁或统计。
 8×10 只保留在高难／每日挑战中；每日两关不是 catalog-v2 中的额外普通关卡。
 
 ## 2. 附件截图的适用范围
@@ -120,7 +120,7 @@ buildModel() 至少提供：
 }
 ~~~
 
-completedCount 和 totalLevels 只统计普通主线 1—137 关；主线 Portal 计入普通总数，每日 8×10 不计入这两个值。
+completedCount 和 totalLevels 只统计普通主线 1—200 关；主线 Portal／冰封均计入普通总数，每日 8×10 不计入这两个值。
 
 `daily`／`dailyResult` 的页面字段由 `src/ui/view-models/daily-view-model.js` 对 App 已准备好的显式输入做纯映射。App 仍持有每日会话、计算完成状态并只读查询 Runner 生成棋盘 ViewModel；映射模块不接收 Runner、store、平台或服务，也不替换 App 持有的结果对象。
 

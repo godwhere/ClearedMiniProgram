@@ -2,6 +2,8 @@
 
 首发决定（2026-09-08）：用户明确暂不启用“本地直接发币＋云端偶尔备份”。本次送审／首发继续使用本地保存＋低频批量云结算，金币到账与货币购买仍由云端确认；保留已开放的正常新玩家全量准入及 138 关目录，不改变请求节奏或存档规则。
 
+> 2026-09-23 内容状态：微信小游戏客户端已在旧坐标之后本地追加至 200 关，但本次没有修改或部署 CloudBase；仓库记录中最近一次线上目录仍为 168 关。新增 `4:136..4:167` 需要另行授权部署与回读。本段只说明内容目录差异，不改变本文的权威、批量同步或冲突协议。
+
 入口收敛（2026-09-08）：`game.js → bootstrap.start()` 已只装配低频云结算方案；`cloudConfigForEnvironment` 对 develop／trial／release／unknown 均固定返回 `localBackupEnabled:false`，开发本地覆盖也不能重新开启。正常启动不再读取备份空档状态、创建 `BackupSnapshot`／`CloudBackupService` 或把 backup 注入 App／ProgressSyncService。历史组件、四种存档编码、旧档数据和恢复记录继续保留；已有 `local-backup` 档在无备份能力时仍以 `not-configured` 失败关闭，不会自动转成云权威。
 
 新模式的 P1、P2 及 P3 本地代码、自动化测试和文档保留，客户端 `localBackupEnabled:false`、后端 `BACKUP_WRITE_ENABLED=false` 保持不变；暂不部署／启用新备份协议或生成相应预览，不清理现有存档、待办或代码。其部署和专项真机验收不属于本次首发前置，未来是否启用须另行明确授权，并按届时版本复核存档兼容和验证范围。当前候选包的新账号、通关／重进、第 138 关及微信发布检查仍需完成。以下审查记录和[实施方案](local-settlement-cloud-backup-plan.md)保留为新模式的历史设计与验证证据，不代表启用授权。

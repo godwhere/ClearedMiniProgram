@@ -26,7 +26,7 @@
 - 题面：`data/daily-mechanic-pack.js`，由 `data/daily-challenges.js` 并入原 Days。
 - 完整解答：`data/daily-mechanic-solutions.js`，由 `data/daily-solutions.js` 按稳定 levelId 合并，并复用原热身解答。
 - Day ID：`daily-YYYY-MM-DD-v1`；热身/挑战 ID 分别为 `<dayId>-intro-v1` 和 `<dayId>-extreme-v1`。旧日期/旧 ID 原样保留。
-- 主线 168 关的坐标、数据、解答、顺序与难度均不变；每日数据不进主线 catalog。
+- 本批接入时的 168 关主线坐标、数据、解答、顺序与难度均未改变；每日数据不进主线 catalog。主线后续扩至 200 关不改变这条来源隔离规则。
 - Portal 使用 v2 单中性网络和原 `Segments/Exit` 解答，一条线最多一次跳跃。纯冰封使用 ice v1；混合使用 Portal v2 主机制并附加 `IceRulesVersion: 1, IceCells`。
 - 门格、端点、Blocked 不能结冰。冰格由两条不同完成线路经过两次，其他必填格一次；同一路线重复、自交或第三次经过不合法。Portal v2 未使用门格仍是可选覆盖。
 

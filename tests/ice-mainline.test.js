@@ -26,7 +26,7 @@ function content() {
   assert.strictEqual(level.Id, 'ice-main-8x8-01');
   assert.deepStrictEqual([level.Width, level.Height, level.Difficulty], [8, 8, 1]);
   assert.deepStrictEqual(level.IceCells, [9]);
-  assert.strictEqual(catalog.levels.filter(entry => entry.game.Mechanic === 'ice').length, 13);
+  assert.strictEqual(catalog.levels.filter(entry => entry.game.Mechanic === 'ice').length, 19);
   assert.strictEqual(evaluate(level, paths).grade, 1);
   assert.strictEqual(evaluate(level, paths).easyLines, 8);
   for (const order of [paths, paths.slice().reverse()]) {

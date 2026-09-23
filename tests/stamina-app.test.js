@@ -152,7 +152,7 @@ function run() {
   final.app.scene = 'result'; final.app.result = { outcome: 'won' };
   final.app.performAction('result:next');
   assert.strictEqual(final.app.scene, 'levels');
-  assert.strictEqual(final.app.levelPageIndex, 6);
+  assert.strictEqual(final.app.levelPageIndex, 7);
   assert.strictEqual(final.writes.length, 1);
   final.app.dispose();
 
