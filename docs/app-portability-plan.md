@@ -1,8 +1,8 @@
 # 微信小游戏到独立 App：架构准备方案与严格代码边界
 
 > 初稿日期：2026-09-08；本次更新：2026-09-23。
-> 状态：语言本地化已完成本地实现，作为现有能力保留；App 化已完成 P0 基线、P1 通用装配、P2 平台生命周期合同、P2.5-A／B／C 共享源码实施、P3 本地化回归检查点、P4 浏览器第二宿主验证及 P4.5 最小原生存储选型验证。P4 宿主 `/Users/ethan/Projects/ClearedApp` 锁定共享提交与工具链，以真实 bundle 跑通六关、全部门禁、测试权益、Portal／冰封、回廊覆盖、双语与重载，并从干净克隆重现。P4.5 又在指定 iOS 模拟器和 Android 模拟器上验证了系统 SQLite 的提交、强退重启、失败回滚和幂等恢复合同，但没有把样例接入正式游戏，也不证明真机耐久、真实备份恢复、真实商店或设备安装。P5 正式 App 专项仍须另行设计与授权；P2.5-B／P4 使用的 fake store 不代表真实购买已经接通。开发者工具、模拟器、真机、商店沙盒与上架证据不能互相替代。
-> 当前授权：用户已于 2026-09-22 授权按本文顺序分任务实施，并要求每完成一个独立任务后使用 GitHub Desktop 提交；又于 2026-09-23 独立批准并恢复 P4.5。只能由真机完成的验收继续暂缓；本轮已使用本机 Android／iOS 模拟器取得 P4.5 可覆盖的证据。该授权不放宽阶段白名单、停工条件、数据与产品边界，也不包含 P5、服务器／云服务变更、安装包上传、送审或发布。
+> 状态：语言本地化已完成本地实现，作为现有能力保留；App 化已完成 P0 基线、P1 通用装配、P2 平台生命周期合同、P2.5-A／B／C 共享源码实施、P3 本地化回归检查点、P4 浏览器第二宿主验证、P4.5 最小原生存储选型验证及 P5-A 正式宿主合同与构建边界。P5-A 已冻结显示名、双平台应用标识和最低系统范围，并将 P4 浏览器测试产物、正式原生 Web 边界及其元数据分开；当前原生 Web 产物仍是失败关闭的合同门，不是可玩的原生 App。P2.5-B／P4 使用的 fake store 不代表真实购买已经接通。开发者工具、模拟器、真机、商店沙盒与上架证据不能互相替代。
+> 当前授权：用户已于 2026-09-22 授权按本文顺序分任务实施，并要求每完成一个独立任务后使用 GitHub Desktop 提交；又于 2026-09-23 独立批准 P4.5，并批准 P5-A 建议值。只能由真机完成的验收继续暂缓；本轮已使用本机 Android／iOS 模拟器取得 P4.5 可覆盖的证据。该授权不放宽阶段白名单、停工条件、数据与产品边界，也不包含 P5-A 之后的共享运行码改造、正式原生工程、存储接入、商店／计费、服务器／云服务变更、签名、安装包上传、送审或发布。
 > 本轮 P0 审计起点：本地 `main` 的 `984303becf8afab1dcd4fc855cc4128f4e1d9460`，tree 为 `544090431fc5c514b38898d47bb2ecf75dffce33`；开始时工作区干净并跟踪 `origin/main`。`0fde16caa6c9732306141d2884cd8cfda0194f8f` 是上一轮远端文档审阅起点，`5010d7ce067bf0f412cd28dba452218c3b95bf26` 是 2026-09-09 的历史账号页／本地化核验节点，初稿基线为 `cf8bcab8776f742aea0f2cff9830d3a72732f0d8`。每个代码阶段仍须以届时最新 HEAD 重新刷新差异、测试、分包和包体。
 > 客户端根目录 C：`/Users/ethan/Projects/ClearedMiniProgram`。下文施工路径相对 C，除非另有说明；P4 已将独立 App 宿主根目录 H 冻结为 `/Users/ethan/Projects/ClearedApp`，位于 C 之外。
 > 相关约束：[玩法架构](gameplay-extension-architecture.md)、[单方案结算](single-mode-settlement-plan.md)、[当前联网方式](cloudbase-local-first-sync.md)、[奖励解锁](reward-unlock-system.md)、[体力](stamina-system.md)、[每日挑战](daily-challenge-mode.md)、[回廊与特效](corridor-and-clear-effects.md)、[App 编排减负](app-orchestration-refactor-plan.md)、[主题分包](package-splitting.md)、[已实现的语言本地化](localization.md)。
@@ -760,9 +760,9 @@ P4.5 输出的 P5 最小影响范围如下；它是设计输入，不构成 P5 �
 - `full_game_v1` 不得由普通存档授予。P5 宿主须把经商店验证的商业权益保存到独立的 no-backup、安装绑定缓存，在发布 `owned` 以及 Apple `finish`／Google acknowledgment 之前完成可靠持久化；共享完整版权益消费者不因此取得存储所有权。
 - Android 本次实测使用 API 28 起可用的 `SQLiteDatabase.OpenParams`，而实验工程仍声明 `minSdk 24`。P5 必须选择最低 API 28，或另行实现并测试 API 24—27 兼容路径，不能从 API 36 结果外推。
 
-### P5：正式 App 专项，另行设计与授权
+### P5：正式 App 专项，分阶段另行授权
 
-只有第二宿主与最小原生存储验证提供足够证据后，再完成：
+只有第二宿主与最小原生存储验证提供足够证据后，才按独立白名单逐段实施。P5-A 只冻结宿主身份、最低系统范围和可重现构建边界；下列其余能力仍须后续授权：
 
 - 原生容器与操作系统版本范围。
 - 正式存储及异步提交／恢复链路；采用 P4.5 的结论，逐个列出共享服务与 App 调用者的必要修改，不能仅凭“await 保存”扩大到全仓。
@@ -775,6 +775,10 @@ P4.5 输出的 P5 最小影响范围如下；它是设计输入，不构成 P5 �
 - `ios/`／`android/`、原生 SDK、App 构建流水线只存在于独立宿主；提交 JavaScript 依赖锁、Gradle Wrapper／版本目录和 iOS 依赖锁（若实际使用），不用浮动 `latest`。发布记录同时保存宿主 commit、`shared-source.lock.json`、工具链版本和商店商品映射摘要。
 
 本阶段必须有独立的文件白名单、数据迁移边界和设备验收计划，不能沿用 P1 或 P4.5 的授权扩展到正式资产、后端或发布。
+
+实施状态（2026-09-23）：P5-A 已获独立批准并在 H 的提交 `1698f2ba87d13069e726040ee2f2913c369b0260` 完成。正式显示名为 `Cleared`，iOS Bundle ID 与 Android applicationId 均为 `com.godwhere.cleared`；最低系统范围冻结为 iOS `15.0` 与 Android API `28`。P4 浏览器验证输出固定为 `dist/browser-test/`，正式原生 Web 边界固定为 `dist/native-web/`，原生 provenance／扫描证据位于 Web 根之外的 `dist/native-meta/`。当前 `dist/native-web/` 只含 `index.html`、`styles.css` 与失败关闭的 `game.js`，状态为 `contract-gate-only`、`nativeCopyEligible:false`；它不能复制为正式 App，也不包含 fake store、P4 fixture／命名空间、浏览器 `localStorage`、Storage Spike、微信／CloudBase API、远程脚本或调试入口。
+
+提交后的干净宿主以 `pnpm verify` 通过 P5 精确文件白名单、4／4 Node 合同组、双输出构建／扫描、失败关闭原生门 smoke，以及既有 P4 六关与全部门禁 Chrome 闭环；provenance 记录该宿主提交、tree、干净状态、共享锁／P5 锁摘要和逐文件输入摘要。该证据只证明正式标识与交付边界已经冻结，未创建根级 `ios/`、`android/` 或 Capacitor 配置／依赖，未接入共享运行码、正式 SQLite、StoreKit／Play Billing、签名、上传或发布，也未执行 P5 原生模拟器或真机验收。下一阶段必须重新冻结共享异步存储接缝、正式原生工程或商店能力的具体白名单，不能从 P5-A 自动扩权。
 
 ## 7. App 技术路线与构建边界
 
