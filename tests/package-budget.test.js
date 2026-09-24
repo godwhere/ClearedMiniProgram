@@ -68,6 +68,15 @@ function run() {
   assert.strictEqual(small.packages[1].bytes, 200);
   assert.strictEqual(small.total.bytes, 350);
   assert.strictEqual(small.packages[0].largestFiles[0].path, 'main.js');
+  const withSourceMap = budget.analyzePackageBudget(fixtures.concat(
+    { path: 'main.js.map', bytes: 2 * 1024 * 1024 }), fixturePackages, ignore);
+  assert.strictEqual(withSourceMap.total.bytes, small.total.bytes,
+    'adjacent JS sourcemaps do not consume code-package budget');
+  assert.strictEqual(withSourceMap.total.fileCount, small.total.fileCount);
+  const orphanMap = budget.analyzePackageBudget(fixtures.concat(
+    { path: 'orphan.js.map', bytes: 40 }), fixturePackages, ignore);
+  assert.strictEqual(orphanMap.total.bytes, small.total.bytes + 40,
+    'orphan maps are not assumed to be exempt');
   assert.strictEqual(budget.isIgnored('docs-extra/a', ignore), false);
   assert.strictEqual(budget.isIgnored('readme/child', ignore), false);
   const exactMetadata = [

@@ -77,10 +77,14 @@ function analyzePackageBudget(files, packages, ignore, budgets = BUDGETS) {
   packages.forEach(item => {
     if (!paths.has(`${item.root}game.js`)) throw new Error(`Missing published entry: ${item.root}game.js`);
   });
+  // WeChat accepts an adjacent JS sourcemap for upload but exempts it from
+  // code-package size. An orphan map remains counted rather than assumed safe.
+  const counted = published.filter(file =>
+    !file.path.endsWith('.js.map') || !paths.has(file.path.slice(0, -4)));
   const rows = [{ name: 'main', root: '', budget: budgets.main }]
     .concat(packages.map(item => ({ name: item.name, root: item.root, budget: budgets.subpackage })))
     .map(item => {
-      const contents = published.filter(file => packageForFile(file.path, packages) === item.name);
+      const contents = counted.filter(file => packageForFile(file.path, packages) === item.name);
       const bytes = contents.reduce((sum, file) => sum + file.bytes, 0);
       return Object.assign({}, item, {
         bytes, fileCount: contents.length,
@@ -91,7 +95,7 @@ function analyzePackageBudget(files, packages, ignore, budgets = BUDGETS) {
     });
   const total = {
     name: 'total', bytes: rows.reduce((sum, row) => sum + row.bytes, 0),
-    budget: budgets.total, fileCount: published.length
+    budget: budgets.total, fileCount: counted.length
   };
   total.passed = total.bytes <= total.budget;
   const errors = rows.flatMap(row => {

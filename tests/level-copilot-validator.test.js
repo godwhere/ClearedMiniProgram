@@ -351,6 +351,8 @@ function run() {
   assert.strictEqual(expandedLongSeed.report.difficulty.grade, 5);
   assert.strictEqual(expandedLongSeed.report.solver.classification, 'optional_complex');
 
+  // Keep the search fixture independent of host CPU speed; seed bounds are
+  // asserted below and wall-clock cutoff belongs to the runtime limit.
   const optimizedSeed = validator.validateCandidate({
     schemaVersion: 1,
     mechanic: 'portal',
@@ -359,7 +361,7 @@ function run() {
     colorCount: 5,
     targetGrade: 5,
     designIntent: 'Optimizer fixture.'
-  }, optimizableGradeFivePortalSeed());
+  }, optimizableGradeFivePortalSeed(), { clock: () => 0 });
   assert.strictEqual(optimizedSeed.status, 'reviewable');
   assert.strictEqual(optimizedSeed.report.difficulty.grade, 5);
   assert.strictEqual(optimizedSeed.report.solver.classification, 'required');
