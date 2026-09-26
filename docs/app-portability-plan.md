@@ -1,8 +1,8 @@
 # 微信小游戏到独立 App：架构准备方案与严格代码边界
 
 > 初稿日期：2026-09-08；本次更新：2026-09-26。
-> 状态：语言本地化已完成本地实现，作为现有能力保留；App 化已完成 P0、P1、P2、P2.5-A／B／C、P3、P4、P4.5、P5-A，以及 P5-B 共享异步普通存档接缝。P5-B 只有共享 Node 故障注入与 H 的静态／浏览器证据；`dist/native-web/` 仍是 `contract-gate-only`、`nativeCopyEligible:false`，不是可玩的正式原生 App。P2.5-B／P4 使用的 fake store 不代表真实购买。开发者工具、模拟器、真机、商店沙盒与上架证据不能互相替代。
-> 当前授权：用户于 2026-09-22 授权按阶段实施并要求每个独立任务通过 GitHub Desktop 提交，随后分别批准 P4.5、P5-A 与 2026-09-26 的 P5-B 建议值，并补充批准 H 的 `tests/browser-smoke.js` 白名单。P5-B 的 C／H 本地提交已完成且未推送。真机专属验收继续暂缓；P4.5 的双模拟器证据只适用于独立合成工程。后续正式原生工程、正式 SQLite 接入、商店／计费、服务器／云服务变更、签名、安装包上传、送审与发布仍未取得阶段白名单及单独授权。
+> 状态：语言本地化已完成本地实现，作为现有能力保留；App 化已完成 P0、P1、P2、P2.5-A／B／C、P3、P4、P4.5、P5-A 和 P5-B。P5-C 正在实施正式原生调试宿主与普通 SQLite 存档；`dist/native-web/` 已是可玩候选，但双模拟器验收未完成，`nativeCopyEligible:false`。P2.5-B／P4 的 fake store 不代表真实购买。开发者工具、模拟器、真机、商店沙盒与上架证据不能互相替代。
+> 当前授权：用户于 2026-09-22 授权按阶段实施并要求每个独立任务通过 GitHub Desktop 提交，随后分别批准 P4.5、P5-A、P5-B，以及 2026-09-26 的 P5-C 逐文件建议值和本机调试签名；另补充批准 H 的 `tests/browser-smoke.js` 纳入 P5-B。P5-B 的 C／H 本地提交已完成且未推送。P5-C 的 C 代码白名单为空。真机专属验收继续暂缓；P4.5 双模拟器证据只适用于独立合成工程。商店／计费、服务器／云服务变更、发行签名、安装包上传、送审与发布仍未获授权。
 > 本轮 P0 审计起点：本地 `main` 的 `984303becf8afab1dcd4fc855cc4128f4e1d9460`，tree 为 `544090431fc5c514b38898d47bb2ecf75dffce33`；开始时工作区干净并跟踪 `origin/main`。`0fde16caa6c9732306141d2884cd8cfda0194f8f` 是上一轮远端文档审阅起点，`5010d7ce067bf0f412cd28dba452218c3b95bf26` 是 2026-09-09 的历史账号页／本地化核验节点，初稿基线为 `cf8bcab8776f742aea0f2cff9830d3a72732f0d8`。每个代码阶段仍须以届时最新 HEAD 重新刷新差异、测试、分包和包体。
 > 客户端根目录 C：`/Users/ethan/Projects/ClearedMiniProgram`。下文施工路径相对 C，除非另有说明；P4 已将独立 App 宿主根目录 H 冻结为 `/Users/ethan/Projects/ClearedApp`，位于 C 之外。
 > 相关约束：[玩法架构](gameplay-extension-architecture.md)、[单方案结算](single-mode-settlement-plan.md)、[当前联网方式](cloudbase-local-first-sync.md)、[奖励解锁](reward-unlock-system.md)、[体力](stamina-system.md)、[每日挑战](daily-challenge-mode.md)、[回廊与特效](corridor-and-clear-effects.md)、[App 编排减负](app-orchestration-refactor-plan.md)、[主题分包](package-splitting.md)、[已实现的语言本地化](localization.md)。
@@ -780,7 +780,7 @@ P4.5 输出的 P5 最小影响范围如下；它是设计输入，不构成 P5 �
 
 提交后的干净宿主以 `pnpm verify` 通过 P5 精确文件白名单、4／4 Node 合同组、双输出构建／扫描、失败关闭原生门 smoke，以及既有 P4 六关与全部门禁 Chrome 闭环；provenance 记录该宿主提交、tree、干净状态、共享锁／P5 锁摘要和逐文件输入摘要。该段是 P5-A 的历史证据；P5-B 的追加证据见第 13.18 节。正式原生工程、SQLite 端口与商店仍未接入。
 
-#### P5-C 施工前审计：正式原生宿主与普通存档（建议，未获施工授权）
+#### P5-C 施工前审计：正式原生宿主与普通存档（已批准的历史基线）
 
 截至 2026-09-26，H 的 `src/main.js` 使用 P4 命名空间、同步 `BrowserPlatform`／`localStorage` 和 `FakeStoreAdapter`；`src/store/entitlement-owner.js` 的缓存也是 P4 同步浏览器存储。`scripts/build.js` 对 `native-web` 只复制失败关闭的三文件门，`scripts/scan-bundle.js` 与 `p5-scope-lock.json` 明确要求 `nativeCopyEligible:false`、`storageIntegration:false`、`nativeProjectGeneration:false`。C 的 `startAppLocalGameAsync()` 已能消费异步 `open`／`commit`／`lookupOperation`，但没有正式 H 端口。P4.5 的 Swift／Java SQLite 代码和 82 个测试工程原生跟踪文件仅供设计参考，不能把合成工程直接改名为生产工程。
 
@@ -794,7 +794,9 @@ P4.5 输出的 P5 最小影响范围如下；它是设计输入，不构成 P5 �
 - 施工前隔离生成并核对 8.5.2 候选工程的完整逐文件输出，冻结 H 的提交基线、依赖版本、构建输入与精确白名单后再请求授权。模板的 71 个可追踪原生源文件已全部列入建议清单；另两个未忽略的 Example 测试在白名单外，因此不能直接在 H 工作区执行 `cap add`，须在隔离目录生成后只复制获批文件。当前机器只发现 iOS 27 模拟器和 Android API 36 的 `Roco_API_36` 虚拟设备，没有 iOS 15／Android API 28 的最低版本运行证据；最低版本兼容须补相应模拟器或设备验证。
 - P5-C 验证须分别记录静态／Node、浏览器、iOS 模拟器和 Android 模拟器：锁文件及产物 provenance、P4 六关回归、正式 bundle 无假商店／远程请求／微信／CloudBase／每日／广告、SQLite 故障注入、并发与重复 operation ID、进度先于奖励恢复、体力先于 Runner、语言／设置重启、两端六关及后台／强退恢复。真机断电、实际 OS 备份／恢复、卸载重装与闪存空间耗尽继续标为未验。任一端口只能靠假同步返回、共享运行码需要超出新白名单、或产物含 P4 资产时停止，不复制为正式原生载荷。
 
-P5-C 的 [110 个 H 文件逐项建议清单](p5-c-scope-proposal.md) 已根据本机 8.5.2 隔离生成结果和实际调用链列出，仍须审查并批准后才能写入 H 的阶段锁。P5-C 之后的商店权益与受保护 no-backup 缓存、真实商品 ID、StoreKit 2／Play Billing、沙盒购买／恢复／退款应作为下一份独立施工合同；再之后才处理真机性能、隐私／许可、签名与发布。当前目标仍是完整 App 化，不以六关试玩替代最终商业和发布验收；这些后续工作各自需要可核对的文件清单、账号／设备条件和明确授权。
+P5-C 的 [110 个 H 文件逐项建议清单](p5-c-scope-proposal.md) 已由用户批准，包括本机调试签名。H 的阶段锁以提交 `140648b527bd395c54e74e90244fc136ddd7f21b` 为基线，C 共享锁仍是 `0b53ad6bab9845e855f136b61a3a707817bf0472`、runtime contract 5；C 后续仅有文档提交，不静默刷新共享锁。P5-C 之后的商店权益与受保护 no-backup 缓存、真实商品 ID、StoreKit 2／Play Billing、沙盒购买／恢复／退款应作为下一份独立施工合同；再之后才处理真机性能、隐私／许可、发行签名与发布。当前目标仍是完整 App 化，不以六关试玩替代最终商业和发布验收；这些后续工作各自需要可核对的文件清单、账号／设备条件和明确授权。
+
+P5-C 当前施工证据（2026-09-26）：H 已将正式入口接到共享异步 runtime、Swift／Java 系统 SQLite，操作摘要以同一原始请求字节计算，`full_game_v1` 固定为未拥有／商店不可用。静态／Node、双输出扫描、Chrome 的正式入口失败关闭与合成端口启动，以及 P4 六关浏览器回归通过。Android API 36 隔离模拟器完成六个免费关、普通档强退恢复、200 次真实设置写入和 10,000 条隔离操作日志；未来 schema、损坏 JSON／数据库头、同 ID 冲突等五项原生仪器测试通过。iOS 27 iPhone 18 Pro 模拟器已安装并运行到主页，普通 SQLite 创建与强退重启通过。iOS 原先在未来 schema 失败时改动 WAL 伴随文件，已改为先只读检查；在测试专用备份／恢复控制下，未来 schema、损坏 JSON 和无效数据库头均失败关闭，数据库、WAL、SHM 的 SHA-256 保持不变。iOS 六关、语言／设置、200 次真实提交、10,000 条隔离日志、完整双端故障矩阵与最低版本模拟器均未验，因此 `nativeCopyEligible` 保持 `false`。真机断电、备份／恢复／卸载重装、商店与发布仍无证据。
 
 ## 7. App 技术路线与构建边界
 
