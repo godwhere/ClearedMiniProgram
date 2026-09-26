@@ -47,4 +47,6 @@
 | iOS 模拟器＋Xcode 本地 StoreKit | 新独立 scheme 重跑 P5-D 购买／取消／pending／恢复／撤销／故障；默认 scheme 无本地夹具；补做正式 App 按钮真实触控 | 本地 `.storekit` 不能证明沙盒或生产交易 |
 | 真机与商店沙盒 | 经单独授权、真实商品和沙盒账号可用后，验证 iOS 15 与较新系统的购买／取消／pending／恢复、退款、离线、重装与备份、低空间及真实显示 | 当前未授权，暂缓；发行签名、上传、送审、发布更不在本白名单 |
 
+最低版本工具链限制（2026-09-27 复核）：本机 macOS 27.0、Xcode 27.0 只装 iOS 27.0 模拟器。[Apple 的 Xcode 支持表](https://developer.apple.com/xcode/system-requirements)列 Xcode 27 可把 iOS 15 设为部署目标，但仅支持运行 iOS 17+ 的设备和模拟器；本阶段的 iOS 15 类型检查不能替代最低系统运行。iOS 15 完整验收需要另一套受支持的工具链或以后经单独授权的设备／分发流程；不为通过当前矩阵擅自提高产品最低版本。
+
 若 `.xcode` 缓存可授予沙盒／生产权益、JS 可自行签发 `owned_verified`、未知环境或损坏缓存放行、未落盘就 `finish()`、启动自动 `AppStore.sync()`、`nativeCopyEligible` 被提前改为 `true`，立即停止。真实商品 ID 不可用、iOS 15 离线环境无法可靠判定、任何表外文件或账号／签名／商店操作成为必需时，先记录证据并取得新的明确授权。[Apple 沙盒测试条件](https://developer.apple.com/documentation/storekit/testing-in-app-purchases-with-sandbox)、[非消耗型商品创建](https://developer.apple.com/help/app-store-connect/manage-in-app-purchases/create-consumable-or-non-consumable-in-app-purchases)

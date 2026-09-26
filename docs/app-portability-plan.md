@@ -808,6 +808,8 @@ P5-D 本地模拟实施记录（2026-09-27）：H 的 `5d6a4160f84d1ad29a9a05849
 
 P5-D UI 链路补充：H 的 `8037940b2f4fdd70e9ca8db948a7ddacdc670188` 在 Chrome `native-web` 合成插件中，经 Canvas 点击账号恢复与两次取消购买，确认调用只由用户操作触发、取消后仍可购买、普通档无新增提交；干净 H `pnpm verify` 通过。此项仅为浏览器证据。iOS 27 模拟器当前停在 Apple Account 登录提示，Device Hub 接口超时；未输入账号，正式 App 按钮实际触控仍未验。
 
+最低版本验收工具链复核：H 的 `0e291d28d7532d0776d01c85d257633855ea8e7c` 记录本机 macOS 27／Xcode 27 仅装 iOS 27 模拟器。[Apple 的 Xcode 支持表](https://developer.apple.com/xcode/system-requirements)将 Xcode 27 的 iOS 15 列为可部署目标，但设备和模拟器运行支持从 iOS 17 起。因此 iOS 15 类型检查只有静态效力；最低版本运行与 StoreKit 行为须使用受支持的其他工具链或日后经授权的设备／分发流程，不改 iOS 15 产品下限。
+
 下一段 iOS 正式商店链路的[P5-E 施工前建议](p5-e-ios-storekit-scope-proposal.md)已完成审计，尚待逐文件白名单批准；代码实施和 App Store Connect／沙盒／真机授权分开。建议先隔离 Xcode 本地、沙盒及生产商业缓存，并解决 iOS 15 离线环境判定，再以真实商品和设备验证购买全生命周期。P5-D 的正式 App 按钮模拟器触控仍未验；不能以新建议替代该证据。
 
 ## 7. App 技术路线与构建边界
