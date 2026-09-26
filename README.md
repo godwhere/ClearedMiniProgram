@@ -185,9 +185,9 @@ node scripts/generate-level-modules.js
 - 网络暂时不可用时，允许离线进行的内容仍先保留本地进度、待办和显示金额，重启后也会从原待办恢复；联网后继续原操作，不会切换到本地发币。
 - 购买时会先同步待确认收益，再由 CloudBase 确认扣款与解锁；同步或购买失败不会扣币或授予主题。
 
-独立 App 的 P2.5-C 共享运行时及 P4 浏览器第二宿主已完成本地实现。仓库外的 `/Users/ethan/Projects/ClearedApp` 以锁文件固定本仓库提交、产品策略、168 关目录、六关快照与 runtime contract 3，并从锁定提交的系统临时快照生成 bundle、在构建后删除快照，不保存可编辑的共享业务源码副本。它只在显式提供 `app-local`、匹配且隔离的存储命名空间、完整六域映射和 App 产品配置时启用；不会因为断网或缺少 CloudBase 自动切换，也拒绝混入 SyncStore、每日挑战、广告、分享或在线服务。P4 已在 Chrome 中验证六关、五条完整版门禁、购买／恢复后的普通关／Portal／冰封、五项 `currency:10000` 回廊投影、双语重载、30 项资源和零远端请求。该宿主仍只是浏览器／WebView 兼容性原型；原生存储提交、杀进程恢复、设备隔离、真实商店和安装包仍归 P4.5／P5。
+独立 App 宿主位于仓库外的 `/Users/ethan/Projects/ClearedApp`。它以共享锁固定本仓库提交、产品策略、200 关目录、六关试玩快照与 runtime contract 5，从锁定提交的临时快照生成 bundle，不保存可编辑的共享游戏源码副本。App 只在显式 `app-local` 装配、隔离的普通存档 namespace 和六域映射下运行；不会因断网切换，也不启用微信 CloudBase、每日挑战、广告或分享。P4 浏览器回归已覆盖六关和完整版门禁；P5-C 已在独立 iOS／Android 调试宿主接入系统 SQLite 普通存档。
 
-P5-B 为正式 App 另设 `startAppLocalGameAsync()` 与普通存档事务接缝：确认候选提交后才进入关卡、显示完成及更新体力／奖励／设置；微信同步入口和 P4 浏览器入口保持原合同。正式普通命名空间为 `com.godwhere.cleared/ordinary/prod/v1`，总 schema 为 1，`full_game_v1` 不进入普通存档。当前 H 的 `dist/native-web/` 仍是不可玩的合同门；本阶段 Node 故障注入不代表正式原生工程、模拟器或真机验收。
+P5-B 的 `startAppLocalGameAsync()` 在普通存档可靠提交后才确认关卡、体力、奖励和设置；微信同步入口保持原合同。App 普通 namespace 为 `com.godwhere.cleared/ordinary/prod/v1`，schema 1。完整版 `full_game_v1` 与普通存档分离：P5-D 仅在 iOS 模拟器接入 Xcode 本地 StoreKit 商品和独立商业缓存，尚非真实商店购买。H 的 `dist/native-web/` 是可玩候选，但原双平台验收条件尚未通过，`nativeCopyEligible:false`；真机、商店与发布仍未验收。
 
 当前协议、恢复与冲突边界见 [CloudBase 联网说明](docs/cloudbase-local-first-sync.md)。
 
@@ -201,7 +201,7 @@ P5-B 为正式 App 另设 `startAppLocalGameAsync()` 与普通存档事务接缝
 
 - [玩法拓展架构](docs/gameplay-extension-architecture.md)：规则层、输入、提示、渲染和结算的职责边界。
 - [微信小游戏英文本地化方案](docs/localization.md)：系统语言默认、双语词典和账号页语言切换。
-- [独立 App 架构准备方案](docs/app-portability-plan.md)：复用已完成的双语能力，规划平台适配、独立账号与存档；明确保持微信编译／预览／上传流程的硬边界、包预算与分阶段验收。P0—P4 已完成共享源码、同步测试及浏览器第二宿主边界内的本地实施；P4.5 原生存储最小验证须单独批准，P5 正式原生 App、真实商店与发布尚未实施。当前商店验证仍只使用测试 provider，不代表真实购买已接通。
+- [独立 App 架构准备方案](docs/app-portability-plan.md)：记录共享源码、P4.5 双模拟器存储验证及 P5-A／B／C／D 的已实施边界；iOS StoreKit 目前只有 Xcode 本地模拟，真实商店、真机和发布仍待单独授权与验收。
 - [Portal 机制](docs/portal-mechanic.md)：传送门状态机、分段手势、数据与解答格式。
 - [冰封玩法](docs/ice-trial.md)：两层地板规则、提示流程及主线接入边界。
 - [关卡难度系统](docs/level-difficulty-system.md)：评分方法、排序规则和舒缓关节奏。
