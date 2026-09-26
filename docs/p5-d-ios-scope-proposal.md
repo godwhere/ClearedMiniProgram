@@ -59,6 +59,6 @@
 
 H 在 `5d6a4160f84d1ad29a9a058490bc626dac01e31b` 完成逐文件白名单内的本地实现，并在 `7ddd78c10a0a409451dc2752efc5b50dfe8b86c8` 修复原生通知晚安装时的快照补发；两次均由 GitHub Desktop 本地提交，未推送。H 的 `pnpm preflight`、提交后干净双仓 `pnpm verify`、范围锁与 bundle 扫描、Chrome 无插件失败关闭／合成插件／六关 smoke 均通过。iOS 15 SDK 类型检查通过，仅证明编译兼容。
 
-Xcode 27 图形界面在 iOS 27 iPhone 18 Pro 模拟器执行 9 项 Swift XCTest 全部通过：本地购买／恢复／退款、待批准购买不提前授权、启动漏过更新后的 `unfinished` 补扫与缓存恢复、独立 SQLite 与普通档隔离、缺安装标识或数据库、损坏数据和未来 schema 的失败关闭。H 的 `b9d4c392643c199294b5aa58804ee8705295b980` 新增商业 SQLite 写入拒绝注入：App 购买不授权、不 `finish`，故障解除后刷新才落盘授权并完成交易；这是确定性写入失败，不是系统真实低空间。退款后空查询、多次退款的迟到旧交易和晚安装通知的断言曾先在错误实现下失败。Xcode Run 中原生桥读取到本地测试价格 `$1.99` 与既有普通档；该价格不是正式定价。CLI `xcodebuild test` 未成功加载本地 StoreKit 配置，不能计入交易证据。
+Xcode 27 图形界面在 iOS 27 iPhone 18 Pro 模拟器执行 10 项 Swift XCTest 全部通过：本地购买／恢复／退款、无交易恢复时旧缓存去权、待批准购买不提前授权、启动漏过更新后的 `unfinished` 补扫与缓存恢复、独立 SQLite 与普通档隔离、缺安装标识或数据库、损坏数据和未来 schema 的失败关闭。H 的 `b9d4c392643c199294b5aa58804ee8705295b980` 新增商业 SQLite 写入拒绝注入：App 购买不授权、不 `finish`，故障解除后刷新才落盘授权并完成交易；这是确定性写入失败，不是系统真实低空间。H 的 `27ce5d5c9f38043fa00fc7559fb317dd48ec750b` 又验证无交易时恢复可清除仅存于商业缓存的旧授权。退款后空查询、多次退款的迟到旧交易和晚安装通知的断言曾先在错误实现下失败。Xcode Run 中原生桥读取到本地测试价格 `$1.99` 与既有普通档；该价格不是正式定价。CLI `xcodebuild test` 未成功加载本地 StoreKit 配置，不能计入交易证据。
 
 仍未验收：正式 App 购买／恢复／取消按钮的模拟器实际触控、系统真实低空间、iOS 15 系统运行、真机备份／重装与断电、App Store 沙盒及发布。Android 新增工作暂停，`shared-source.lock.json` 仍锁定 C 的 `0b53ad6bab9845e855f136b61a3a707817bf0472`，共享运行码／catalog／产品合同未变；`nativeCopyEligible:false` 保持。
