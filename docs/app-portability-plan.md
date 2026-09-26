@@ -826,6 +826,8 @@ V27 的 [iOS 素材与第三方许可静态清单](p5-ios-asset-rights-audit.md)
 
 V27 的 [iOS 隐私数据流静态盘点](p5-ios-privacy-data-audit.md) 已按普通 SQLite、独立本地商业缓存、系统能力、第三方 manifest 与缺失的政策入口记录当前数据路径。WebView 无远程请求的浏览器证据不能替代原生／真机网络审查，也不能自动填写 App Privacy；正式政策、支持 URL 和最终候选仍待确认。
 
+下一段 iOS 设备展示与隐私入口的 [P5-F 施工前建议](p5-f-ios-presentation-privacy-scope-proposal.md) 已列出精确 F1 文件白名单和验证矩阵；iPhone 首发只是建议，设备范围与真实 HTTPS 政策／支持地址尚待用户冻结。P5-E 商店代码审批与 F1 分开；图标、启动图和权利签收也不包含在 F1。此建议不授权代码、账号、签名或发布操作。
+
 ## 7. App 技术路线与构建边界
 
 ### 7.1 首选验证路线，不是已确定的技术承诺
