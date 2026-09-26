@@ -132,7 +132,7 @@ ios/debug.xcconfig
 
 ## 冻结值与关键实现
 
-- 宿主保持 `Cleared`、`com.godwhere.cleared`、iOS 15.0+、Android API 28+；Capacitor `@capacitor/core`、`cli`、`ios`、`android` 建议继续精确锁定 P4.5 已测的 8.5.2。正式 `webDir` 为 H 的 `dist/native-web`，元数据在 `dist/native-meta` 外置。
+- 宿主保持 `Cleared`、`com.godwhere.cleared`、iOS 15.0+、Android API 28+；Capacitor `@capacitor/core`、`cli`、`ios`、`android` 建议继续精确锁定 P4.5 已测的 8.5.2。正式 `webDir` 为 H 的 `dist/native-web`，元数据在 `dist/native-meta` 外置。Capacitor 8 的[官方升级指南](https://capacitorjs.com/docs/updating/8-0)指定 iOS 15.0、Android 模板最低 API 24、Node 22+ 与 Xcode 26+；本机隔离生成也确认为 Android `minSdkVersion=24`、iOS deployment target `15.0`。因此必须在白名单内的 `android/variables.gradle` 把正式最低 API 显式提高到 28，并以最低版本运行测试；生成成功或较新模拟器通过均不能代替该验收。
 - H 以一个不可复制的 App 产品取值源生成 P4 测试和正式原生配置；P4 的 `src/main.js`、`FakeStoreAdapter`、`EntitlementOwner` 可保持现状，正式入口必须独立且不导入三者。Canvas 平台共用能力可抽为 H 内基类；正式存储方法只能经异步原生端口，任何同步读写调用均失败关闭。
 - 原生端口严格提供 P5-B 的 `open({namespace,schemaVersion,keys})`、`commit({namespace,schemaVersion,operationId,writes})` 和 `lookupOperation(operationId)`。四个普通记录、操作 ID 与内容摘要在同一 SQLite 事务内提交；同 ID 不同内容拒绝，查询不明结果时不发布新确认状态。损坏或未来 schema 保留原字节；迁移只允许前向单事务升级。操作日志保留与清理规则必须在实现前以量测结果冻结。
 - Android 备份配置分别覆盖 API 30 及以下与 API 31 及以上，iOS 核查 Application Support 属性；配置检查不替代真机恢复。调试构建中的故障注入入口必须在正式构建中不可达且不进入 `dist/native-web`。
