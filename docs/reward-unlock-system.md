@@ -675,6 +675,8 @@ Node 测试不能替代上述广告、分享、触控、下载和设备证据。
 本轮只修复以下两个缺陷及特效文档冲突，不改变奖励数值、条件、存档格式、玩法、素材或后端合同。
 
 - **源进度写盘失败后的重试误报已领取**：普通结果仍为 `pending` 时，`reward:retry` 先重试 `ProgressStore.save()`，保存失败返回 false 并保持 pending。成功后才导出持久完成快照并结算；普通／每日 pending 结果只有在快照确实包含对应 levelKey／dateKey 且结算成功时，才能更新为 `granted` 或 `already-claimed`。不依赖 `firstClear`，钱包写盘失败后的既有恢复路径保持有效。
+
+P5-B 的正式 App 异步路径先确认 Progress 的普通完成事务，再以已确认完成投影调用 `reconcileAsync()`。`claimedOrdinary`、金币余额、拥有权与待展示通知共处一条 RewardUnlock v1 记录／一次事务；`purchaseAsync()` 同理将扣币与拥有权同写。写入失败保持上次确认状态，回调不明按原操作 ID 查询／重试；重启按完成事实补发且不重复发钱。每日、广告、分享与 `full_game_v1` 不进入此路径。当前证明限于 Node 故障注入，正式宿主数据库和真实商店尚未接通。
 - **首通货币领取标记阻断后续同关卡奖励**：`RewardUnlockService.reconcile()` 对每个精确匹配的已完成 levelKey 始终检查当前配置奖励；只有货币发放受 `claimedOrdinary` 去重控制。新增拥有权和通知仍同次写盘，失败回滚；已拥有项目不重复通知，也不按最高关卡编号推定其他里程碑。
 - **回归证据**：`tests/reward-unlock-app.test.js` 使用真实 App、ProgressStore 和奖励服务，新增普通源写入持续失败／恢复补发／重复重试与重玩、钱包写入失败恢复、普通与每日持久快照证据检查。`tests/reward-unlock-service.test.js` 新增同一钱包跨配置版本补授同关卡奖励、奖励单独写入失败回滚、重启通知恢复与重复恢复去重，并验证第 88 关不补送第 5／10／25 关奖励。先只加入测试时，这两组在旧实现下失败，其余 61 组通过（`/tmp/cleared-reward-review-before-fix.log`）。
 - **本轮最终验证**：`node tests/run.js` 重新执行，63 组全部通过（`/tmp/cleared-reward-review-tests.log`）。`node scripts/check-package-budget.js` 全部通过：主包源码估算 2,797,033 bytes（2.667 MiB / 3.20 MiB），总包 16,087,973 bytes（15.343 MiB / 18.00 MiB），日志为 `/tmp/cleared-reward-review-budget.log`。`git diff --check` 通过；保留原有未提交改动，不提交、合并、推送或发布。

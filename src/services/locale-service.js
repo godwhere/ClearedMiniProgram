@@ -11,10 +11,22 @@ function validRecord(value) {
 }
 
 class LocaleService {
-  constructor(platform) {
+  constructor(platform, options) {
     this.platform = platform;
+    this.appPersistence = options && options.appPersistence || null;
     this.explicit = false;
-    this.locale = this.load();
+    if (this.appPersistence) {
+      const saved = this.appPersistence.current(STORAGE_KEY);
+      if (saved !== null && !validRecord(saved)) throw new Error('app-local-invalid-locale');
+      if (saved) {
+        this.locale = saved.locale;
+        this.explicit = true;
+      } else {
+        let language = null;
+        try { language = platform.getSystemLanguage(); } catch (error) {}
+        this.locale = i18n.resolveLocale(language);
+      }
+    } else this.locale = this.load();
   }
 
   loadPreference() {
@@ -61,6 +73,7 @@ class LocaleService {
   }
 
   select(locale) {
+    if (this.appPersistence) throw new Error('app-local-sync-locale-write');
     if (!i18n.isSupportedLocale(locale)) {
       return { ok: false, persisted: false, locale: this.locale, reason: 'invalid-locale' };
     }
@@ -91,6 +104,30 @@ class LocaleService {
   next() {
     return this.shift(1);
   }
+
+  async selectAsync(locale) {
+    if (!this.appPersistence) throw new Error('app-local-persistence-required');
+    if (!i18n.isSupportedLocale(locale)) return { ok: false, persisted: false,
+      locale: this.locale, reason: 'invalid-locale' };
+    let saved;
+    try { saved = await this.appPersistence.run(STORAGE_KEY, () => ({
+      candidate: { schemaVersion: SCHEMA_VERSION, locale }
+    })); } catch (error) { saved = { ok: false, reason: 'storage-write-failed' }; }
+    if (!saved.ok) return { ok: false, persisted: false, locale: this.locale, reason: saved.reason };
+    this.locale = saved.value.locale;
+    this.explicit = true;
+    return { ok: true, persisted: true, locale: this.locale };
+  }
+
+  shiftAsync(offset) {
+    const currentIndex = Math.max(0, i18n.SUPPORTED_LOCALES.indexOf(this.locale));
+    const length = i18n.SUPPORTED_LOCALES.length;
+    const index = ((currentIndex + offset) % length + length) % length;
+    return this.selectAsync(i18n.SUPPORTED_LOCALES[index]);
+  }
+
+  previousAsync() { return this.shiftAsync(-1); }
+  nextAsync() { return this.shiftAsync(1); }
 }
 
 LocaleService.STORAGE_KEY = STORAGE_KEY;

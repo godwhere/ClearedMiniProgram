@@ -163,7 +163,7 @@ node scripts/check-package-budget.js
 git diff --check
 ```
 
-当前测试入口包含 112 组回归测试，覆盖棋盘规则、Portal 与冰封回放、现有 200 关目录数据、触摸采样、Canvas 渲染、每日存档兼容和页面字段映射、进度与体力、App 本地权威与逻辑命名空间隔离、待同步金币显示、奖励去重、主题/BGM 分包、CloudBase 配置选择、单一结算入口、同步冲突、小游戏启动烟雾流程，以及关卡 Copilot 的离线合同、Responses／Codex 客户端、验证流水线、并发安全落盘和评测指标。
+当前测试入口包含 113 组回归测试，覆盖棋盘规则、Portal 与冰封回放、现有 200 关目录数据、触摸采样、Canvas 渲染、每日存档兼容和页面字段映射、进度与体力、App 本地权威与异步候选提交、待同步金币显示、奖励去重、主题/BGM 分包、CloudBase 配置选择、单一结算入口、同步冲突、小游戏启动烟雾流程，以及关卡 Copilot 的离线合同、Responses／Codex 客户端、验证流水线、并发安全落盘和评测指标。
 
 修改 `data/clearedset*.json` 后，需要运行下面的命令更新提交到工程中的关卡模块：
 
@@ -186,6 +186,8 @@ node scripts/generate-level-modules.js
 - 购买时会先同步待确认收益，再由 CloudBase 确认扣款与解锁；同步或购买失败不会扣币或授予主题。
 
 独立 App 的 P2.5-C 共享运行时及 P4 浏览器第二宿主已完成本地实现。仓库外的 `/Users/ethan/Projects/ClearedApp` 以锁文件固定本仓库提交、产品策略、168 关目录、六关快照与 runtime contract 3，并从锁定提交的系统临时快照生成 bundle、在构建后删除快照，不保存可编辑的共享业务源码副本。它只在显式提供 `app-local`、匹配且隔离的存储命名空间、完整六域映射和 App 产品配置时启用；不会因为断网或缺少 CloudBase 自动切换，也拒绝混入 SyncStore、每日挑战、广告、分享或在线服务。P4 已在 Chrome 中验证六关、五条完整版门禁、购买／恢复后的普通关／Portal／冰封、五项 `currency:10000` 回廊投影、双语重载、30 项资源和零远端请求。该宿主仍只是浏览器／WebView 兼容性原型；原生存储提交、杀进程恢复、设备隔离、真实商店和安装包仍归 P4.5／P5。
+
+P5-B 为正式 App 另设 `startAppLocalGameAsync()` 与普通存档事务接缝：确认候选提交后才进入关卡、显示完成及更新体力／奖励／设置；微信同步入口和 P4 浏览器入口保持原合同。正式普通命名空间为 `com.godwhere.cleared/ordinary/prod/v1`，总 schema 为 1，`full_game_v1` 不进入普通存档。当前 H 的 `dist/native-web/` 仍是不可玩的合同门；本阶段 Node 故障注入不代表正式原生工程、模拟器或真机验收。
 
 当前协议、恢复与冲突边界见 [CloudBase 联网说明](docs/cloudbase-local-first-sync.md)。
 

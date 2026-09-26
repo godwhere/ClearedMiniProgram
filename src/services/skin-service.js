@@ -133,6 +133,14 @@ class SkinService {
     return true;
   }
 
+  async selectAsync(skinId) {
+    if (!hasOwn(this.skins, skinId) || !this.canUse('theme', skinId) ||
+        typeof this.progressStore.setSettingAsync !== 'function') return false;
+    if (!await this.progressStore.setSettingAsync('skinId', skinId)) return false;
+    this.currentId = skinId;
+    return true;
+  }
+
   // Return only serializable gallery metadata. In particular, do not expose
   // assets or tileVisuals here: those are renderer-facing implementation data
   // available through current(). Every returned value is newly allocated so

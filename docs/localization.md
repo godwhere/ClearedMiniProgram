@@ -266,6 +266,8 @@ Manual acceptance must cover both locales on the smallest supported layout and a
 
 The future App may reuse the semantic keys, American English glossary, and catalog validation approach. It must still create its own platform adapter, physical storage namespace, identity model, online environment, release metadata, and device QA. The WeChat locale key is not migrated or synchronized, and a language choice in one product does not change the other product.
 
+P5-B adds a separate async App-local preference path inside `com.godwhere.cleared/ordinary/prod/v1`. Startup distinguishes a missing Locale v1 record from a corrupt or unreadable one; the latter blocks startup. Account language actions wait for the candidate commit before changing the confirmed locale. WeChat's synchronous selector keeps its existing immediate session behavior on write failure. This is a Node-tested shared contract; the formal native storage port and device checks are pending.
+
 The account-screen changes in `5010d7c` are the user's independent work, not an implementation delivered by the App portability plan. If the App needs an Account screen, reuse that existing layout, rendering, and general interactions as the starting point. Adapt WeChat-specific profile authorization, privacy entry, identity, and cloud operations separately; sharing the page does not share accounts or player data, require a login system, or mandate a Settings rename. See the account reuse contract in the App portability plan.
 
 This plan resolves only the localization seam referenced by [the App portability plan](app-portability-plan.md). It does not authorize App implementation or any change to the current WeChat settlement model.

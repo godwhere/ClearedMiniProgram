@@ -60,9 +60,27 @@ function normalizeTarget(target) {
 }
 
 class ProgressStore {
-  constructor(platform) {
+  constructor(platform, options) {
     this.platform = platform;
-    this.state = this.load();
+    this.appPersistence = options && options.appPersistence || null;
+    if (this.appPersistence) {
+      const saved = this.appPersistence.current(STORAGE_KEY);
+      const parsed = typeof saved === 'string' ? (() => { try { return JSON.parse(saved); } catch (error) { return null; } })() : saved;
+      if (parsed !== null && !ProgressStore.validSavedState(parsed)) throw new Error('app-local-invalid-progress');
+      this.state = parsed === null ? createDefaultState('none') : this.normalize(parsed);
+    } else this.state = this.load();
+  }
+
+  static validSavedState(saved) {
+    return isRecord(saved) && saved.schemaVersion === 2 && isRecord(saved.completed) &&
+      isRecord(saved.bestMs) && isRecord(saved.settings) && isRecord(saved.stats) &&
+      Object.keys(saved.completed).every(key => !BLOCKED_KEYS[key] && typeof saved.completed[key] === 'boolean') &&
+      Object.keys(saved.bestMs).every(key => !BLOCKED_KEYS[key] && validBest(saved.bestMs[key])) &&
+      (saved.lastPlayed === null || saved.lastPlayed === undefined || !!normalizeTarget(saved.lastPlayed)) &&
+      (saved.settings.skinId === undefined || typeof saved.settings.skinId === 'string' && !!saved.settings.skinId) &&
+      (saved.settings.clearEffectId === undefined || typeof saved.settings.clearEffectId === 'string' && !!saved.settings.clearEffectId) &&
+      (saved.settings.soundEnabled === undefined || typeof saved.settings.soundEnabled === 'boolean') &&
+      (saved.stats.totalClears === undefined || Number.isSafeInteger(saved.stats.totalClears) && saved.stats.totalClears >= 0);
   }
 
   load() {
@@ -98,7 +116,60 @@ class ProgressStore {
   }
 
   save() {
+    if (this.appPersistence) throw new Error('app-local-sync-progress-write');
     return this.platform.setStorage(STORAGE_KEY, this.state);
+  }
+
+  async updateAsync(build, operationId) {
+    if (!this.appPersistence) throw new Error('app-local-persistence-required');
+    let result;
+    try { result = await this.appPersistence.run(STORAGE_KEY,
+      previous => build(previous || createDefaultState('none')), operationId); }
+    catch (error) { return { ok: false, reason: 'persist-failed' }; }
+    if (result.ok) this.state = this.normalize(result.value);
+    return result;
+  }
+
+  async markOpenedAsync(setIndex, levelIndex) {
+    return this.updateAsync(previous => ({ candidate: Object.assign({}, previous, {
+      lastPlayed: { setIndex, levelIndex }
+    }) }));
+  }
+
+  async recordCompletionAsync(setIndex, levelIndex, elapsedMs, operationId) {
+    const key = this.key(setIndex, levelIndex);
+    const saved = await this.updateAsync(previous => {
+      const prior = this.normalize(previous);
+      const previousBest = Number(prior.bestMs[key]) || 0;
+      const completedMs = Math.max(1, Math.round(Number(elapsedMs) || 1));
+      const firstClear = !prior.completed[key];
+      const newBest = previousBest === 0 || completedMs < previousBest;
+      const candidate = Object.assign({}, prior, {
+        completed: Object.assign({}, prior.completed, { [key]: true }),
+        bestMs: Object.assign({}, prior.bestMs, newBest ? { [key]: completedMs } : {}),
+        lastPlayed: { setIndex, levelIndex },
+        stats: Object.assign({}, prior.stats, { totalClears: prior.stats.totalClears + 1 })
+      });
+      return { candidate, result: { firstClear, newBest, previousBest,
+        bestMs: Number(candidate.bestMs[key]) || completedMs } };
+    }, operationId);
+    return saved.ok ? Object.assign({ persisted: true }, saved.result) :
+      { persisted: false, reason: saved.reason };
+  }
+
+  async setSettingAsync(name, value) {
+    const saved = await this.updateAsync(previous => ({ candidate: Object.assign({}, previous, {
+      settings: Object.assign({}, previous.settings, { [name]: value })
+    }) }));
+    return saved.ok;
+  }
+
+  exportRewardCompletionsAsync() {
+    if (!this.appPersistence) throw new Error('app-local-persistence-required');
+    const saved = this.appPersistence.current(STORAGE_KEY);
+    const state = saved === null ? createDefaultState('none') : this.normalize(saved);
+    return { ok: true, levelKeys: Object.keys(state.completed).filter(key =>
+      validCloudKey(key) && state.completed[key] === true) };
   }
 
   exportCloudSnapshot() {

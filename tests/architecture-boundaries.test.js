@@ -205,7 +205,9 @@ function run() {
     '../services/hint-access-service.js',
     '../services/locale-service.js',
     '../config/rewards.js',
-    './product-policy.js'
+    './product-policy.js',
+    './app-local-persistence.js',
+    '../../data/catalog-v2.js'
   ], 'the shared composition root may depend only on reusable local runtime modules');
   assert(!/platform\/wechat|cloudbase|backend|api-client|auth-service|session-store|sync-store|cloud-function/.test(gameRuntimeSource),
     'the shared composition root cannot select a concrete host, cloud environment or online service');

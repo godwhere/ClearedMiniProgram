@@ -197,7 +197,13 @@ class RewardUnlockService {
     // protected service must never be promoted into it after touching a
     // wallet, while a fresh process may still load an existing App ledger.
     this._authorityMode = opts.authorityMode === 'app-local' ? 'app-local' : 'legacy-local';
-    this.load();
+    this.appPersistence = opts.appPersistence || null;
+    if (this.appPersistence) {
+      if (this._authorityMode !== 'app-local' || !this.catalog) throw new Error('app-local-reward-config-invalid');
+      const saved = this.appPersistence.current(STORAGE_KEY);
+      this.state = saved === null ? emptyState() : normalizeState(saved);
+      if (!this.state) throw new Error('app-local-invalid-rewards');
+    } else this.load();
   }
 
   authorityMode() { return this._authorityMode; }
@@ -359,6 +365,7 @@ class RewardUnlockService {
   }
 
   write(candidate) {
+    if (this.appPersistence) throw new Error('app-local-sync-reward-write');
     try {
       if (this.platform && typeof this.platform.setStorage === 'function' &&
           this.platform.setStorage(STORAGE_KEY, clone(candidate)) === true) {
@@ -381,23 +388,30 @@ class RewardUnlockService {
   reconcile(input) {
     if (!['legacy-local', 'local-backup', 'app-local'].includes(this._authorityMode)) return this.authorityBlocked();
     if (!this.state) return { ok: false, reason: this.loadError, amountDelta: 0, newRewards: [] };
+    const built = this.buildReconciliation(input, this.state);
+    if (!built.ok || !built.candidate) return built.result;
+    if (!this.write(built.candidate)) return { ok: false, reason: 'persist-failed', amountDelta: 0, newRewards: [] };
+    return built.result;
+  }
+
+  buildReconciliation(input, state) {
     const ordinary = input && input.ordinary;
     const daily = input && input.daily;
     if (!ordinary || ordinary.ok !== true || !Array.isArray(ordinary.levelKeys) ||
         !daily || daily.ok !== true || !Array.isArray(daily.days)) {
-      return { ok: false, reason: 'invalid-completions', amountDelta: 0, newRewards: [] };
+      return { ok: false, result: { ok: false, reason: 'invalid-completions', amountDelta: 0, newRewards: [] } };
     }
     if (this._authorityMode === 'app-local' && daily.days.length !== 0) {
-      return { ok: false, reason: 'daily-disabled', amountDelta: 0, newRewards: [] };
+      return { ok: false, result: { ok: false, reason: 'daily-disabled', amountDelta: 0, newRewards: [] } };
     }
-    const candidate = clone(this.state);
+    const candidate = clone(state);
     const newRewards = [];
     const sources = [];
     let amountDelta = 0;
     if (!ordinary.levelKeys.every(key => levelKeys.has(key)) || !daily.days.every(day => record(day) &&
         validDateKey(day.dateKey) && validId(day.dayId) && Array.isArray(day.levelIds) && day.levelIds.length === 2 &&
         day.levelIds.every(validId) && day.levelIds[0] !== day.levelIds[1])) {
-      return { ok: false, reason: 'invalid-completions', amountDelta: 0, newRewards: [] };
+      return { ok: false, result: { ok: false, reason: 'invalid-completions', amountDelta: 0, newRewards: [] } };
     }
     const completedKeys = Array.from(new Set(ordinary.levelKeys));
     completedKeys.forEach(levelKey => {
@@ -421,11 +435,61 @@ class RewardUnlockService {
       amountDelta += this.catalog.currency.dailyFirstComplete;
       sources.push(`daily:${day.dateKey}`);
     });
-    if (!amountDelta && !newRewards.length) return { ok: true, reason: 'already-applied', amountDelta: 0, newRewards: [], sources: [] };
-    if (!safeInteger(candidate.balance + amountDelta, false)) return { ok: false, reason: 'balance-overflow', amountDelta: 0, newRewards: [] };
+    if (!amountDelta && !newRewards.length) return { ok: true, candidate: null,
+      result: { ok: true, reason: 'already-applied', amountDelta: 0, newRewards: [], sources: [] } };
+    if (!safeInteger(candidate.balance + amountDelta, false)) return { ok: false,
+      result: { ok: false, reason: 'balance-overflow', amountDelta: 0, newRewards: [] } };
     candidate.balance += amountDelta;
-    if (!this.write(candidate)) return { ok: false, reason: 'persist-failed', amountDelta: 0, newRewards: [] };
-    return { ok: true, amountDelta, newRewards, sources };
+    return { ok: true, candidate, result: { ok: true, amountDelta, newRewards, sources } };
+  }
+
+  async appLocalWrite(build) {
+    if (!this.appPersistence) throw new Error('app-local-persistence-required');
+    let saved;
+    try {
+      saved = await this.appPersistence.run(STORAGE_KEY, previous => {
+        const built = build(previous || emptyState());
+        return { candidate: built.candidate === null && previous === null ? emptyState() : built.candidate,
+          result: built.result };
+      });
+    } catch (error) { saved = { ok: false, reason: 'persist-failed' }; }
+    if (!saved.ok) return { ok: false, reason: saved.reason, amountDelta: 0, newRewards: [] };
+    this.state = normalizeState(saved.value);
+    return saved.result;
+  }
+
+  reconcileAsync(input) {
+    return this.appLocalWrite(state => {
+      const built = this.buildReconciliation(input, state);
+      return built.ok ? built : { candidate: null, result: built.result };
+    });
+  }
+
+  purchaseAsync(rewardId) {
+    return this.appLocalWrite(state => {
+      const item = this.item(rewardId);
+      if (!item || item.unlock.type !== 'currency') return { candidate: null,
+        result: { ok: false, reason: 'invalid-reward', amountDelta: 0, newRewards: [] } };
+      if (state.ownedRewards[rewardId] === true) return { candidate: null,
+        result: { ok: true, reason: 'already-owned', alreadyApplied: true, amountDelta: 0, newRewards: [] } };
+      if (state.balance < item.unlock.cost) return { candidate: null,
+        result: { ok: false, reason: 'insufficient-balance', amountDelta: 0, newRewards: [] } };
+      const candidate = clone(state);
+      const newRewards = [];
+      candidate.balance -= item.unlock.cost;
+      this.grant(candidate, rewardId, newRewards);
+      return { candidate, result: { ok: true, amountDelta: -item.unlock.cost, newRewards } };
+    });
+  }
+
+  acknowledgeNoticeAsync(rewardId) {
+    return this.appLocalWrite(state => {
+      const index = state.pendingNotices.indexOf(rewardId);
+      if (index < 0) return { candidate: null, result: { ok: true, reason: 'already-acknowledged' } };
+      const candidate = clone(state);
+      candidate.pendingNotices.splice(index, 1);
+      return { candidate, result: { ok: true } };
+    });
   }
 
   purchase(rewardId) {

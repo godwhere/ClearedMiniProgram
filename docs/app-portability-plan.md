@@ -1142,3 +1142,10 @@ git diff --check
 - 选型建议仅覆盖普通 App 本地状态：P5 增加独立异步存储接缝并逐个迁移 runtime 初始化、Progress、RewardUnlock、Stamina、Locale、设置消费者及 App 的必要调用点；微信同步存储合同不变。精确文件／调用链、顺序、测试清单与商业权益隔离要求保存在 H 的 `reports/conclusion.md`。
 - 本轮仅核对 iOS Application Support 的 backup exclusion 属性为 false，以及 Android manifest／XML 明确允许普通数据库备份；没有执行实际 OS 备份／恢复、设备迁移、卸载／重装或 no-backup 商业权益缓存。强退是 `simctl terminate`／`adb force-stop`，空间不足为 `max_page_count` 故障注入，均不能替代真机断电、闪存耐久或真实磁盘耗尽。
 - P4.5 不含 `full_game_v1`，也未执行 StoreKit／Play Billing、购买／恢复／退款、Apple finish、Google acknowledgment、签名、安装包、性能、商店审核、上传、推送或发布。P5 是剩余的唯一设计／实施阶段，仍须另行授权；上述真机与外部平台验收在获得相应条件前继续暂缓。
+
+### 13.18 P5-B 共享异步普通存档接缝：2026-09-26
+
+- 经单独批准，只在共享源码新增 `startAppLocalGameAsync()` 和 `AppLocalPersistence`；同步 `startGame()`／微信 `readStorageResult()`、`setStorage()` 合同不变。H 的正式原生载荷仍为 `contract-gate-only`、`nativeCopyEligible:false`。不生成 `ios/`／`android/`，不连接商店或签名。
+- 正式普通 namespace 冻结为 `com.godwhere.cleared/ordinary/prod/v1`，容器 schema 为 1；四条逻辑记录维持 Progress v2、RewardUnlock v1、Stamina v1、Locale v1。宿主异步端口 `open({namespace,schemaVersion,keys})` 一次返回结构化存在性／schema；`commit({namespace,schemaVersion,operationId,writes})` 必须在同一原生事务内写入记录和操作 ID；`lookupOperation(operationId)` 用于提交回调不明时查询。每个 namespace 串行构造候选、等待确认后更新内存；同 ID 同请求可重放，同 ID 不同请求须拒绝。明确失败保留旧状态；不明结果禁止后续写入直到同 ID 得到确认或明确失败。读取失败、损坏、未知未来 schema 均阻止启动并保留原字节，不按新安装初始化；未来升级须在原生单事务内迁移且禁止降级写入。P4 浏览器、P4.5 合成数据库、微信和 CloudBase 数据不导入。
+- 异步启动在建立 App／Runner 前读取、校验、恢复已完成关卡的永久进入权、快通退款和普通首通奖励。入场先确认体力余额与永久解锁同写，再确认 `lastPlayed`，最后创建 Runner；普通完成先确认进度，再幂等处理奖励和退款。金币余额／拥有／待展示通知同写；失败时不展示虚假的到账。语言、主题、特效和声音由各自候选保存后更新本地确认状态；生命周期写入只是补充检查点，不代替关键事务。
+- `full_game_v1` 继续由独立商业权益所有者控制，绝不写进普通 namespace；安装绑定、no-backup 的原生商业缓存、StoreKit 2／Play Billing、正式原生端口、备份和卸载重装验收属于后续阶段。P5-B 回归只证明 Node 故障注入与共享调用链；P4.5 的双模拟器合成 SQLite 证据不能外推为本接缝已在正式 App 模拟器或真机运行。

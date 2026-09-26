@@ -360,6 +360,14 @@ class ClearEffectService {
     return true;
   }
 
+  async selectAsync(id) {
+    if (typeof id !== 'string' || !hasOwn(this.effects, id) || !this.canUse('effect', id) ||
+        typeof this.progressStore.setSettingAsync !== 'function') return false;
+    if (!await this.progressStore.setSettingAsync('clearEffectId', id)) return false;
+    this.currentId = id;
+    return true;
+  }
+
   list() {
     return this.effectOrder.map(id => {
       const effect = this.effects[id];

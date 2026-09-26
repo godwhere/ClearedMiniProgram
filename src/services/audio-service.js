@@ -277,6 +277,16 @@ class AudioService {
     return this.enabled;
   }
 
+  async toggleAsync() {
+    if (this.destroyed || typeof this.progressStore.setSettingAsync !== 'function') return false;
+    const enabled = !this.enabled;
+    if (!await this.progressStore.setSettingAsync('soundEnabled', enabled)) return false;
+    this.enabled = enabled;
+    if (enabled) { this.allowExplicitBgmRetry(); this.unlock(); }
+    else this.pauseContexts();
+    return enabled;
+  }
+
   dispose() {
     if (this.destroyed) return;
     this.destroyed = true;

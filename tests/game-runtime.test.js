@@ -72,7 +72,7 @@ function testPlatform(options) {
 }
 
 function run() {
-  assert.strictEqual(gameRuntime.runtimeContractVersion, 3);
+  assert.strictEqual(gameRuntime.runtimeContractVersion, 4);
 
   const platform = testPlatform({ language: 'zh-Hans' });
   const local = gameRuntime.createLocalServices(platform, {

@@ -11,8 +11,10 @@ const HintAccessService = require('../services/hint-access-service.js');
 const LocaleService = require('../services/locale-service.js');
 const defaultRewardConfig = require('../config/rewards.js');
 const ProductPolicy = require('./product-policy.js');
+const AppLocalPersistence = require('./app-local-persistence.js');
+const catalog = require('../../data/catalog-v2.js');
 
-const runtimeContractVersion = 3;
+const runtimeContractVersion = 4;
 const APP_LOCAL_FORBIDDEN_DEPENDENCIES = Object.freeze([
   'syncStore',
   'progressSync',
@@ -163,6 +165,66 @@ function createLocalServices(platform, options) {
   };
 }
 
+async function createAppLocalServicesAsync(platform, options) {
+  if (!platform) throw new Error('platform-required');
+  const opts = options || {};
+  const productPolicy = ProductPolicy.create(opts.productPolicy);
+  const authority = productPolicy.authority();
+  if (!authority) throw new Error('app-local-authority-required');
+  assertNoActiveAppLocalDependencies(opts, true);
+  validateAppLocalHost(platform, authority);
+  const canonicalRewardConfig = productPolicy.projectRewardConfig(defaultRewardConfig);
+  const suppliedRewardConfig = productPolicy.projectRewardConfig(opts.rewardConfig || defaultRewardConfig);
+  if (!RewardUnlockService.configsMatch(suppliedRewardConfig, canonicalRewardConfig)) {
+    throw new Error('app-local-reward-config-mismatch');
+  }
+  if (authority.storageNamespaceId !== AppLocalPersistence.NAMESPACE) throw new Error('app-local-namespace-mismatch');
+  const appPersistence = await new AppLocalPersistence(opts.persistencePort).open();
+  const locale = new LocaleService(platform, { appPersistence });
+  const progress = new ProgressStore(platform, { appPersistence });
+  const stamina = new StaminaService(platform, Object.assign({}, opts.staminaConfig || {}, {
+    authorityMode: 'app-local', appPersistence
+  }));
+  const rewardUnlocks = new RewardUnlockService(platform, suppliedRewardConfig, {
+    authorityMode: 'app-local', appPersistence
+  });
+  const now = typeof opts.clock === 'function' ? opts.clock().getTime() : Date.now();
+  if (!(await stamina.snapshotAsync(now)).persisted) throw new Error('app-local-stamina-load-failed');
+  const lastPlayed = progress.state.lastPlayed;
+  const ownedKeys = catalog.levels.filter(entry => progress.isCompleted(entry.setIndex, entry.levelIndex) ||
+    lastPlayed && lastPlayed.setIndex === entry.setIndex && lastPlayed.levelIndex === entry.levelIndex)
+    .map(entry => `${entry.setIndex}:${entry.levelIndex}`);
+  if (!await stamina.restoreUnlockedLevelsAsync(ownedKeys, now)) throw new Error('app-local-stamina-recovery-failed');
+  for (const entry of catalog.levels) {
+    if (!progress.isCompleted(entry.setIndex, entry.levelIndex)) continue;
+    const elapsed = progress.bestTime(entry.setIndex, entry.levelIndex);
+    if (elapsed > 0) {
+      const refund = await stamina.refundQuickClearAsync(`${entry.setIndex}:${entry.levelIndex}`, elapsed, now);
+      if (!refund.ok) throw new Error('app-local-stamina-refund-recovery-failed');
+    }
+  }
+  const recovered = await rewardUnlocks.reconcileAsync({
+    ordinary: progress.exportRewardCompletionsAsync(), daily: { ok: true, days: [] }
+  });
+  if (!recovered.ok) throw new Error('app-local-reward-recovery-failed');
+  return { productPolicy, authority, contentAccess: (target, snapshot) => productPolicy.contentAccess(target, snapshot),
+    fullGameStore: opts.fullGameStore || null, locale, progress, stamina, rewardUnlocks,
+    preferences: new PreferencesService(progress), subpackages: null, dailyStore: null, hintAccess: null,
+    appPersistence };
+}
+
+async function startAppLocalGameAsync(platform, options) {
+  const opts = options || {};
+  assertNoActiveAppLocalDependencies(opts.appOptions, false);
+  if (opts.appOptions && opts.appOptions.productPolicy &&
+      !policyMatches(ProductPolicy.create(opts.productPolicy), ProductPolicy.create(opts.appOptions.productPolicy))) {
+    throw new Error('product-policy-mismatch');
+  }
+  const services = await createAppLocalServicesAsync(platform, opts);
+  return startGame(platform, { productPolicy: services.productPolicy,
+    appOptions: Object.assign({}, opts.appOptions || {}, services) });
+}
+
 function startGame(platform, options) {
   if (!platform) throw new Error('platform-required');
   const opts = options || {};
@@ -229,6 +291,8 @@ function startGame(platform, options) {
 module.exports = Object.freeze({
   runtimeContractVersion,
   createLocalServices,
+  createAppLocalServicesAsync,
+  startAppLocalGameAsync,
   startGame,
   validateAppLocalHost,
   assertNoActiveAppLocalDependencies

@@ -295,6 +295,9 @@ class ClearedApp {
     }
     if (this.fullGameRevision < 0) this.fullGameRevision = this.fullGameSnapshot.revision;
     this.platform = platform;
+    this.appPersistence = opts.appPersistence || null;
+    this.pendingCompletion = null;
+    this.openingLevel = false;
     this.locale = opts.locale || compatibilityLocale();
     this.subpackages = opts.subpackages || null;
     this.pendingSkinId = null;
@@ -374,11 +377,13 @@ class ClearedApp {
       throw new Error('stamina-authority-mismatch');
     }
     const lastPlayed = this.progress.state.lastPlayed;
-    this.stamina.restoreUnlockedLevels(catalog.levels.filter(entry =>
-      this.progress.isCompleted(entry.setIndex, entry.levelIndex) ||
-      (lastPlayed && lastPlayed.setIndex === entry.setIndex && lastPlayed.levelIndex === entry.levelIndex)
-    ).map(entry => `${entry.setIndex}:${entry.levelIndex}`), this.clockNow().getTime());
-    this.recoverStaminaRefunds(this.clockNow().getTime());
+    if (!this.appPersistence) {
+      this.stamina.restoreUnlockedLevels(catalog.levels.filter(entry =>
+        this.progress.isCompleted(entry.setIndex, entry.levelIndex) ||
+        (lastPlayed && lastPlayed.setIndex === entry.setIndex && lastPlayed.levelIndex === entry.levelIndex)
+      ).map(entry => `${entry.setIndex}:${entry.levelIndex}`), this.clockNow().getTime());
+      this.recoverStaminaRefunds(this.clockNow().getTime());
+    }
     this.staminaSnapshot = this.stamina.snapshot(this.clockNow().getTime());
     this.lastStaminaSecond = this.staminaSnapshot.recovering
       ? Math.ceil(this.staminaSnapshot.remainingMs / 1000) : -1;
@@ -456,7 +461,7 @@ class ClearedApp {
     this.cloudBackup = opts.cloudBackup || null;
     // Reconcile saved facts before restoring a selected appearance. No UI is
     // accessed until the renderer, pointer and scene state have been created.
-    this.recoverRewardUnlocks();
+    if (!this.appPersistence) this.recoverRewardUnlocks();
     const canUse = (kind, itemId) => this.rewardUnlocks.canUse(kind, itemId);
     this.skins = new SkinService(this.progress,
       opts.skins === undefined ? defaultSkins : opts.skins, canUse);
@@ -2084,6 +2089,13 @@ class ClearedApp {
       completionPolicies.settle(this.daily, { complete: () => this.completeDailyLevel() });
       return;
     }
+    if (this.appPersistence && this.runContext.progressionScope === 'ordinary') {
+      if (this.pendingCompletion) return;
+      this.pendingCompletion = { runner, context: this.runContext, elapsedMs: runner.elapsedMs(),
+        operationId: this.appPersistence.operationId('ordinary-completion') };
+      this.settleAppLocalCompletion().catch(() => {});
+      return;
+    }
     const completion = completionPolicies.settle(this.runContext, {
       progress: this.progress,
       elapsedMs: runner.elapsedMs()
@@ -2161,6 +2173,51 @@ class ClearedApp {
       });
       if (task && task.catch) task.catch(function () {});
     } catch (error) {}
+  }
+
+  settleAppLocalCompletion() {
+    if (this.completionTask) return this.completionTask;
+    this.completionTask = this.performAppLocalCompletion().finally(() => { this.completionTask = null; });
+    return this.completionTask;
+  }
+
+  async performAppLocalCompletion() {
+    const pending = this.pendingCompletion;
+    if (!pending) return false;
+    const completion = await completionPolicies.settleOrdinaryAsync(pending.context, {
+      progress: this.progress, elapsedMs: pending.elapsedMs, operationId: pending.operationId
+    });
+    if (!completion || completion.persisted !== true) {
+      if (!this.disposed && this.runner === pending.runner) {
+        this.result = { outcome: OUTCOME.WON, elapsedMs: pending.elapsedMs, persisted: false,
+          currencyReward: { status: 'local-save-failed', amount: 0, failureSource: 'local-save' } };
+        this.resultVisibleAt = Date.now();
+        this.scene = 'result';
+        this.invalidate();
+      }
+      return false;
+    }
+    this.pendingCompletion = null;
+    const levelKey = `${pending.context.setIndex}:${pending.context.levelIndex}`;
+    const refundAt = this.clockNow().getTime();
+    const refund = await this.stamina.refundQuickClearAsync(levelKey, completion.elapsedMs, refundAt);
+    this.refreshStamina(refundAt);
+    const reward = await this.recoverRewardUnlocksAsync();
+    if (this.disposed || this.runner !== pending.runner) return true;
+    this.result = completion;
+    this.result.outcome = OUTCOME.WON;
+    this.result.staminaRefunded = refund.refunded || 0;
+    this.result.currencyReward = reward.ok ? {
+      status: (reward.sources || []).includes(`ordinary:${levelKey}`) ? 'granted' : 'already-claimed',
+      amount: (reward.sources || []).includes(`ordinary:${levelKey}`)
+        ? rewardConfig.currency.ordinaryFirstClear : 0
+    } : { status: 'local-save-failed', amount: 0, failureSource: 'reward-reconcile' };
+    this.resultVisibleAt = Date.now() + this.skins.current().animation.resultDelayMs;
+    this.scene = 'result';
+    if (!refund.ok) this.showStaminaFeedback(refund.reason, refundAt);
+    else if (refund.refunded > 0) this.showStaminaFeedback('quick-clear-refund', refundAt, refund.refunded);
+    this.invalidate();
+    return true;
   }
 
   dailyCompletionCall(level, levelIndex, elapsedMs, observer) {
@@ -2437,6 +2494,11 @@ class ClearedApp {
       return false;
     }
     if (action === 'reward:retry') {
+      if (this.appPersistence) {
+        const retry = this.pendingCompletion ? this.settleAppLocalCompletion()
+          : this.recoverRewardUnlocksAsync();
+        return Promise.resolve(retry).then(result => { this.invalidate(); return result === true || !!(result && result.ok); });
+      }
       const pendingResult = this.scene === 'result' ? this.result
         : this.scene === 'dailyResult' && this.daily ? this.daily.result : null;
       if (pendingResult && pendingResult.currencyReward && pendingResult.currencyReward.status === 'pending' &&
@@ -2477,6 +2539,14 @@ class ClearedApp {
       const method = action === 'account:language:next'
         ? 'next' : 'previous';
       if (!this.locale || typeof this.locale[method] !== 'function') return false;
+      if (this.appPersistence) return this.locale[`${method}Async`]().then(result => {
+        if (!result.ok) return false;
+        this.accountMessage = '';
+        this.clearAccountFeedback();
+        if (this.profile) this.mountAccountProfile();
+        this.invalidate();
+        return true;
+      });
       this.locale[method]();
       // Transient account feedback is already rendered state, not business
       // state. Clear it so the newly selected locale is visible immediately.
@@ -2520,6 +2590,11 @@ class ClearedApp {
         action === 'daily:sound' || action === 'dailyResult:sound' ||
         action === 'corridor:sound' || action === 'effects:sound') {
       if (this.blockCoreWriteDuringMigration('preferences')) return false;
+      if (this.appPersistence) return this.audio.toggleAsync().then(enabled => {
+        if (enabled) this.audio.playSfx('click');
+        this.invalidate();
+        return enabled;
+      });
       const enabled = this.audio.toggle();
       if (this.progressSync && this.preferences) {
         try { this.progressSync.enqueuePreference('soundEnabled', enabled); } catch (error) {}
@@ -2615,6 +2690,15 @@ class ClearedApp {
       // the single persistence/loading entry point; failed IDs are ignored.
       const id = action.slice('theme:'.length);
       if (this.rewardUnlocks.canUse('theme', id)) {
+        if (this.appPersistence) {
+          this.setSkinAsync(id).then(selected => {
+            if (!selected && this.openRewardDialog(`theme:${id}`, 'unlocked')) {
+              this.rewardDialog.state = 'error'; this.rewardDialog.message = this.t('reward.applySaveFailed');
+              this.invalidate();
+            }
+          });
+          return true;
+        }
         if (!this.setSkin(id) && this.openRewardDialog(`theme:${id}`, 'unlocked')) {
           this.rewardDialog.state = 'error'; this.rewardDialog.message = this.t('reward.applySaveFailed');
         }
@@ -2658,6 +2742,15 @@ class ClearedApp {
       // board/daily state untouched.
       const id = action.slice('effect:'.length);
       if (this.rewardUnlocks.canUse('effect', id)) {
+        if (this.appPersistence) {
+          this.setClearEffectAsync(id).then(selected => {
+            if (!selected && this.openRewardDialog(`effect:${id}`, 'unlocked')) {
+              this.rewardDialog.state = 'error'; this.rewardDialog.message = this.t('reward.applySaveFailed');
+              this.invalidate();
+            }
+          });
+          return true;
+        }
         if (!this.setClearEffect(id) && this.openRewardDialog(`effect:${id}`, 'unlocked')) {
           this.rewardDialog.state = 'error'; this.rewardDialog.message = this.t('reward.applySaveFailed');
         }
@@ -3319,6 +3412,15 @@ class ClearedApp {
     return selected;
   }
 
+  async setClearEffectAsync(effectId) {
+    if (!this.appPersistence || this.blockCoreWriteDuringMigration('preferences') ||
+        !this.clearEffects || typeof this.clearEffects.selectAsync !== 'function' ||
+        !this.rewardUnlocks.canUse('effect', effectId)) return false;
+    const selected = await this.clearEffects.selectAsync(effectId);
+    if (selected) this.invalidate();
+    return selected;
+  }
+
   changeThemePage(delta) {
     const pageCount = this.themePageCount();
     const currentPage = Number(this.themePageIndex);
@@ -3330,6 +3432,25 @@ class ClearedApp {
       pageCount - 1
     );
     this.invalidate();
+  }
+
+  async recoverRewardUnlocksAsync() {
+    if (!this.appPersistence || !this.authorityConfigurationValid('economy')) {
+      return { ok: false, reason: 'authority-mismatch', amountDelta: 0, newRewards: [] };
+    }
+    const ordinary = this.progress.exportRewardCompletionsAsync();
+    const result = await this.rewardUnlocks.reconcileAsync({ ordinary, daily: { ok: true, days: [] } });
+    if (result.ok && this.result && this.result.currencyReward &&
+        ['pending', 'local-save-failed'].includes(this.result.currencyReward.status) && this.runContext) {
+      const key = `${this.runContext.setIndex}:${this.runContext.levelIndex}`;
+      if (ordinary.levelKeys.includes(key)) {
+        const granted = (result.sources || []).includes(`ordinary:${key}`);
+        this.result.currencyReward = { status: granted ? 'granted' : 'already-claimed',
+          amount: granted ? rewardConfig.currency.ordinaryFirstClear : 0 };
+      }
+    }
+    if (result.ok) this.invalidate();
+    return result;
   }
 
   recoverRewardUnlocks() {
@@ -3478,6 +3599,11 @@ class ClearedApp {
     if (!dialog || dialog.state === 'working' || dialog.state === 'loading') return false;
     const rewardId = dialog.rewardId;
     if (retry && !this.rewardUnlocks.view().available) {
+      if (this.appPersistence) return this.recoverRewardUnlocksAsync().then(restored => {
+        this.openRewardDialog(rewardId);
+        if (!restored.ok) this.rewardDialog.state = 'error';
+        return restored;
+      });
       const restored = this.recoverRewardUnlocks();
       this.openRewardDialog(rewardId);
       if (!restored.ok) this.rewardDialog.state = 'error';
@@ -3516,7 +3642,7 @@ class ClearedApp {
             : { ok: false, reason: 'network-required', newRewards: [] };
         }) : this.economy.purchase(rewardId);
       } else task = ['legacy-local', 'local-backup', 'app-local'].includes(currencyMode)
-        ? this.rewardUnlocks.purchase(rewardId)
+        ? this.appPersistence ? this.rewardUnlocks.purchaseAsync(rewardId) : this.rewardUnlocks.purchase(rewardId)
         : { ok: false, reason: currencyMode, newRewards: [] };
     }
     else if (this.engagement && this.engagement.requestRewardUnlock) {
@@ -3556,6 +3682,7 @@ class ClearedApp {
   }
 
   applyReward() {
+    if (this.appPersistence) return this.applyRewardAsync();
     const dialog = this.rewardDialog;
     if (!dialog || !this.rewardUnlocks.owned(dialog.rewardId)) return false;
     const item = this.rewardUnlocks.item(dialog.rewardId);
@@ -3582,7 +3709,26 @@ class ClearedApp {
     return true;
   }
 
+  async applyRewardAsync() {
+    const dialog = this.rewardDialog;
+    if (!dialog || !this.rewardUnlocks.owned(dialog.rewardId)) return false;
+    const item = this.rewardUnlocks.item(dialog.rewardId);
+    if (!item) return false;
+    const dialogId = dialog.dialogId;
+    const applied = item.kind === 'effect'
+      ? await this.setClearEffectAsync(item.itemId) : await this.setSkinAsync(item.itemId);
+    if (!applied) {
+      if (this.rewardDialog && this.rewardDialog.dialogId === dialogId) {
+        dialog.state = 'error'; dialog.message = this.t('reward.applySaveFailed'); this.invalidate();
+      }
+      return false;
+    }
+    if (this.rewardDialog && this.rewardDialog.dialogId === dialogId) await this.dismissRewardDialogAsync();
+    return true;
+  }
+
   dismissRewardDialog() {
+    if (this.appPersistence) return this.dismissRewardDialogAsync();
     if (!this.rewardDialog) return false;
     if (this.rewardDialog.mode === 'unlocked') {
       if (this.blockCoreWriteDuringMigration('entitlements')) return false;
@@ -3595,6 +3741,32 @@ class ClearedApp {
       }
       this.dismissedRewardNotices.add(this.rewardDialog.rewardId);
     }
+    ++this.rewardRequestGeneration;
+    ++this.skinLoadRequestId;
+    this.pendingSkinId = null;
+    this.rewardDialog = null;
+    this.pointer = null;
+    this.pressedId = null;
+    if (this.renderer) this.renderer.clearInteractionHits();
+    this.invalidate();
+    return true;
+  }
+
+  async dismissRewardDialogAsync() {
+    const dialog = this.rewardDialog;
+    if (!dialog) return false;
+    if (dialog.mode === 'unlocked') {
+      if (this.blockCoreWriteDuringMigration('entitlements')) return false;
+      const acknowledged = await this.rewardUnlocks.acknowledgeNoticeAsync(dialog.rewardId);
+      if (!acknowledged.ok) {
+        if (this.rewardDialog === dialog) {
+          dialog.state = 'error'; dialog.message = this.t('reward.saveFailed'); this.invalidate();
+        }
+        return false;
+      }
+      this.dismissedRewardNotices.add(dialog.rewardId);
+    }
+    if (this.rewardDialog !== dialog) return false;
     ++this.rewardRequestGeneration;
     ++this.skinLoadRequestId;
     this.pendingSkinId = null;
@@ -3635,6 +3807,18 @@ class ClearedApp {
     if (this.progressSync && this.preferences) {
       try { this.progressSync.enqueuePreference('skinId', skinId); } catch (error) {}
     }
+    this.renderer.invalidateThemeAssets(skinId);
+    this.renderer.loadSkinAssets();
+    this.invalidate();
+    return true;
+  }
+
+  async setSkinAsync(skinId) {
+    if (!this.appPersistence || this.blockCoreWriteDuringMigration('preferences') ||
+        typeof skinId !== 'string' || !this.skins.get(skinId) ||
+        !this.rewardUnlocks.canUse('theme', skinId)) return false;
+    const selected = await this.skins.selectAsync(skinId);
+    if (!selected || this.disposed) return false;
     this.renderer.invalidateThemeAssets(skinId);
     this.renderer.loadSkinAssets();
     this.invalidate();
@@ -3887,6 +4071,7 @@ class ClearedApp {
   }
 
   openLevel(setIndex, levelIndex) {
+    if (this.appPersistence) return this.openLevelAsync(setIndex, levelIndex);
     if (this.blockCoreWriteDuringMigration('progress')) return false;
     const context = createCatalogRunContext(catalog, setIndex, levelIndex);
     if (!context) return false;
@@ -3952,6 +4137,60 @@ class ClearedApp {
     return true;
   }
 
+  async openLevelAsync(setIndex, levelIndex) {
+    if (this.openingLevel || this.blockCoreWriteDuringMigration('progress')) return false;
+    const context = createCatalogRunContext(catalog, setIndex, levelIndex);
+    if (!context) return false;
+    const access = this.progression.accessStatus(setIndex, levelIndex);
+    if (!access.allowed) {
+      if (access.reason === 'requires_full_game') this.openStoreDialog(access);
+      return false;
+    }
+    if (!this.authorityConfigurationValid('stamina')) return false;
+    this.openingLevel = true;
+    try {
+      const now = this.clockNow().getTime();
+      const levelKey = `${setIndex}:${levelIndex}`;
+      const unlocked = this.progress.isCompleted(setIndex, levelIndex) ? { ok: true } :
+        await this.stamina.unlockOrdinaryLevelAsync(levelKey, now);
+      this.refreshStamina(now);
+      if (!unlocked.ok) {
+        this.showStaminaFeedback(unlocked.reason, now);
+        return false;
+      }
+      const opened = await this.progress.markOpenedAsync(setIndex, levelIndex);
+      if (!opened.ok) {
+        this.showStaminaFeedback(opened.reason, now);
+        return false;
+      }
+      if (this.disposed) return false;
+      const runner = this.createOrdinaryRunner(context);
+      if (!runner) return false;
+      if (this.storeDialog) this.dismissStoreDialog();
+      this.clearStaminaFeedback();
+      this.homeStaminaExpanded = false;
+      this.clearHintRequest();
+      if (this.scene === 'account') this.leaveAccount();
+      this.runContext = context;
+      this.setIndex = context.setIndex;
+      this.levelIndex = context.levelIndex;
+      this.levelPageIndex = this.levelPageForTarget(context);
+      this.runner = runner;
+      this.boardInput.setRunner(runner);
+      this.scene = 'play';
+      this.levelEnteredAt = now;
+      this.lastClockSecond = -1;
+      this.clearAnimation = null;
+      this.hint = null;
+      this.hintUntil = 0;
+      this.hintPreview = null;
+      this.result = null;
+      this.resultVisibleAt = 0;
+      this.invalidate();
+      return true;
+    } finally { this.openingLevel = false; }
+  }
+
   allowCurrentRunReplay() {
     if (!this.runContext) return false;
     const target = this.runContext.progressionScope === 'trial'
@@ -3986,6 +4225,7 @@ class ClearedApp {
   }
 
   recoverStaminaRefunds(now) {
+    if (this.appPersistence) return;
     const mode = this.authorityMode(this.stamina, 'stamina');
     if (!['legacy-local', 'app-local'].includes(mode) ||
         !this.authorityConfigurationValid('stamina')) return;
@@ -4187,7 +4427,8 @@ class ClearedApp {
     if (this.disposed) return;
     this.clearFeedback = null;
     this.homeStaminaExpanded = false;
-    if (this.stamina.flush(this.clockNow().getTime()) && this.staminaFeedback &&
+    if (this.appPersistence) this.stamina.flushAsync(this.clockNow().getTime()).catch(() => {});
+    else if (this.stamina.flush(this.clockNow().getTime()) && this.staminaFeedback &&
         this.staminaFeedback.reason === 'refund-persist-failed') this.clearStaminaFeedback();
     this.hidden = true;
     if (this.scene === 'account') this.leaveAccount();
@@ -4206,7 +4447,7 @@ class ClearedApp {
       this.renderer.invalidateEffectPreviews();
     }
     this.audio.pauseAll('background');
-    this.progress.save();
+    if (!this.appPersistence) this.progress.save();
     if (this.progressSync) {
       const sync = this.progressSync.atCheckpoint ? this.progressSync.atCheckpoint('hide') : this.progressSync.flush();
       sync.catch(function () {});
@@ -4279,6 +4520,13 @@ class ClearedApp {
 
   onShow(options) {
     if (this.disposed) return;
+    if (this.appPersistence) return this.onShowAsync(options).catch(() => {
+      this.hidden = false;
+      this.refreshStamina(this.clockNow().getTime());
+      this.invalidate();
+      this.startLoop();
+      return false;
+    });
     const staminaNow = this.clockNow().getTime();
     this.recoverStaminaRefunds(staminaNow);
     if (this.stamina.flush(staminaNow) && this.staminaFeedback &&
@@ -4296,6 +4544,29 @@ class ClearedApp {
     if (this.scene === 'account') this.mountAccountProfile();
     this.resumeOnline('show');
     if (this.behavior) this.behavior.flush('show').catch(function () {});
+  }
+
+  async onShowAsync(options) {
+    const now = this.clockNow().getTime();
+    const snapshot = await this.stamina.snapshotAsync(now);
+    if (snapshot.persisted) {
+      for (const entry of catalog.levels) {
+        if (!this.progress.isCompleted(entry.setIndex, entry.levelIndex)) continue;
+        const elapsed = this.progress.bestTime(entry.setIndex, entry.levelIndex);
+        if (elapsed > 0) await this.stamina.refundQuickClearAsync(
+          `${entry.setIndex}:${entry.levelIndex}`, elapsed, now);
+      }
+    }
+    this.refreshStamina(now);
+    this.hidden = false;
+    await this.recoverRewardUnlocksAsync();
+    if (this.disposed) return;
+    const runner = this.activeRunner();
+    if (runner) runner.resume();
+    this.audio.resumeAll('background');
+    this.renderer.ctx = this.platform.context;
+    this.invalidate();
+    this.startLoop();
   }
 
   dispose() {

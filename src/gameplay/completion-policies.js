@@ -15,6 +15,17 @@ function settleOrdinary(context, services) {
   return Object.assign({ elapsedMs, persisted: true }, completion);
 }
 
+async function settleOrdinaryAsync(context, services) {
+  const deps = services || {};
+  if (!context || context.progressionScope !== 'ordinary' ||
+      !Number.isInteger(context.setIndex) || !Number.isInteger(context.levelIndex) ||
+      !deps.progress || typeof deps.progress.recordCompletionAsync !== 'function') return null;
+  const elapsedMs = Math.max(1, Number(deps.elapsedMs) || 0);
+  const completion = await deps.progress.recordCompletionAsync(context.setIndex,
+    context.levelIndex, elapsedMs, deps.operationId);
+  return Object.assign({ elapsedMs }, completion);
+}
+
 function settleDaily(context, services) {
   const deps = services || {};
   if (!context || context.progressionScope !== 'daily' ||
@@ -35,5 +46,6 @@ function settle(context, services) {
 module.exports = {
   settle,
   settleOrdinary,
+  settleOrdinaryAsync,
   settleDaily
 };
