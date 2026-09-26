@@ -818,9 +818,11 @@ P5-D 正式 App 模拟器触控补证（2026-09-27）：在 `/tmp` 的 H iOS 工
 
 继续确认本地购买时，Xcode 系统页显示“Your purchase was successful”及“Environment: Xcode”（本机截图 `/tmp/cleared-p5d-success-sheet.png`），但该轮临时 UI 测试未关闭系统成功提示，最终结果为失败；复跑又遇到旧模拟交易状态、夹具载入不一致和磁盘空间耗尽。释放空间后新模拟器已正常显示主页。没有得到 App `owned_verified`、商业 SQLite 入库与关卡解锁的联合证据，故成功购买和已有交易恢复仍未通过 App 端到端验收；系统提示不能代替该结论。
 
+P5-D 本地交易管理器补证：Xcode 图形界面运行隔离 `App` scheme，在新 iOS 27 模拟器直接创建测试交易 ID `0` 后，独立商业 SQLite 与 App 原生桥发往 JS 的快照均为 `owned_verified`，无待 `finish`；退款后均为 `revoked`，重启仍去权；创建新交易 ID `1` 后均重新授权，旧退款墓碑仍保留。此证据覆盖 Xcode 本地交易更新、App 原生所有者、商业缓存、JS 桥与重启恢复，**没有点击 Canvas 购买／恢复按钮，也未观察关卡解锁**；不把它计为完整 App 购买或商店验收。
+
 最低版本验收工具链复核：H 的 `0e291d28d7532d0776d01c85d257633855ea8e7c` 记录本机 macOS 27／Xcode 27 仅装 iOS 27 模拟器。[Apple 的 Xcode 支持表](https://developer.apple.com/xcode/system-requirements)将 Xcode 27 的 iOS 15 列为可部署目标，但设备和模拟器运行支持从 iOS 17 起。因此 iOS 15 类型检查只有静态效力；最低版本运行与 StoreKit 行为须使用受支持的其他工具链或日后经授权的设备／分发流程，不改 iOS 15 产品下限。
 
-下一段 iOS 正式商店链路的[P5-E 施工前建议](p5-e-ios-storekit-scope-proposal.md)已完成审计，尚待逐文件白名单批准；代码实施和 App Store Connect／沙盒／真机授权分开。建议先隔离 Xcode 本地、沙盒及生产商业缓存，并解决 iOS 15 离线环境判定，再以真实商品和设备验证购买全生命周期。P5-D 的恢复、购买弹窗与取消已有正式 App 模拟器触控证据；成功购买和已有交易恢复仍只有原生测试证据。
+下一段 iOS 正式商店链路的[P5-E 施工前建议](p5-e-ios-storekit-scope-proposal.md)已完成审计，尚待逐文件白名单批准；代码实施和 App Store Connect／沙盒／真机授权分开。建议先隔离 Xcode 本地、沙盒及生产商业缓存，并解决 iOS 15 离线环境判定，再以真实商品和设备验证购买全生命周期。P5-D 的恢复、购买弹窗与取消已有正式 App 模拟器触控证据；交易管理器注入另有 App 原生缓存与 JS 快照证据，Canvas 成功购买和已有交易恢复仍未验。
 
 2026-09-27 iOS 发布差距静态复核（C `c77ebb8fd39e2ee14c5c4601f52ef2f729348412`、H `0e291d28d7532d0776d01c85d257633855ea8e7c`，两仓干净）：H 的 `ios/App/App/Info.plist` 仍允许 iPhone／iPad 横屏，与第 9 节固定竖屏合同不符；`AppIcon.appiconset` 和 `Splash.imageset` 仍为 Capacitor 模板图。共享 `account:privacy` 按钮会显示，H 的 `src/canvas-platform.js` 却恒返回 `not-supported`，因此 App 当前没有可用的页内隐私政策入口；仓库也未配置发布用隐私政策／支持地址或素材许可清单。H App target 尚无自身 `PrivacyInfo.xcprivacy`；Capacitor podspec 声明了其组件的 manifest，且 H 未依赖 Capacitor Preferences，故不能只凭缺少 App 文件断言 manifest 不合规，必须对最终原生代码和依赖做 required-reason API／数据采集审计，再核对构建产物与 App Privacy 声明。[Apple 隐私 manifest 规则](https://developer.apple.com/documentation/bundleresources/describing-use-of-required-reason-api)、[App Privacy 与政策 URL 要求](https://developer.apple.com/help/app-store-connect/manage-app-information/manage-app-privacy)、[App 图标要求](https://developer.apple.com/documentation/xcode/configuring-your-app-icon)。普通 SQLite 目录已显式允许备份、商业缓存目录已显式排除备份；这只是源码配置，V25 的 OS 备份／重装恢复仍无真机证据。以上归 V25／V27 后续独立施工和发布验收，不加入待批准的 P5-E StoreKit 白名单；正式政策文本、支持地址、图标素材权利及任何商店表单均未由本次审计代填。
 

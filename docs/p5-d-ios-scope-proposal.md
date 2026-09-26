@@ -67,6 +67,8 @@ Xcode 27 图形界面在 iOS 27 iPhone 18 Pro 模拟器执行 10 项 Swift XCTes
 
 同日继续用隔离 UI 测试确认购买：Xcode 本地系统页出现“Your purchase was successful”和“Environment: Xcode”，截图 `/tmp/cleared-p5d-success-sheet.png`，但该轮测试未关闭系统成功提示便在等待 Canvas 反馈时失败，结果包 `/tmp/cleared-p5d-purchase-success-ui-r2.xcresult` 为 **失败**。后续复跑受到旧模拟交易状态、测试动作未稳定载入本地夹具及一度磁盘空间耗尽影响；释放空间后新模拟器可正常显示主页，但没有获得 App `owned_verified`、商业 SQLite 入库及解锁的联合证据。系统本地成功提示只证明模拟确认页，不把完整 App 购买或已有交易恢复记为通过；这些测试问题也不足以判定游戏代码有缺陷。
 
+另在新建 iOS 27 模拟器 `C4082E51-48DF-4F2F-B09F-A8C860D3272F` 中，Xcode 图形界面运行隔离工程的本地 StoreKit `App` scheme，交易管理器直接创建非消耗型测试交易 ID `0`：独立商业 SQLite 从 `not_owned` 变为 `owned_verified`、`pendingFinish=[]`，运行中的原生桥向 JS 推送相同的 `storekit-local` 快照。管理器退款后，库与 JS 快照均变为 `revoked`，库保留原交易墓碑；停止并重启 App 仍读回 `revoked`。再次创建交易 ID `1` 后，库与 JS 快照恢复 `owned_verified`，旧墓碑保留且无待 `finish` 项。这验证本地交易管理器→正式 App 原生所有者→商业缓存→JS 桥及重启恢复，**未经过 Canvas 购买／恢复按钮**，也未单独观察关卡解锁；不代表 App 端到端购买或真实商店验收。
+
 H 的 `8037940b2f4fdd70e9ca8db948a7ddacdc670188` 补充 Chrome 正式 `native-web` 入口的合成插件 UI smoke：账号页点击恢复返回 `not_found` 后，购买按钮仍可触发；两次 `cancelled` 购买均到达 JS 原生 provider，普通存档未增加提交。测试还检查购买和恢复不会在加载时自行发起。H 从干净工作区运行 `pnpm verify` 通过。这项测试自身只有浏览器 Canvas 与合成插件证据；上文另列正式 App 的模拟器触控。原模拟器曾停在系统 Apple Account 登录提示，未输入账号；新模拟器的 Device Hub 桌面接口仍超时。
 
 H 的 `a1ecca8716f7f376068dc5a9c6a746078d812cb1` 给已获批的 bundle 扫描器加入可选 `--ios-app`：对指定模拟器 `.app` 的 33 个锁定 Web 文件逐项核对哈希，只接受两个空的 Capacitor Cordova 占位文件，并拒绝任何 `.storekit` 文件。隔离负向测试验证额外 JS、非空占位文件、改动 `game.js` 和测试夹具均被拒绝；无签名 Release 模拟器包实扫通过，`public` 共 35 项、`.storekit` 为 0。提交后干净 H `pnpm verify` 与包扫描均通过。这是实际模拟器包的可见文件检查，不证明原生交易、真机、发行 archive 或商店验收。
