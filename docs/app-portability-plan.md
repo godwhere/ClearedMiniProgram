@@ -822,6 +822,8 @@ H 的 Xcode App target 当前 `TARGETED_DEVICE_FAMILY="1,2"`，同时面向 iPho
 
 V27 的 [iOS 素材与第三方许可静态清单](p5-ios-asset-rights-audit.md) 已逐项盘点候选 WebView 的 30 个素材、原生模板图、双语文案与 Capacitor 依赖；已有哈希和生成链，但多数素材缺少可签收的 App 分发权属材料。该清单是待补证输入，不构成发布许可或 P5-E 扩围。
 
+V27 的 [iOS 隐私数据流静态盘点](p5-ios-privacy-data-audit.md) 已按普通 SQLite、独立本地商业缓存、系统能力、第三方 manifest 与缺失的政策入口记录当前数据路径。WebView 无远程请求的浏览器证据不能替代原生／真机网络审查，也不能自动填写 App Privacy；正式政策、支持 URL 和最终候选仍待确认。
+
 ## 7. App 技术路线与构建边界
 
 ### 7.1 首选验证路线，不是已确定的技术承诺
