@@ -1,8 +1,8 @@
 # 微信小游戏到独立 App：架构准备方案与严格代码边界
 
-> 初稿日期：2026-09-08；本次更新：2026-09-23。
-> 状态：语言本地化已完成本地实现，作为现有能力保留；App 化已完成 P0 基线、P1 通用装配、P2 平台生命周期合同、P2.5-A／B／C 共享源码实施、P3 本地化回归检查点、P4 浏览器第二宿主验证、P4.5 最小原生存储选型验证及 P5-A 正式宿主合同与构建边界。P5-A 已冻结显示名、双平台应用标识和最低系统范围，并将 P4 浏览器测试产物、正式原生 Web 边界及其元数据分开；当前原生 Web 产物仍是失败关闭的合同门，不是可玩的原生 App。P2.5-B／P4 使用的 fake store 不代表真实购买已经接通。开发者工具、模拟器、真机、商店沙盒与上架证据不能互相替代。
-> 当前授权：用户已于 2026-09-22 授权按本文顺序分任务实施，并要求每完成一个独立任务后使用 GitHub Desktop 提交；又于 2026-09-23 独立批准 P4.5，并批准 P5-A 建议值。只能由真机完成的验收继续暂缓；本轮已使用本机 Android／iOS 模拟器取得 P4.5 可覆盖的证据。该授权不放宽阶段白名单、停工条件、数据与产品边界，也不包含 P5-A 之后的共享运行码改造、正式原生工程、存储接入、商店／计费、服务器／云服务变更、签名、安装包上传、送审或发布。
+> 初稿日期：2026-09-08；本次更新：2026-09-26。
+> 状态：语言本地化已完成本地实现，作为现有能力保留；App 化已完成 P0、P1、P2、P2.5-A／B／C、P3、P4、P4.5、P5-A，以及 P5-B 共享异步普通存档接缝。P5-B 只有共享 Node 故障注入与 H 的静态／浏览器证据；`dist/native-web/` 仍是 `contract-gate-only`、`nativeCopyEligible:false`，不是可玩的正式原生 App。P2.5-B／P4 使用的 fake store 不代表真实购买。开发者工具、模拟器、真机、商店沙盒与上架证据不能互相替代。
+> 当前授权：用户于 2026-09-22 授权按阶段实施并要求每个独立任务通过 GitHub Desktop 提交，随后分别批准 P4.5、P5-A 与 2026-09-26 的 P5-B 建议值，并补充批准 H 的 `tests/browser-smoke.js` 白名单。P5-B 的 C／H 本地提交已完成且未推送。真机专属验收继续暂缓；P4.5 的双模拟器证据只适用于独立合成工程。后续正式原生工程、正式 SQLite 接入、商店／计费、服务器／云服务变更、签名、安装包上传、送审与发布仍未取得阶段白名单及单独授权。
 > 本轮 P0 审计起点：本地 `main` 的 `984303becf8afab1dcd4fc855cc4128f4e1d9460`，tree 为 `544090431fc5c514b38898d47bb2ecf75dffce33`；开始时工作区干净并跟踪 `origin/main`。`0fde16caa6c9732306141d2884cd8cfda0194f8f` 是上一轮远端文档审阅起点，`5010d7ce067bf0f412cd28dba452218c3b95bf26` 是 2026-09-09 的历史账号页／本地化核验节点，初稿基线为 `cf8bcab8776f742aea0f2cff9830d3a72732f0d8`。每个代码阶段仍须以届时最新 HEAD 重新刷新差异、测试、分包和包体。
 > 客户端根目录 C：`/Users/ethan/Projects/ClearedMiniProgram`。下文施工路径相对 C，除非另有说明；P4 已将独立 App 宿主根目录 H 冻结为 `/Users/ethan/Projects/ClearedApp`，位于 C 之外。
 > 相关约束：[玩法架构](gameplay-extension-architecture.md)、[单方案结算](single-mode-settlement-plan.md)、[当前联网方式](cloudbase-local-first-sync.md)、[奖励解锁](reward-unlock-system.md)、[体力](stamina-system.md)、[每日挑战](daily-challenge-mode.md)、[回廊与特效](corridor-and-clear-effects.md)、[App 编排减负](app-orchestration-refactor-plan.md)、[主题分包](package-splitting.md)、[已实现的语言本地化](localization.md)。
@@ -762,7 +762,7 @@ P4.5 输出的 P5 最小影响范围如下；它是设计输入，不构成 P5 �
 
 ### P5：正式 App 专项，分阶段另行授权
 
-只有第二宿主与最小原生存储验证提供足够证据后，才按独立白名单逐段实施。P5-A 只冻结宿主身份、最低系统范围和可重现构建边界；下列其余能力仍须后续授权：
+只有第二宿主与最小原生存储验证提供足够证据后，才按独立白名单逐段实施。P5-A 已冻结宿主身份、最低系统范围和可重现构建边界；P5-B 已建立共享异步普通存档接缝。下列未落地能力仍须逐段审查和授权：
 
 - 原生容器与操作系统版本范围。
 - 正式存储及异步提交／恢复链路；采用 P4.5 的结论，逐个列出共享服务与 App 调用者的必要修改，不能仅凭“await 保存”扩大到全仓。
@@ -778,7 +778,22 @@ P4.5 输出的 P5 最小影响范围如下；它是设计输入，不构成 P5 �
 
 实施状态（2026-09-23）：P5-A 已获独立批准并在 H 的提交 `1698f2ba87d13069e726040ee2f2913c369b0260` 完成。正式显示名为 `Cleared`，iOS Bundle ID 与 Android applicationId 均为 `com.godwhere.cleared`；最低系统范围冻结为 iOS `15.0` 与 Android API `28`。P4 浏览器验证输出固定为 `dist/browser-test/`，正式原生 Web 边界固定为 `dist/native-web/`，原生 provenance／扫描证据位于 Web 根之外的 `dist/native-meta/`。当前 `dist/native-web/` 只含 `index.html`、`styles.css` 与失败关闭的 `game.js`，状态为 `contract-gate-only`、`nativeCopyEligible:false`；它不能复制为正式 App，也不包含 fake store、P4 fixture／命名空间、浏览器 `localStorage`、Storage Spike、微信／CloudBase API、远程脚本或调试入口。
 
-提交后的干净宿主以 `pnpm verify` 通过 P5 精确文件白名单、4／4 Node 合同组、双输出构建／扫描、失败关闭原生门 smoke，以及既有 P4 六关与全部门禁 Chrome 闭环；provenance 记录该宿主提交、tree、干净状态、共享锁／P5 锁摘要和逐文件输入摘要。该证据只证明正式标识与交付边界已经冻结，未创建根级 `ios/`、`android/` 或 Capacitor 配置／依赖，未接入共享运行码、正式 SQLite、StoreKit／Play Billing、签名、上传或发布，也未执行 P5 原生模拟器或真机验收。下一阶段必须重新冻结共享异步存储接缝、正式原生工程或商店能力的具体白名单，不能从 P5-A 自动扩权。
+提交后的干净宿主以 `pnpm verify` 通过 P5 精确文件白名单、4／4 Node 合同组、双输出构建／扫描、失败关闭原生门 smoke，以及既有 P4 六关与全部门禁 Chrome 闭环；provenance 记录该宿主提交、tree、干净状态、共享锁／P5 锁摘要和逐文件输入摘要。该段是 P5-A 的历史证据；P5-B 的追加证据见第 13.18 节。正式原生工程、SQLite 端口与商店仍未接入。
+
+#### P5-C 施工前审计：正式原生宿主与普通存档（建议，未获施工授权）
+
+截至 2026-09-26，H 的 `src/main.js` 使用 P4 命名空间、同步 `BrowserPlatform`／`localStorage` 和 `FakeStoreAdapter`；`src/store/entitlement-owner.js` 的缓存也是 P4 同步浏览器存储。`scripts/build.js` 对 `native-web` 只复制失败关闭的三文件门，`scripts/scan-bundle.js` 与 `p5-scope-lock.json` 明确要求 `nativeCopyEligible:false`、`storageIntegration:false`、`nativeProjectGeneration:false`。C 的 `startAppLocalGameAsync()` 已能消费异步 `open`／`commit`／`lookupOperation`，但没有正式 H 端口。P4.5 的 Swift／Java SQLite 代码和 82 个测试工程原生跟踪文件仅供设计参考，不能把合成工程直接改名为生产工程。
+
+建议 P5-C 交付两平台模拟器可安装的**六关试玩调试构建与正式普通存档链路**：H 新建独立的原生入口、Canvas 平台适配和原生 SQLite 端口，调用 C 的异步入口；保留 P4 浏览器入口及其测试，但正式载荷不得引用其命名空间、假商店、`localStorage` 或测试 fixture。App 产品取值继续只有 H 一份，分别注入 P4 测试与正式普通存档 namespace。商店尚未接入时，正式宿主只能提供未拥有／商店不可用的受限状态，不能从 P4 权益缓存或普通存档产生 `owned_verified`。先形成可扫描的游戏产物，再在正式 iOS／Android 工程接通同一端口；只有双端从冷启动、六关游玩、提交、强退到重启全部通过，才允许把 `nativeCopyEligible` 改为 `true`。该标志只表示可复制进原生调试工程，不表示签名、商店或发布就绪。
+
+- 普通数据库只接受 P5-B 冻结的 namespace、schema 和四个记录 key；候选记录与 operation ID／请求摘要同一 SQLite 事务提交，同 ID 不同内容拒绝。桥接回调丢失时按同 ID 查询／重试，未知结果锁住后续写入；损坏或未来 schema 保留原字节并阻止游戏启动。正式实现需验证 iOS／Android 的事务与回调边界，不能把 P4.5 合成结果升格。
+- 系统备份规则要显式包含普通数据库，并考虑 SQLite WAL／SHM 等伴随文件；商业缓存仍不创建。Android API 30 及以下和 API 31 及以上分别核查 `fullBackupContent`／`dataExtractionRules`，[Android 官方备份规则](https://developer.android.com/identity/data/autobackup)；iOS 核查 Application Support 文件的备份属性及替换写入后的属性，[Apple 文件备份属性](https://developer.apple.com/documentation/foundation/urlresourcekey/isexcludedfrombackupkey)。属性检查不是实际备份／恢复验收。
+- 现有 H 需要审查的精确非生成入口为 `src/main.js`、`src/browser-platform.js`、`src/product-config.js`、`src/store/entitlement-owner.js`、`scripts/build.js`、`scripts/scan-bundle.js`、`scripts/verify-p5-scope.js`、`web/native/index.html`、`web/native/styles.css`、`web/native/gate.js`、`tests/native-web-smoke.js`、`tests/browser-smoke.js`、`tests/product-and-lock.test.js`、`tests/p5-host-contract.test.js`、`package.json`、`pnpm-lock.yaml`、`p5-scope-lock.json`、`README.md` 和 `docs/p5-host-contract.md`。这是调用链审计结果，**不是施工白名单**；新增原生入口、端口、插件、配置、测试、生成工程及任何 C 修复都须在动工前列成逐文件白名单，不能用 `ios/`、`android/` 或 `src/` 前缀代替。Capacitor 官方允许 App 内本地原生插件，并以原生工程配置和 `webDir` 管理宿主，[插件说明](https://capacitorjs.com/docs/plugins/creating-plugins)、[配置说明](https://capacitorjs.com/docs/basics/configuring-your-app)。
+- 2026-09-26 的只读 Node 合成测量：空档首次异步启动产生 2 次记录提交，原记录不变的重启产生 0 次；在不经过商业／体力门禁的测量脚本中将现有 200 个目录关卡各记一次完成，产生 200 次进度提交，再执行一次奖励恢复提交。四条 JSON 记录合计 8,237 bytes（进度 5,454、奖励 2,690、体力 93、未写入语言 0）；这不是实际玩家分布、真实游戏操作频率、SQLite 数据库／操作日志大小或磁盘耐久证据。P5-C 仍须量测真实调用链的关键操作频率、事务日志增长与受控代表性存档体积，明确日志保留／清理规则，不读取未获授权的玩家数据。
+- 施工前隔离生成并核对 8.5.2 候选工程的完整逐文件输出，冻结 H 的提交基线、依赖版本、构建输入与精确白名单后再请求授权。当前机器只发现 iOS 27 模拟器和 Android API 36 的 `Roco_API_36` 虚拟设备，没有 iOS 15／Android API 28 的最低版本运行证据；最低版本兼容须补相应模拟器或设备验证。
+- P5-C 验证须分别记录静态／Node、浏览器、iOS 模拟器和 Android 模拟器：锁文件及产物 provenance、P4 六关回归、正式 bundle 无假商店／远程请求／微信／CloudBase／每日／广告、SQLite 故障注入、并发与重复 operation ID、进度先于奖励恢复、体力先于 Runner、语言／设置重启、两端六关及后台／强退恢复。真机断电、实际 OS 备份／恢复、卸载重装与闪存空间耗尽继续标为未验。任一端口只能靠假同步返回、共享运行码需要超出新白名单、或产物含 P4 资产时停止，不复制为正式原生载荷。
+
+P5-C 之后的商店权益与受保护 no-backup 缓存、真实商品 ID、StoreKit 2／Play Billing、沙盒购买／恢复／退款应作为下一份独立施工合同；再之后才处理真机性能、隐私／许可、签名与发布。当前目标仍是完整 App 化，不以六关试玩替代最终商业和发布验收；这些后续工作各自需要可核对的文件清单、账号／设备条件和明确授权。
 
 ## 7. App 技术路线与构建边界
 
@@ -986,7 +1001,7 @@ git diff --check
 
 推荐顺序为 **P0 刷新 → P1 通用装配 → P2 平台合同 → P2.5-A 能力裁剪 → P2.5-B 内容门禁与购买界面合同 → P2.5-C App 本地权威 → P3 本地化回归 → P4 第二宿主验证 → P4.5 最小原生存储验证 → P5 正式 App 专项**。
 
-原 P3 的建设不再重复执行；每个涉及微信运行代码的阶段均须遵守第 7.3—7.4 节。P2.5 的三个子阶段分别实施、验收和提交，不能把总体授权解释为任意时点拥有所有大文件的无界修改权。P4.5 已在先冻结独立测试工程清单后完成模拟器可覆盖的部分；必须依赖真机、操作系统实际备份／恢复与商店的项目按用户要求继续暂缓并记录证据缺口。下一阶段只有 P5，仍须独立设计、白名单和授权。
+原 P3 的建设不再重复执行；每个涉及微信运行代码的阶段均须遵守第 7.3—7.4 节。P2.5 的三个子阶段已分别实施、验收和提交。P4.5 在冻结独立测试工程清单后完成模拟器可覆盖的部分；P5-A／B 已分别提交。下一步是 P5 的正式原生宿主与存储接入施工前冻结，仍须独立设计、精确白名单和授权；必须依赖真机、操作系统实际备份／恢复与商店的项目继续暂缓并记录证据缺口。
 
 语言本地化已完成，账号页、文案和测试的后续修改已在历史核验期间提交为 `5010d7c`。各阶段以届时最新工作区为基线，不按早期提交覆盖这些内容，也不重新选择语言存储位置。
 
@@ -1149,3 +1164,4 @@ git diff --check
 - 正式普通 namespace 冻结为 `com.godwhere.cleared/ordinary/prod/v1`，容器 schema 为 1；四条逻辑记录维持 Progress v2、RewardUnlock v1、Stamina v1、Locale v1。宿主异步端口 `open({namespace,schemaVersion,keys})` 一次返回结构化存在性／schema；`commit({namespace,schemaVersion,operationId,writes})` 必须在同一原生事务内写入记录和操作 ID；`lookupOperation(operationId)` 用于提交回调不明时查询。每个 namespace 串行构造候选、等待确认后更新内存；同 ID 同请求可重放，同 ID 不同请求须拒绝。明确失败保留旧状态；不明结果禁止后续写入直到同 ID 得到确认或明确失败。读取失败、损坏、未知未来 schema 均阻止启动并保留原字节，不按新安装初始化；未来升级须在原生单事务内迁移且禁止降级写入。P4 浏览器、P4.5 合成数据库、微信和 CloudBase 数据不导入。
 - 异步启动在建立 App／Runner 前读取、校验、恢复已完成关卡的永久进入权、快通退款和普通首通奖励。入场先确认体力余额与永久解锁同写，再确认 `lastPlayed`，最后创建 Runner；普通完成先确认进度，再幂等处理奖励和退款。金币余额／拥有／待展示通知同写；失败时不展示虚假的到账。语言、主题、特效和声音由各自候选保存后更新本地确认状态；生命周期写入只是补充检查点，不代替关键事务。
 - `full_game_v1` 继续由独立商业权益所有者控制，绝不写进普通 namespace；安装绑定、no-backup 的原生商业缓存、StoreKit 2／Play Billing、正式原生端口、备份和卸载重装验收属于后续阶段。P5-B 回归只证明 Node 故障注入与共享调用链；P4.5 的双模拟器合成 SQLite 证据不能外推为本接缝已在正式 App 模拟器或真机运行。
+- 本地提交为 C 的 `584dc9e0760e7ab2aa28939b37db998e9bce53d8`／`abb68279c87293b642dd2988b7caac357c9b25ab` 及 H 的 `3054ac9c01ac93d562091957637a4ecebc5e8007`，均由 GitHub Desktop 完成且未推送。C 的 113／113 Node 测试、包预算、rollout 预检及差异检查通过；H 的 `pnpm preflight` 与提交后干净工作区的 `pnpm verify` 通过。H 共享锁在审查后从 `5c906ca8c9dc2f286cc9844eddd7b101e19eaed7` 升至 C 的 `abb68279c87293b642dd2988b7caac357c9b25ab`：普通目录 168→200、runtime contract 3→4，六个试玩快照、产品策略 hash 与 `full_game_v1` 均未变。两仓本地干净不等于远端 CI 已可取回未推送的 C 提交。
