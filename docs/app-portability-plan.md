@@ -802,6 +802,8 @@ P5-C iOS 优先补充（2026-09-27）：用户要求先做好 iOS，Android 新�
 
 同日继续以 iOS 模拟器真实触控写入 200 次设置，operation 数 243→443；临时 Debug 计时围绕 H Swift `ClearedStorageStore.commit(requestJSON:)` 得到 200 条日志，单次中位 1.0125 ms、p95 1.387 ms、最大 2.789 ms，包含串行队列等待、解析和 SQLite `COMMIT`，不包含 JS 桥接、触控或绘制。计时代码已移除，无埋点 App 重新构建安装后冷启动仍显示六关／中文／静音，SQLite 保留 443 条 operation。此证据仅为 iOS 27 模拟器 Debug 性能，不代表 iOS 15、真机或 Release；相关备份／重装、商店和发布验收仍未进行，C 共享代码与 H 共享锁继续不变。
 
+下一段仅为待批准的 [P5-D iOS 本地 StoreKit 建议](p5-d-ios-scope-proposal.md)：建议先以 Xcode 本地非消耗型商品、独立 no-backup 商业缓存和原生验证链完成模拟器验收，仍不创建 App Store Connect 商品或进行沙盒／真机／发布操作。P5-C 的双平台 `nativeCopyEligible:false` 条件不随此建议改变。
+
 ## 7. App 技术路线与构建边界
 
 ### 7.1 首选验证路线，不是已确定的技术承诺
