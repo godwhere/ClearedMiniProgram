@@ -812,6 +812,8 @@ P5-D UI 链路补充：H 的 `8037940b2f4fdd70e9ca8db948a7ddacdc670188` 在 Chro
 
 下一段 iOS 正式商店链路的[P5-E 施工前建议](p5-e-ios-storekit-scope-proposal.md)已完成审计，尚待逐文件白名单批准；代码实施和 App Store Connect／沙盒／真机授权分开。建议先隔离 Xcode 本地、沙盒及生产商业缓存，并解决 iOS 15 离线环境判定，再以真实商品和设备验证购买全生命周期。P5-D 的正式 App 按钮模拟器触控仍未验；不能以新建议替代该证据。
 
+2026-09-27 iOS 发布差距静态复核（C `c77ebb8fd39e2ee14c5c4601f52ef2f729348412`、H `0e291d28d7532d0776d01c85d257633855ea8e7c`，两仓干净）：H 的 `ios/App/App/Info.plist` 仍允许 iPhone／iPad 横屏，与第 9 节固定竖屏合同不符；`AppIcon.appiconset` 和 `Splash.imageset` 仍为 Capacitor 模板图。共享 `account:privacy` 按钮会显示，H 的 `src/canvas-platform.js` 却恒返回 `not-supported`，因此 App 当前没有可用的页内隐私政策入口；仓库也未配置发布用隐私政策／支持地址或素材许可清单。H App target 尚无自身 `PrivacyInfo.xcprivacy`；Capacitor podspec 声明了其组件的 manifest，且 H 未依赖 Capacitor Preferences，故不能只凭缺少 App 文件断言 manifest 不合规，必须对最终原生代码和依赖做 required-reason API／数据采集审计，再核对构建产物与 App Privacy 声明。[Apple 隐私 manifest 规则](https://developer.apple.com/documentation/bundleresources/describing-use-of-required-reason-api)、[App Privacy 与政策 URL 要求](https://developer.apple.com/help/app-store-connect/manage-app-information/manage-app-privacy)、[App 图标要求](https://developer.apple.com/documentation/xcode/configuring-your-app-icon)。普通 SQLite 目录已显式允许备份、商业缓存目录已显式排除备份；这只是源码配置，V25 的 OS 备份／重装恢复仍无真机证据。以上归 V25／V27 后续独立施工和发布验收，不加入待批准的 P5-E StoreKit 白名单；正式政策文本、支持地址、图标素材权利及任何商店表单均未由本次审计代填。
+
 ## 7. App 技术路线与构建边界
 
 ### 7.1 首选验证路线，不是已确定的技术承诺
