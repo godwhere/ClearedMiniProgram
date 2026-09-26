@@ -27,6 +27,7 @@ class AppLocalPersistence {
     this.records = new Map();
     this.queue = Promise.resolve();
     this.pending = null;
+    this.completed = new Map();
     this.sequence = 0;
     this.session = `${Date.now().toString(36)}:${Math.random().toString(36).slice(2)}`;
     this.ready = false;
@@ -102,7 +103,12 @@ class AppLocalPersistence {
     if (!this.pending) return 'none';
     const status = await this.confirm(this.pending.input);
     if (status === null) return 'unknown';
-    if (status === true) this.records.set(this.pending.key, copy(this.pending.value));
+    if (status === true) {
+      this.records.set(this.pending.key, copy(this.pending.value));
+      if (this.pending.explicit) this.completed.set(this.pending.input.operationId, {
+        key: this.pending.key, result: this.pending.result, value: copy(this.pending.value)
+      });
+    }
     this.pending = null;
     return status ? 'committed' : 'rejected';
   }
@@ -110,6 +116,11 @@ class AppLocalPersistence {
   run(key, build, operationId) {
     const execute = async () => {
       if (!this.ready || !KEYS.includes(key)) return { ok: false, reason: 'record-unavailable' };
+      if (operationId && this.completed.has(operationId)) {
+        const completed = this.completed.get(operationId);
+        return completed.key === key ? { ok: true, result: completed.result, value: copy(completed.value) }
+          : { ok: false, reason: 'operation-id-conflict' };
+      }
       if (this.pending && operationId && this.pending.input.operationId === operationId) {
         const previous = this.pending;
         const pendingStatus = await this.settlePending();
@@ -128,11 +139,12 @@ class AppLocalPersistence {
         operationId: operationId || this.operationId(key), writes: [{ key, value: candidate }] };
       const status = await this.confirm(input);
       if (status === null) {
-        this.pending = { input, key, value: candidate, result: change.result };
+        this.pending = { input, key, value: candidate, result: change.result, explicit: !!operationId };
         return { ok: false, reason: 'commit-unconfirmed' };
       }
       if (status === false) return { ok: false, reason: 'persist-failed' };
       this.records.set(key, candidate);
+      if (operationId) this.completed.set(operationId, { key, result: change.result, value: copy(candidate) });
       return { ok: true, result: change.result, value: copy(candidate) };
     };
     const result = this.queue.then(execute, execute);

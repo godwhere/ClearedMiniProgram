@@ -171,6 +171,8 @@ async function run() {
   assert.strictEqual(app.progress.isCompleted(0, 1), false);
   assert.strictEqual(app.rewardUnlocks.view().balance, rewardBeforeRetry);
   assert.strictEqual(app.result.currencyReward.failureSource, 'local-save');
+  assert.strictEqual(app.performAction('result:levels'), false,
+    'a failed completion cannot be abandoned while its retry is pending');
   assert.strictEqual(await app.settleAppLocalCompletion(), true);
   assert.strictEqual(app.progress.isCompleted(0, 1), true);
   assert.strictEqual(app.rewardUnlocks.view().balance, rewardBeforeRetry + 100);
@@ -230,6 +232,20 @@ async function run() {
   uncertainPort.lookupAvailable = true;
   assert.strictEqual((await uncertain.locale.selectAsync('zh-CN')).ok, true,
     'pending operation retries with its original ID before a later write');
+
+  const latePort = new FakeNativePort();
+  const late = await runtime.createAppLocalServicesAsync(platform(), {
+    productPolicy: policy(), persistencePort: latePort
+  });
+  latePort.lookupAvailable = false;
+  latePort.faults.push({ kind: 'unknown-after' });
+  assert.strictEqual((await late.progress.recordCompletionAsync(0, 0, 1200, 'late:0:0')).persisted, false);
+  assert.strictEqual(late.progress.isCompleted(0, 0), false);
+  latePort.lookupAvailable = true;
+  await late.stamina.snapshotAsync(Date.now());
+  assert.strictEqual((await late.progress.recordCompletionAsync(0, 0, 1200, 'late:0:0')).persisted, true);
+  assert.strictEqual(late.progress.state.stats.totalClears, 1,
+    'resolving a pending operation from another domain cannot count the same clear twice');
 
   const corruptPort = new FakeNativePort({ [LocaleService.STORAGE_KEY]: { schemaVersion: 2, locale: 'en-US' } });
   const corruptCalls = { sync: 0, started: 0 };

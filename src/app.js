@@ -2466,6 +2466,9 @@ class ClearedApp {
   performAction(action) {
     if (typeof action !== 'string' || !action) return false;
     if (this.disposed) return false;
+    if (this.appPersistence && (this.pendingCompletion || this.completionTask) && action !== 'reward:retry') {
+      return false;
+    }
     if (this.storeDialog && this.storeDialog.originScene !== this.scene) {
       this.dismissStoreDialog();
     }
@@ -2870,7 +2873,8 @@ class ClearedApp {
       ++this.skinLoadRequestId;
       this.pendingSkinId = null;
       if (this.scene === 'home') {
-        this.recoverRewardUnlocks();
+        if (this.appPersistence) this.recoverRewardUnlocksAsync().catch(() => {});
+        else this.recoverRewardUnlocks();
         if (this.auth && this.auth.mode === 'cloud') this.resumeOnline('home');
       }
       this.homeStaminaExpanded = false;
