@@ -10,6 +10,8 @@ C 的共享运行码现已有 `startAppLocalGameAsync()`，**本建议的 C 代�
 
 H 的建议逐文件白名单如下。删除 `web/native/gate.js` 和修改现有文件都计入白名单。生成工程的默认 Example 测试不纳入，测试要覆盖真实提交与失败合同。以下是候选许可上限，并非必须逐个修改；实际改动与原生工具自动新增文件必须在提交前逐项比对，出现表外路径即停止、重审和扩充批准。
 
+对隔离生成目录执行 `git ls-files --others --exclude-standard` 复核：iOS／Android 模板有 71 个可追踪文件，全部落在下方原生白名单；其余 9 个是计划中的原生插件、备份规则、仪器测试与 Swift 依赖锁。模板还生成两个未忽略的 `android/app/src/test/java/com/getcapacitor/myapp/ExampleUnitTest.java` 与 `android/app/src/androidTest/java/com/getcapacitor/myapp/ExampleInstrumentedTest.java`，均不在白名单。因此 P5-C 不能直接在 H 工作区运行 `cap add`；须先在隔离临时目录生成，核对 71 个模板源文件，再只复制获批路径进入 H，并以白名单内的正式测试替代示例测试。`cap sync`／原生构建产生的已忽略中间文件、`android/local.properties` 与 WebView 复制资源不得提交；产物扫描仍须检查最终载荷。模板升级若新增任何未列出的源文件，先停止并重新审查白名单。
+
 ### H 宿主源码、构建及测试（30 个）
 
 ```text
