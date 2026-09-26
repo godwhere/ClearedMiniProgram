@@ -63,4 +63,6 @@ Xcode 27 图形界面在 iOS 27 iPhone 18 Pro 模拟器执行 10 项 Swift XCTes
 
 H 的 `8037940b2f4fdd70e9ca8db948a7ddacdc670188` 补充 Chrome 正式 `native-web` 入口的合成插件 UI smoke：账号页点击恢复返回 `not_found` 后，购买按钮仍可触发；两次 `cancelled` 购买均到达 JS 原生 provider，普通存档未增加提交。测试还检查购买和恢复不会在加载时自行发起。H 从干净工作区运行 `pnpm verify` 通过。这是浏览器 Canvas 触控链路和合成插件证据，不是 iOS App 或 StoreKit 触控。当前 iOS 27 模拟器截图停在系统 Apple Account 登录提示，Device Hub 桌面接口持续超时；未输入账号。
 
+H 的 `a1ecca8716f7f376068dc5a9c6a746078d812cb1` 给已获批的 bundle 扫描器加入可选 `--ios-app`：对指定模拟器 `.app` 的 33 个锁定 Web 文件逐项核对哈希，只接受两个空的 Capacitor Cordova 占位文件，并拒绝任何 `.storekit` 文件。隔离负向测试验证额外 JS、非空占位文件、改动 `game.js` 和测试夹具均被拒绝；无签名 Release 模拟器包实扫通过，`public` 共 35 项、`.storekit` 为 0。提交后干净 H `pnpm verify` 与包扫描均通过。这是实际模拟器包的可见文件检查，不证明原生交易、真机、发行 archive 或商店验收。
+
 仍未验收：正式 App 购买／恢复／取消按钮的模拟器实际触控、系统真实低空间、iOS 15 系统运行、真机备份／重装与断电、App Store 沙盒及发布。Android 新增工作暂停，`shared-source.lock.json` 仍锁定 C 的 `0b53ad6bab9845e855f136b61a3a707817bf0472`，共享运行码／catalog／产品合同未变；`nativeCopyEligible:false` 保持。

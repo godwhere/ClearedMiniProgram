@@ -808,6 +808,8 @@ P5-D 本地模拟实施记录（2026-09-27）：H 的 `5d6a4160f84d1ad29a9a05849
 
 P5-D UI 链路补充：H 的 `8037940b2f4fdd70e9ca8db948a7ddacdc670188` 在 Chrome `native-web` 合成插件中，经 Canvas 点击账号恢复与两次取消购买，确认调用只由用户操作触发、取消后仍可购买、普通档无新增提交；干净 H `pnpm verify` 通过。此项仅为浏览器证据。另建隔离的 iOS 27 iPhone 18 Pro 模拟器（`D28B2D14-F0CA-4A61-BF4D-5B0F796DDAC9`）后，Xcode 图形界面重新安装并启动正式 App；系统截图显示主页、`0/200` 和体力 5，原生桥日志显示 WebView 加载、普通存档打开／提交，以及未拥有的 StoreKit 快照和本地夹具价 `$1.99`。截图留在本机 `/tmp/cleared-p5d-after-load.png`，不属于购买按钮证据。原模拟器的 Apple Account 登录提示未输入账号；无登录提示的新模拟器上 Device Hub 接口仍超时，因此正式 App 的购买／恢复／取消按钮实际触控仍未验。
 
+P5-D 原生包扫描补充：H 的 `a1ecca8716f7f376068dc5a9c6a746078d812cb1` 在已批准的 `scripts/scan-bundle.js` 与合同测试内加入可选 iOS `.app` 检查。无签名 Release 模拟器包的 33 项锁定 Web 文件哈希一致，另有两个空 Cordova 占位文件；包内没有 `.storekit` 夹具。额外 JS、非空占位文件、改动游戏 bundle 和夹具注入均由负向测试拦截，干净 H `pnpm verify` 及实际包扫描通过。该证据只覆盖指定模拟器包的文件和字节，不改变 `nativeCopyEligible:false`，不证明 App 按钮触控、真实交易或发行包合规。
+
 Device Hub 排障补充：经系统进程界面正常退出并重新启动 Device Hub，仅启动上述新模拟器后，其可访问接口仍超时；Xcode 再次启动 App，系统截图 `/tmp/cleared-p5d-after-devicehub-restart3.png` 仍显示主页。该现象不能归因于原模拟器登录提示或旧 Device Hub 进程，也不是 App 启动失败的证据；按钮触控验收继续待完成。
 
 最低版本验收工具链复核：H 的 `0e291d28d7532d0776d01c85d257633855ea8e7c` 记录本机 macOS 27／Xcode 27 仅装 iOS 27 模拟器。[Apple 的 Xcode 支持表](https://developer.apple.com/xcode/system-requirements)将 Xcode 27 的 iOS 15 列为可部署目标，但设备和模拟器运行支持从 iOS 17 起。因此 iOS 15 类型检查只有静态效力；最低版本运行与 StoreKit 行为须使用受支持的其他工具链或日后经授权的设备／分发流程，不改 iOS 15 产品下限。
