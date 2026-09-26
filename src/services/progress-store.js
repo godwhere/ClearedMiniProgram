@@ -120,11 +120,11 @@ class ProgressStore {
     return this.platform.setStorage(STORAGE_KEY, this.state);
   }
 
-  async updateAsync(build, operationId) {
+  async updateAsync(build, operationId, operationIntent) {
     if (!this.appPersistence) throw new Error('app-local-persistence-required');
     let result;
     try { result = await this.appPersistence.run(STORAGE_KEY,
-      previous => build(previous || createDefaultState('none')), operationId); }
+      previous => build(previous || createDefaultState('none')), operationId, operationIntent); }
     catch (error) { return { ok: false, reason: 'persist-failed' }; }
     if (result.ok) this.state = this.normalize(result.value);
     return result;
@@ -138,10 +138,10 @@ class ProgressStore {
 
   async recordCompletionAsync(setIndex, levelIndex, elapsedMs, operationId) {
     const key = this.key(setIndex, levelIndex);
+    const completedMs = Math.max(1, Math.round(Number(elapsedMs) || 1));
     const saved = await this.updateAsync(previous => {
       const prior = this.normalize(previous);
       const previousBest = Number(prior.bestMs[key]) || 0;
-      const completedMs = Math.max(1, Math.round(Number(elapsedMs) || 1));
       const firstClear = !prior.completed[key];
       const newBest = previousBest === 0 || completedMs < previousBest;
       const candidate = Object.assign({}, prior, {
@@ -152,7 +152,7 @@ class ProgressStore {
       });
       return { candidate, result: { firstClear, newBest, previousBest,
         bestMs: Number(candidate.bestMs[key]) || completedMs } };
-    }, operationId);
+    }, operationId, operationId ? JSON.stringify([key, completedMs]) : undefined);
     return saved.ok ? Object.assign({ persisted: true }, saved.result) :
       { persisted: false, reason: saved.reason };
   }

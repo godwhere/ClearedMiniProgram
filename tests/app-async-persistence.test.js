@@ -221,6 +221,43 @@ async function run() {
   assert.strictEqual(secondSession.progress.isCompleted(0, 1), false);
   assert.strictEqual(collisionPort.records[ProgressStore.STORAGE_KEY].stats.totalClears, 1);
 
+  const sameSessionPort = new FakeNativePort();
+  const sameSession = await runtime.createAppLocalServicesAsync(platform(), {
+    productPolicy: policy(), persistencePort: sameSessionPort
+  });
+  assert.strictEqual((await sameSession.progress.recordCompletionAsync(0, 0, 1200,
+    'same-session-id')).persisted, true);
+  assert.strictEqual(await sameSession.progress.setSettingAsync('soundEnabled', false), true);
+  assert.strictEqual((await sameSession.progress.recordCompletionAsync(0, 0, 1200,
+    'same-session-id')).persisted, true);
+  assert.strictEqual(sameSession.progress.getSetting('soundEnabled'), false,
+    'a completed operation replay cannot roll back later confirmed progress settings');
+  assert.strictEqual((await sameSession.progress.recordCompletionAsync(0, 0, 1100,
+    'same-session-id')).persisted, false,
+    'the same level with a different elapsed time is a conflicting operation');
+  const sameSessionConflict = await sameSession.progress.recordCompletionAsync(0, 1, 1100,
+    'same-session-id');
+  assert.strictEqual(sameSessionConflict.persisted, false,
+    'the in-memory operation cache cannot confirm a different completion');
+  assert.strictEqual(sameSession.progress.isCompleted(0, 1), false);
+
+  const pendingConflictPort = new FakeNativePort();
+  const pendingConflict = await runtime.createAppLocalServicesAsync(platform(), {
+    productPolicy: policy(), persistencePort: pendingConflictPort
+  });
+  pendingConflictPort.lookupAvailable = false;
+  pendingConflictPort.faults.push({ kind: 'unknown-after' });
+  assert.strictEqual((await pendingConflict.progress.recordCompletionAsync(0, 0, 1200,
+    'pending-id')).persisted, false);
+  pendingConflictPort.lookupAvailable = true;
+  assert.strictEqual((await pendingConflict.progress.recordCompletionAsync(0, 1, 1100,
+    'pending-id')).persisted, false,
+    'a pending operation ID cannot be reused for another completion');
+  assert.strictEqual(pendingConflict.progress.isCompleted(0, 1), false);
+  assert.strictEqual((await pendingConflict.progress.recordCompletionAsync(0, 0, 1200,
+    'pending-id')).persisted, true,
+    'the original pending completion can still be confirmed after a conflicting retry');
+
   const unverifiedPort = new FakeNativePort();
   const unverified = await runtime.createAppLocalServicesAsync(platform(), {
     productPolicy: policy(), persistencePort: unverifiedPort

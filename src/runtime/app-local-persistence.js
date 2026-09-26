@@ -109,23 +109,30 @@ class AppLocalPersistence {
     if (status === true) {
       this.records.set(this.pending.key, copy(this.pending.value));
       if (this.pending.explicit) this.completed.set(this.pending.input.operationId, {
-        key: this.pending.key, result: this.pending.result, value: copy(this.pending.value)
+        key: this.pending.key, intent: this.pending.intent, result: this.pending.result
       });
     }
     this.pending = null;
     return status ? 'committed' : 'rejected';
   }
 
-  run(key, build, operationId) {
+  run(key, build, operationId, operationIntent) {
     const execute = async () => {
       if (!this.ready || !KEYS.includes(key)) return { ok: false, reason: 'record-unavailable' };
+      if (operationId && (typeof operationIntent !== 'string' || !operationIntent)) {
+        return { ok: false, reason: 'operation-intent-required' };
+      }
       if (operationId && this.completed.has(operationId)) {
         const completed = this.completed.get(operationId);
-        return completed.key === key ? { ok: true, result: completed.result, value: copy(completed.value) }
+        return completed.key === key && completed.intent === operationIntent
+          ? { ok: true, result: completed.result, value: this.current(key) }
           : { ok: false, reason: 'operation-id-conflict' };
       }
       if (this.pending && operationId && this.pending.input.operationId === operationId) {
         const previous = this.pending;
+        if (previous.key !== key || previous.intent !== operationIntent) {
+          return { ok: false, reason: 'operation-id-conflict' };
+        }
         const pendingStatus = await this.settlePending();
         if (pendingStatus === 'unknown') return { ok: false, reason: 'commit-unconfirmed' };
         if (pendingStatus === 'committed') {
@@ -142,12 +149,15 @@ class AppLocalPersistence {
         operationId: operationId || this.operationId(key), writes: [{ key, value: candidate }] };
       const status = await this.confirm(input);
       if (status === null) {
-        this.pending = { input, key, value: candidate, result: change.result, explicit: !!operationId };
+        this.pending = { input, key, value: candidate, result: change.result,
+          explicit: !!operationId, intent: operationIntent };
         return { ok: false, reason: 'commit-unconfirmed' };
       }
       if (status === false) return { ok: false, reason: 'persist-failed' };
       this.records.set(key, candidate);
-      if (operationId) this.completed.set(operationId, { key, result: change.result, value: copy(candidate) });
+      if (operationId) this.completed.set(operationId, {
+        key, intent: operationIntent, result: change.result
+      });
       return { ok: true, result: change.result, value: copy(candidate) };
     };
     const result = this.queue.then(execute, execute);
