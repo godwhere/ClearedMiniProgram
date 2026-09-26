@@ -76,16 +76,19 @@ class AppLocalPersistence {
     } catch (error) {}
     if (result && result.ok === true && result.committed === true) return true;
     if (result && result.ok === false && result.definite === true) return false;
-    // An interrupted callback is ambiguous. Query the same operation ID and
-    // retry that ID only; never construct a second debit or award.
+    // An interrupted callback is ambiguous. The port must compare the full
+    // request before confirming an operation ID; an ID alone is insufficient.
     for (let attempt = 0; attempt < 2; attempt++) {
       let found;
       try {
-        const lookup = this.port.lookupOperation(input.operationId);
+        const lookup = this.port.lookupOperation(input);
         if (!task(lookup)) throw new Error('app-local-lookup-must-be-async');
         found = await lookup;
       } catch (error) {}
-      if (found && found.ok === true && found.committed === true) return true;
+      if (found && found.ok === true && found.committed === true) {
+        if (found.matches === true) return true;
+        if (found.matches === false) return false;
+      }
       if (found && found.ok === true && found.found === false && attempt === 0) {
         try {
           const retry = this.port.commit(input);

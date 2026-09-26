@@ -14,7 +14,7 @@ const ProductPolicy = require('./product-policy.js');
 const AppLocalPersistence = require('./app-local-persistence.js');
 const catalog = require('../../data/catalog-v2.js');
 
-const runtimeContractVersion = 4;
+const runtimeContractVersion = 5;
 const APP_LOCAL_FORBIDDEN_DEPENDENCIES = Object.freeze([
   'syncStore',
   'progressSync',

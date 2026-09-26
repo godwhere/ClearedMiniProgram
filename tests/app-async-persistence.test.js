@@ -10,6 +10,7 @@ const LocaleService = require('../src/services/locale-service.js');
 const fixture = require('./fixtures/app-product-policy.js');
 
 function copy(value) { return JSON.parse(JSON.stringify(value)); }
+function fingerprint(input) { return JSON.stringify([input.namespace, input.schemaVersion, input.writes]); }
 function deferred() {
   let resolve;
   const promise = new Promise(done => { resolve = done; });
@@ -29,6 +30,7 @@ class FakeNativePort {
     this.faults = [];
     this.calls = [];
     this.lookupAvailable = true;
+    this.reportMatch = true;
   }
 
   async open(request) {
@@ -47,21 +49,24 @@ class FakeNativePort {
     if (fault && fault.kind === 'delay') await fault.gate.promise;
     if (fault && fault.kind === 'reject') return { ok: false, definite: true };
     if (fault && fault.kind === 'unknown-before') return { ok: false };
-    const fingerprint = JSON.stringify(input.writes);
+    const content = fingerprint(input);
     const existing = this.operations.get(input.operationId);
-    if (existing && existing !== fingerprint) return { ok: false, definite: true };
+    if (existing && existing !== content) return { ok: false, definite: true };
     if (!existing) {
       input.writes.forEach(write => { this.records[write.key] = copy(write.value); });
-      this.operations.set(input.operationId, fingerprint);
+      this.operations.set(input.operationId, content);
     }
     if (fault && fault.kind === 'unknown-after') return { ok: false };
     return { ok: true, committed: true };
   }
 
-  async lookupOperation(operationId) {
+  async lookupOperation(input) {
     this.calls.push('lookup');
     if (!this.lookupAvailable) return { ok: false };
-    return this.operations.has(operationId) ? { ok: true, committed: true } : { ok: true, found: false };
+    const existing = this.operations.get(input.operationId);
+    if (!existing) return { ok: true, found: false };
+    return this.reportMatch ? { ok: true, committed: true, matches: existing === fingerprint(input) }
+      : { ok: true, committed: true };
   }
 }
 
@@ -93,7 +98,7 @@ function platform(counters) {
 }
 
 async function run() {
-  assert.strictEqual(runtime.runtimeContractVersion, 4);
+  assert.strictEqual(runtime.runtimeContractVersion, 5);
   const startPort = new FakeNativePort();
   const startCalls = { sync: 0, started: 0 };
   const host = platform(startCalls);
@@ -199,6 +204,36 @@ async function run() {
   const saved = await services.progress.recordCompletionAsync(0, 0, 1500, 'lost:completion');
   assert.strictEqual(saved.persisted, true, 'lost callback recovered by operation lookup');
   assert.strictEqual(failurePort.records[ProgressStore.STORAGE_KEY].stats.totalClears, 1);
+
+  const collisionPort = new FakeNativePort();
+  const firstSession = await runtime.createAppLocalServicesAsync(platform(), {
+    productPolicy: policy(), persistencePort: collisionPort
+  });
+  assert.strictEqual((await firstSession.progress.recordCompletionAsync(0, 0, 1200,
+    'reused-completion-id')).persisted, true);
+  const secondSession = await runtime.createAppLocalServicesAsync(platform(), {
+    productPolicy: policy(), persistencePort: collisionPort
+  });
+  collisionPort.faults.push({ kind: 'unknown-before' });
+  assert.strictEqual((await secondSession.progress.recordCompletionAsync(0, 1, 1100,
+    'reused-completion-id')).persisted, false,
+    'a lost callback cannot confirm a different candidate under an existing operation ID');
+  assert.strictEqual(secondSession.progress.isCompleted(0, 1), false);
+  assert.strictEqual(collisionPort.records[ProgressStore.STORAGE_KEY].stats.totalClears, 1);
+
+  const unverifiedPort = new FakeNativePort();
+  const unverified = await runtime.createAppLocalServicesAsync(platform(), {
+    productPolicy: policy(), persistencePort: unverifiedPort
+  });
+  unverifiedPort.reportMatch = false;
+  unverifiedPort.faults.push({ kind: 'unknown-after' });
+  assert.strictEqual((await unverified.progress.recordCompletionAsync(0, 0, 1200,
+    'unverified-completion')).persisted, false,
+    'lookup without an explicit content match cannot confirm the candidate');
+  assert.strictEqual(unverified.progress.isCompleted(0, 0), false);
+  unverifiedPort.reportMatch = true;
+  assert.strictEqual((await unverified.progress.recordCompletionAsync(0, 0, 1200,
+    'unverified-completion')).persisted, true);
 
   const purchasePort = new FakeNativePort({ [RewardUnlockService.STORAGE_KEY]: Object.assign(
     RewardUnlockService.emptyState(), { balance: 10000 }) });
