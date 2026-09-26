@@ -816,6 +816,8 @@ P5-D 命令行原生复测（2026-09-27）：从干净 H 工作树，以原始 `
 
 P5-D 正式 App 模拟器触控补证（2026-09-27）：在 `/tmp` 的 H iOS 工程副本中临时加入 Xcode UI 测试目标，不改 H 仓库或其 scheme。首个只检查窗口存在的测试在 WebView 白屏时误通过；改为等待截图 OCR 识别实际主页／账户文字后，错误的头像坐标使测试按预期失败。修正坐标后，同一 iOS 27 模拟器完成主页头像→Account→Restore Purchases，界面返回“无既有购买”；再点 Buy Full Game，出现明确标注仅供测试、不会扣费的 Xcode 本地 StoreKit 确认页，关闭后界面显示“Purchase cancelled”，购买按钮仍在。最终 UI 测试 1／1 通过，截图在本机 `/tmp/cleared-p5d-purchase-cancel-ui-attachments/`，结果包为 `/tmp/cleared-p5d-purchase-cancel-ui-result.xcresult`；只读查询商业 SQLite 为 `not_owned`、无交易 ID、`pendingFinish=0`。临时 UI 测试没有纳入 H 白名单或提交，因此不是持久回归；App Canvas 的成功购买、已有交易恢复、pending 与退款的端到端触控仍未验。
 
+继续确认本地购买时，Xcode 系统页显示“Your purchase was successful”及“Environment: Xcode”（本机截图 `/tmp/cleared-p5d-success-sheet.png`），但该轮临时 UI 测试未关闭系统成功提示，最终结果为失败；复跑又遇到旧模拟交易状态、夹具载入不一致和磁盘空间耗尽。释放空间后新模拟器已正常显示主页。没有得到 App `owned_verified`、商业 SQLite 入库与关卡解锁的联合证据，故成功购买和已有交易恢复仍未通过 App 端到端验收；系统提示不能代替该结论。
+
 最低版本验收工具链复核：H 的 `0e291d28d7532d0776d01c85d257633855ea8e7c` 记录本机 macOS 27／Xcode 27 仅装 iOS 27 模拟器。[Apple 的 Xcode 支持表](https://developer.apple.com/xcode/system-requirements)将 Xcode 27 的 iOS 15 列为可部署目标，但设备和模拟器运行支持从 iOS 17 起。因此 iOS 15 类型检查只有静态效力；最低版本运行与 StoreKit 行为须使用受支持的其他工具链或日后经授权的设备／分发流程，不改 iOS 15 产品下限。
 
 下一段 iOS 正式商店链路的[P5-E 施工前建议](p5-e-ios-storekit-scope-proposal.md)已完成审计，尚待逐文件白名单批准；代码实施和 App Store Connect／沙盒／真机授权分开。建议先隔离 Xcode 本地、沙盒及生产商业缓存，并解决 iOS 15 离线环境判定，再以真实商品和设备验证购买全生命周期。P5-D 的恢复、购买弹窗与取消已有正式 App 模拟器触控证据；成功购买和已有交易恢复仍只有原生测试证据。
