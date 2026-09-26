@@ -54,3 +54,11 @@
 | 真机／商店／发布 | 本阶段暂缓：最低 iOS 15、OS 备份／卸载重装、断电／低空间、沙盒购买／恢复／退款、App Store Connect 商品、发行签名、上传与审核 | 不能由本地 `.storekit` 替代 |
 
 若需要 JS 提供 `owned:true`、错误商品／环境也可授权、未可靠落盘就 `finish` 或发布权益、启动时只靠一次 `updates` 而无法补扫未完成交易、旧空查询覆盖新交易、已验证撤销不能去权、缓存可从普通存档／备份恢复出商业权益，立即停止。`nativeCopyEligible:false` 在本阶段保持，不把 iOS 本地交易成功当成双平台放行或商店上线证据。
+
+## 实施记录（2026-09-27）
+
+H 在 `5d6a4160f84d1ad29a9a058490bc626dac01e31b` 完成逐文件白名单内的本地实现，并在 `7ddd78c10a0a409451dc2752efc5b50dfe8b86c8` 修复原生通知晚安装时的快照补发；两次均由 GitHub Desktop 本地提交，未推送。H 的 `pnpm preflight`、提交后干净双仓 `pnpm verify`、范围锁与 bundle 扫描、Chrome 无插件失败关闭／合成插件／六关 smoke 均通过。iOS 15 SDK 类型检查通过，仅证明编译兼容。
+
+Xcode 27 图形界面在 iOS 27 iPhone 18 Pro 模拟器执行 8 项 Swift XCTest 全部通过：本地购买／恢复／退款、待批准购买不提前授权、启动漏过更新后的 `unfinished` 补扫与缓存恢复、独立 SQLite 与普通档隔离、缺安装标识或数据库、损坏数据和未来 schema 的失败关闭。退款后空查询、多次退款的迟到旧交易和晚安装通知的断言曾先在错误实现下失败。Xcode Run 中原生桥读取到本地测试价格 `$1.99` 与既有普通档；该价格不是正式定价。CLI `xcodebuild test` 未成功加载本地 StoreKit 配置，不能计入交易证据。
+
+仍未验收：正式 App 购买／恢复／取消按钮的模拟器实际触控、低空间写入失败、iOS 15 系统运行、真机备份／重装与断电、App Store 沙盒及发布。Android 新增工作暂停，`shared-source.lock.json` 仍锁定 C 的 `0b53ad6bab9845e855f136b61a3a707817bf0472`，共享运行码／catalog／产品合同未变；`nativeCopyEligible:false` 保持。
