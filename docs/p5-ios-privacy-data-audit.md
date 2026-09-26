@@ -15,7 +15,7 @@ H 的正式 `native-web` 扫描拒绝远程 URL、微信／CloudBase、广告和
 
 ## 原生依赖与待核实声明
 
-- H 原生依赖锁定 Capacitor `8.5.2`，当前 `@capacitor/ios` 的 Capacitor 和 CapacitorCordova 各自带 `PrivacyInfo.xcprivacy`，其中数据收集与 required-reason API 数组为空；H App target 没有自己的 manifest。对 H 自写 Swift 的静态搜索发现 `FileManager` 的目录、文件存在性与备份标志操作，未发现 `UserDefaults`、磁盘空间、系统启动时间或文件时间戳调用。搜索结果和第三方自声明都不能替代最终原生可执行文件、框架及 Apple 当前 required-reason API 清单的逐项审查。[Apple required-reason API 规则](https://developer.apple.com/documentation/bundleresources/describing-use-of-required-reason-api)。
+- H 原生依赖锁定 Capacitor `8.5.2`。2026-09-27 检查现有 Xcode 27.0 的 `Debug-iphonesimulator/App.app`（`com.godwhere.cleared`、iOS 15.0 最低版本）：安装包中实际只有 `Frameworks/Capacitor.framework/PrivacyInfo.xcprivacy` 和 `Frameworks/Cordova.framework/PrivacyInfo.xcprivacy` 两份声明，二者的数据收集与 required-reason API 数组均为空，tracking 为 false；App 根目录没有自身的 manifest。这是当前模拟器调试包的静态证据，不代表最终 Release archive／IPA。对 H 自写 Swift 的静态搜索发现 `FileManager` 的目录、文件存在性与备份标志操作，未发现 `UserDefaults`、磁盘空间、系统启动时间或文件时间戳调用。搜索结果和第三方自声明都不能替代最终原生可执行文件、框架及 Apple 当前 required-reason API 清单的逐项审查。[Apple required-reason API 规则](https://developer.apple.com/documentation/bundleresources/describing-use-of-required-reason-api)。
 - P5-E 若获批，沙盒／生产交易、商业缓存环境和依赖可能变化；App Privacy、政策和 manifest 必须按**最终提交候选**重审。不能把 P5-D 的本地交易 ID 当作真实商店数据流，也不能把普通游戏存档与商业缓存合并申报或备份。
 - Apple 要求隐私政策链接在 App 内可发现且在 App Store Connect 提供 URL；提交版本还需要可实际联系到发行方的支持 URL。真实政策文本、HTTPS 地址、联系人与最终数据处理说明尚未提供，不能生成占位链接或代填“无数据收集”。[App Review 5.1.1](https://developer.apple.com/app-store/review/guidelines/)、[支持 URL 字段](https://developer.apple.com/help/app-store-connect/reference/app-information/platform-version-information)。
 
