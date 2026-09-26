@@ -808,6 +808,8 @@ P5-D 本地模拟实施记录（2026-09-27）：H 的 `5d6a4160f84d1ad29a9a05849
 
 P5-D UI 链路补充：H 的 `8037940b2f4fdd70e9ca8db948a7ddacdc670188` 在 Chrome `native-web` 合成插件中，经 Canvas 点击账号恢复与两次取消购买，确认调用只由用户操作触发、取消后仍可购买、普通档无新增提交；干净 H `pnpm verify` 通过。此项仅为浏览器证据。另建隔离的 iOS 27 iPhone 18 Pro 模拟器（`D28B2D14-F0CA-4A61-BF4D-5B0F796DDAC9`）后，Xcode 图形界面重新安装并启动正式 App；系统截图显示主页、`0/200` 和体力 5，原生桥日志显示 WebView 加载、普通存档打开／提交，以及未拥有的 StoreKit 快照和本地夹具价 `$1.99`。截图留在本机 `/tmp/cleared-p5d-after-load.png`，不属于购买按钮证据。原模拟器的 Apple Account 登录提示未输入账号；无登录提示的新模拟器上 Device Hub 接口仍超时，因此正式 App 的购买／恢复／取消按钮实际触控仍未验。
 
+Device Hub 排障补充：经系统进程界面正常退出并重新启动 Device Hub，仅启动上述新模拟器后，其可访问接口仍超时；Xcode 再次启动 App，系统截图 `/tmp/cleared-p5d-after-devicehub-restart3.png` 仍显示主页。该现象不能归因于原模拟器登录提示或旧 Device Hub 进程，也不是 App 启动失败的证据；按钮触控验收继续待完成。
+
 最低版本验收工具链复核：H 的 `0e291d28d7532d0776d01c85d257633855ea8e7c` 记录本机 macOS 27／Xcode 27 仅装 iOS 27 模拟器。[Apple 的 Xcode 支持表](https://developer.apple.com/xcode/system-requirements)将 Xcode 27 的 iOS 15 列为可部署目标，但设备和模拟器运行支持从 iOS 17 起。因此 iOS 15 类型检查只有静态效力；最低版本运行与 StoreKit 行为须使用受支持的其他工具链或日后经授权的设备／分发流程，不改 iOS 15 产品下限。
 
 下一段 iOS 正式商店链路的[P5-E 施工前建议](p5-e-ios-storekit-scope-proposal.md)已完成审计，尚待逐文件白名单批准；代码实施和 App Store Connect／沙盒／真机授权分开。建议先隔离 Xcode 本地、沙盒及生产商业缓存，并解决 iOS 15 离线环境判定，再以真实商品和设备验证购买全生命周期。P5-D 的正式 App 按钮模拟器触控仍未验；不能以新建议替代该证据。
