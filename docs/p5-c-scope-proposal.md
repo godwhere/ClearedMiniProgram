@@ -1,6 +1,6 @@
 # P5-C 正式原生宿主与普通存档：建议白名单
 
-> 状态：施工建议，尚未授权；审计基线 C `196f388b7090492f82dec22d0e619efb0f1da3ff`，H `3054ac9c01ac93d562091957637a4ecebc5e8007`。此后 P5-B 共享接缝修复了 operation ID 冲突误确认与同会话重放旧快照，并将运行时合同升至 5；P5-C 须以修复后的共享锁为输入。2026-09-26 使用 H 既有的 Capacitor 8.5.2 依赖在 `/tmp` 隔离生成 iOS／Android 工程；没有生成 H 根级原生工程或改动 H 文件。若工具链或生成模板变化，先重审本表。
+> 状态：施工建议，尚未授权；初始审计基线 C `196f388b7090492f82dec22d0e619efb0f1da3ff`，H `3054ac9c01ac93d562091957637a4ecebc5e8007`。此后 P5-B 共享接缝修复了 operation ID 冲突误确认与同会话重放旧快照，并将运行时合同升至 5；当前运行时复核点为 C `0b53ad6bab9845e855f136b61a3a707817bf0472`、宿主复核点为 H `140648b527bd395c54e74e90244fc136ddd7f21b`，H 共享锁已指向该 C 提交。2026-09-26 使用 H 既有的 Capacitor 8.5.2 依赖在 `/tmp` 隔离生成 iOS／Android 工程；没有生成 H 根级原生工程或改动 H 文件。若工具链或生成模板变化，先重审本表。
 
 ## 目标与边界
 
@@ -134,7 +134,9 @@ ios/debug.xcconfig
 
 - 宿主保持 `Cleared`、`com.godwhere.cleared`、iOS 15.0+、Android API 28+；Capacitor `@capacitor/core`、`cli`、`ios`、`android` 建议继续精确锁定 P4.5 已测的 8.5.2。正式 `webDir` 为 H 的 `dist/native-web`，元数据在 `dist/native-meta` 外置。Capacitor 8 的[官方升级指南](https://capacitorjs.com/docs/updating/8-0)指定 iOS 15.0、Android 模板最低 API 24、Node 22+ 与 Xcode 26+；本机隔离生成也确认为 Android `minSdkVersion=24`、iOS deployment target `15.0`。因此必须在白名单内的 `android/variables.gradle` 把正式最低 API 显式提高到 28，并以最低版本运行测试；生成成功或较新模拟器通过均不能代替该验收。
 - H 以一个不可复制的 App 产品取值源生成 P4 测试和正式原生配置；P4 的 `src/main.js`、`FakeStoreAdapter`、`EntitlementOwner` 可保持现状，正式入口必须独立且不导入三者。Canvas 平台共用能力可抽为 H 内基类；正式存储方法只能经异步原生端口，任何同步读写调用均失败关闭。
-- 原生端口严格提供 P5-B 的 `open({namespace,schemaVersion,keys})`、`commit({namespace,schemaVersion,operationId,writes})` 和 `lookupOperation({namespace,schemaVersion,operationId,writes})`。四个普通记录、操作 ID 与完整请求内容摘要在同一 SQLite 事务内提交；查询必须返回内容匹配结果，同 ID 不同内容明确拒绝，查询不明结果时不发布新确认状态。损坏或未来 schema 保留原字节；迁移只允许前向单事务升级。操作日志保留与清理规则必须在实现前以量测结果冻结。
+- 原生端口严格提供 P5-B 的 `open({namespace,schemaVersion,keys})`、`commit({namespace,schemaVersion,operationId,writes})` 和 `lookupOperation({namespace,schemaVersion,operationId,writes})`。H 的 JS 端口按固定字段顺序把完整请求序列化为 UTF-8 JSON 文本；提交和查询均传相同文本，原生端验证字段后对原始文本计算 SHA-256，避免 Swift／Java 各自重排 JSON 导致匹配分歧。四个普通记录、operation ID 与请求摘要在同一 SQLite 事务内提交；查询只有原生端返回 `matches:true` 才确认，同 ID 不同内容明确拒绝，查询不明结果时不发布新确认状态。损坏或未来 schema 保留原字节；迁移只允许前向单事务升级。
+- **建议冻结的 operation 日志规则**：schema 1 中按普通 namespace 保存唯一 operation ID 与 32-byte 请求摘要；不按时间、条数或会话清理，也不静默复用旧 ID。删除旧 ID 会使迟到重试变成新写入，破坏幂等合同。若容量需要压缩，先设计可证明不再被重试的迁移／代际协议并单独审查，不在 P5-C 自动清理。磁盘写满仍返回明确失败，保留最后确认状态；不能靠删除操作证据继续写。
+- 2026-09-26 的隔离桌面 SQLite `3.50.4` **容量模型**：4 条虚拟普通记录使用 C 已测的 5,454／2,690／93／0 字节长度，operation ID 约 47 字节、SHA-256 为 32-byte BLOB、另存时间戳；4 KiB 页、WAL、`synchronous=FULL`，关闭自动 checkpoint 后量测并手动截断 WAL。200／10,000／100,000 条操作的主数据库分别为 65,536／1,622,016／15,958,016 bytes；100,000 条新增记录在 checkpoint 前的 WAL 为 17,950,872 bytes。它不代表 iOS／Android SQLite、真实 JSON 提交频率、备份体积或真机延迟。P5-C 双模拟器须以正式 schema 量测 200 次真实调用链提交和 10,000 条隔离合成 operation 记录，记录数据库、WAL、checkpoint 后体积及提交延迟；若日志无法受控 checkpoint，或按实测趋势达到 100,000 条时主数据库预计超过 32 MiB，停止把 `nativeCopyEligible` 改为 `true`，先重审日志方案。32 MiB 是设计复核触发值，不是自动删档或拒绝玩家写入的运行时上限。
 - Android 备份配置分别覆盖 API 30 及以下与 API 31 及以上，iOS 核查 Application Support 属性；配置检查不替代真机恢复。调试构建中的故障注入入口必须在正式构建中不可达且不进入 `dist/native-web`。
 - 构建与扫描区分 P4 浏览器产物和正式原生产物，核对 H／C 提交、tree、输入摘要和精确文件清单。只有双模拟器从冷启动到 SQLite 提交、强退及重启可玩验证通过，才把 `nativeCopyEligible` 改为 `true`；这不代表商店或发布就绪。
 
@@ -144,7 +146,7 @@ ios/debug.xcconfig
 | --- | --- | --- |
 | Node／静态 | H 精确白名单、锁和产物扫描；C 113 组回归、包预算、rollout 预检；操作 ID、损坏、迁移、并发故障注入 | 原生真实提交 |
 | 浏览器 | P4 六关／门禁回归；正式 bundle 无 fake store、P4、`localStorage`、微信／CloudBase、每日、广告、分享、远程请求 | 原生性能 |
-| iOS 模拟器 | 真正的原生端口提交／强退恢复、六关、语言／设置、失败与重复操作，记录 OS／Xcode 版本 | iOS 15 最低版本、真机与 OS 备份 |
+| iOS 模拟器 | 真正的原生端口提交／强退恢复、六关、语言／设置、失败与重复操作；200 次真实路径提交及 10,000 条隔离操作的数据库／WAL 量测，记录 OS／Xcode 版本 | iOS 15 最低版本、真机与 OS 备份 |
 | Android 模拟器 | 同上；API 36 可用，另需 API 28 最低版本验证；记录 Gradle／SDK／SQLite 版本 | 真机、真实空间耗尽和备份／重装 |
 
 当前机器只有 iOS 27 模拟器和 Android API 36 虚拟设备；最低 OS 验收、真机断电、真实备份／卸载重装、商店沙盒均尚无证据。C 的合成 200 关模型四条 JSON 记录共 8,237 bytes，不能代表 SQLite 日志与真实玩家负载。若任一平台只可假同步、必须修改表外文件、出现原生插件正式包中的调试入口或禁用依赖，停止施工并复核白名单／方案。
