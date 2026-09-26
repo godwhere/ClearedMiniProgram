@@ -806,6 +806,8 @@ P5-C iOS 优先补充（2026-09-27）：用户要求先做好 iOS，Android 新�
 
 P5-D 本地模拟实施记录（2026-09-27）：H 的 `5d6a4160f84d1ad29a9a058490bc626dac01e31b` 接入 iOS StoreKit 2 本地非消耗型商品、独立商业 SQLite、原生插件与只消费原生快照的 JS provider；`7ddd78c10a0a409451dc2752efc5b50dfe8b86c8` 修复插件通知晚安装时的当前快照补发；`b9d4c392643c199294b5aa58804ee8705295b980` 增加商业 SQLite 写入拒绝回归；`27ce5d5c9f38043fa00fc7559fb317dd48ec750b` 验证无交易恢复时旧缓存去权。Xcode 27 图形界面在 iOS 27 iPhone 18 Pro 模拟器运行 10 项 Swift XCTest 全过，覆盖购买／恢复／退款、pending 批准前不授权、启动未完成交易补扫、缓存失败关闭和普通存档隔离；注入写入拒绝时 App 不授权、不 `finish`，解除故障后重试落盘并完成交易。该故障注入不是系统真实低空间；迟到退款交易与通知竞态的回归断言均曾在错误实现下失败。Xcode Run 的原生桥显示本地夹具价格 `$1.99` 并成功读取既有普通档。H 从干净双仓工作区运行 `pnpm verify` 通过，Chrome 原生入口合成插件及六关浏览器 smoke 通过，iOS 15 SDK 类型检查通过。证据仍缺正式 App 购买／恢复／取消按钮的模拟器实际触控、真实低空间、iOS 15 运行及真机／沙盒／商店验收；CLI `xcodebuild test` 未能加载本地 StoreKit 配置，交易通过证据来自 Xcode 图形界面。C 共享运行码与 H `shared-source.lock.json` 未变，`nativeCopyEligible:false` 不变，不把本地模拟计为商店或发布放行。
 
+P5-D UI 链路补充：H 的 `8037940b2f4fdd70e9ca8db948a7ddacdc670188` 在 Chrome `native-web` 合成插件中，经 Canvas 点击账号恢复与两次取消购买，确认调用只由用户操作触发、取消后仍可购买、普通档无新增提交；干净 H `pnpm verify` 通过。此项仅为浏览器证据。iOS 27 模拟器当前停在 Apple Account 登录提示，Device Hub 接口超时；未输入账号，正式 App 按钮实际触控仍未验。
+
 下一段 iOS 正式商店链路的[P5-E 施工前建议](p5-e-ios-storekit-scope-proposal.md)已完成审计，尚待逐文件白名单批准；代码实施和 App Store Connect／沙盒／真机授权分开。建议先隔离 Xcode 本地、沙盒及生产商业缓存，并解决 iOS 15 离线环境判定，再以真实商品和设备验证购买全生命周期。P5-D 的正式 App 按钮模拟器触控仍未验；不能以新建议替代该证据。
 
 ## 7. App 技术路线与构建边界
