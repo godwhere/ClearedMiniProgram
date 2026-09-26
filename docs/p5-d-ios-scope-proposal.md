@@ -59,7 +59,9 @@
 
 H 在 `5d6a4160f84d1ad29a9a058490bc626dac01e31b` 完成逐文件白名单内的本地实现，并在 `7ddd78c10a0a409451dc2752efc5b50dfe8b86c8` 修复原生通知晚安装时的快照补发；两次均由 GitHub Desktop 本地提交，未推送。H 的 `pnpm preflight`、提交后干净双仓 `pnpm verify`、范围锁与 bundle 扫描、Chrome 无插件失败关闭／合成插件／六关 smoke 均通过。iOS 15 SDK 类型检查通过，仅证明编译兼容。
 
-Xcode 27 图形界面在 iOS 27 iPhone 18 Pro 模拟器执行 10 项 Swift XCTest 全部通过：本地购买／恢复／退款、无交易恢复时旧缓存去权、待批准购买不提前授权、启动漏过更新后的 `unfinished` 补扫与缓存恢复、独立 SQLite 与普通档隔离、缺安装标识或数据库、损坏数据和未来 schema 的失败关闭。H 的 `b9d4c392643c199294b5aa58804ee8705295b980` 新增商业 SQLite 写入拒绝注入：App 购买不授权、不 `finish`，故障解除后刷新才落盘授权并完成交易；这是确定性写入失败，不是系统真实低空间。H 的 `27ce5d5c9f38043fa00fc7559fb317dd48ec750b` 又验证无交易时恢复可清除仅存于商业缓存的旧授权。退款后空查询、多次退款的迟到旧交易和晚安装通知的断言曾先在错误实现下失败。Xcode Run 中原生桥读取到本地测试价格 `$1.99` 与既有普通档；该价格不是正式定价。CLI `xcodebuild test` 未成功加载本地 StoreKit 配置，不能计入交易证据。
+Xcode 27 图形界面在 iOS 27 iPhone 18 Pro 模拟器执行 10 项 Swift XCTest 全部通过：本地购买／恢复／退款、无交易恢复时旧缓存去权、待批准购买不提前授权、启动漏过更新后的 `unfinished` 补扫与缓存恢复、独立 SQLite 与普通档隔离、缺安装标识或数据库、损坏数据和未来 schema 的失败关闭。H 的 `b9d4c392643c199294b5aa58804ee8705295b980` 新增商业 SQLite 写入拒绝注入：App 购买不授权、不 `finish`，故障解除后刷新才落盘授权并完成交易；这是确定性写入失败，不是系统真实低空间。H 的 `27ce5d5c9f38043fa00fc7559fb317dd48ec750b` 又验证无交易时恢复可清除仅存于商业缓存的旧授权。退款后空查询、多次退款的迟到旧交易和晚安装通知的断言曾先在错误实现下失败。Xcode Run 中原生桥读取到本地测试价格 `$1.99` 与既有普通档；该价格不是正式定价。早先一次 CLI `xcodebuild test` 未成功加载本地 StoreKit 配置，当次不能计入交易证据。
+
+后续对干净 H 原工程的原始 `App` scheme，在 iOS 27 模拟器 `D28B2D14-F0CA-4A61-BF4D-5B0F796DDAC9` 运行 `xcodebuild test -only-testing:AppTests/ClearedStoreKitOwnerTests CODE_SIGNING_ALLOWED=NO`，10 项原生 XCTest 全过，结果包为本机 `/tmp/cleared-p5d-full-cli-result.xcresult`。StoreKit 用例由 `SKTestSession` 驱动本地夹具；此前 CLI 失败未在这次复测重现。隔离副本的 Test 动作加本地配置与未改 H scheme 的单测均通过，不能把成功归因于 scheme 修改，因此没有写回该实验。此证据仍未覆盖正式 App Canvas 购买／恢复／取消的实际触控。
 
 H 的 `8037940b2f4fdd70e9ca8db948a7ddacdc670188` 补充 Chrome 正式 `native-web` 入口的合成插件 UI smoke：账号页点击恢复返回 `not_found` 后，购买按钮仍可触发；两次 `cancelled` 购买均到达 JS 原生 provider，普通存档未增加提交。测试还检查购买和恢复不会在加载时自行发起。H 从干净工作区运行 `pnpm verify` 通过。这是浏览器 Canvas 触控链路和合成插件证据，不是 iOS App 或 StoreKit 触控。当前 iOS 27 模拟器截图停在系统 Apple Account 登录提示，Device Hub 桌面接口持续超时；未输入账号。
 
