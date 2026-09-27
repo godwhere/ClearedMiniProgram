@@ -44,6 +44,25 @@
 
 `src/app-product-values.js` 的逻辑 ID 不变；原生 Apple SKU 映射仅由 H 管理并由阶段锁／测试校验。`ios/App/App/ClearedStorageStore.swift` 及四条普通存档 key 不进入本阶段。若真实施工证明需要表外文件，先停止并补审白名单，不顺手扩张。
 
+### Ask to Buy 弹窗反馈补充建议（待单独批准）
+
+下文是 2026-09-27 模拟器发现缺陷后的**增量建议**，不改变上表已批准的边界。C 接受本地获批的较新 `owned_verified` 快照后，已打开弹窗仍优先显示旧 `pending` 操作文案；购买按钮同时消失，商业 SQLite 已落盘且 `pendingFinish=[]`。修复应以已接受的权益快照为授权与展示依据：一旦其 revision 高于操作结果的快照 revision，旧操作反馈不得覆盖新状态；迟到的 pending 结果也不得把获批画面改回“未解锁”。撤销、取消、失败与恢复仍按各自真实状态显示，关闭弹窗不丢失有效权益。只改共享消费者反馈，不让 JS 签发商业权益。
+
+拟增文件均为**精确路径**；原白名单内的 C `docs/app-portability-plan.md`、本文与 H `docs/p5-host-contract.md` 可同步记录结果。未收到明确增量批准前，以下代码与共享锁均只读。
+
+| 仓库 | 拟增精确路径 | 必要原因 |
+| --- | --- | --- |
+| C | `src/app.js` | 让较新权益快照淘汰已过时的弹窗操作反馈 |
+| C | `tests/full-game-access.test.js` | pending→获批、获批后迟到 pending、撤销及普通存档不变的失败先行回归 |
+| H | `shared-source.lock.json` | C 修复提交后，按审核过的 commit／tree 显式升级唯一共享源码锁 |
+| H | `p5-scope-lock.json` | 只把共享锁这一精确路径增入 P5-D 许可清单 |
+| H | `scripts/verify-p5-scope.js` | 校验补审后的清单摘要与指定共享提交，仍禁止改动 P4.5 存储报告 |
+| H | `tests/p5-host-contract.test.js` | 断言唯一共享锁升级、产品与目录摘要不漂移、其他禁止输入仍只读 |
+
+刷新前先复核锁定 C `0b53ad6bab9845e855f136b61a3a707817bf0472` 至目标提交的逐文件差异。至本增量审计时 C `d055b5e9b58d1edba213f8d8a076eb249ea4a51a` 的差异仅为 `README.md` 与七份 P5 Markdown 文档；`core/`、`data/`、`src/`、`assets/` 均无改动。H 对当前 C 再计算的 runtime contract、产品策略、catalog 顺序／内容、逻辑权益和六关快照均与旧锁一致。代码修复提交后须重新审查差异与这些值，只在 C 干净提交后更新 H 锁，不运行 `pnpm lock:shared`，不扩大为目录授权。
+
+验收：C 的回归必须在旧实现下失败，并覆盖较新已验证授权优先、迟到操作结果不能倒退、撤销后门禁恢复及普通存档不变；再运行 `node tests/run.js`、包预算、rollout 预检和 `git diff --check`。H 开发中 `pnpm preflight`、提交后干净双仓 `pnpm verify`；iOS 27 上用 Xcode 本地 Ask to Buy 重跑批准前／后 Canvas 文字、按钮、商业 SQLite 与 `finish`，保存清晰截图。若需要表外文件、产品／catalog 变化、真实商品或商店账号，停下重新审查；iOS 15 运行、真机和发布仍不在此次补充范围。
+
 ## 验证矩阵与停止条件
 
 | 证据层 | 必须验证 | 不得推断 |
