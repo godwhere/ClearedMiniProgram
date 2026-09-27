@@ -1002,7 +1002,7 @@ git diff --check
 | V21／V28 正式商店 | [P5-E 建议](p5-e-ios-storekit-scope-proposal.md)已列出环境隔离、未完成交易、恢复与离线失败关闭合同 | 代码白名单、真实商品与沙盒账号均未获授权；iOS 15 冷启动离线环境判定仍是设计前提，不能称正式权益已验收 |
 | V23／V26 构建来源 | H 从精确 C commit／tree 生成候选并扫描 Web 与指定模拟器 `.app`；当前产品策略、catalog 和六关快照未漂移 | 两仓提交仍仅在本机、未推送；远端 CI／干净机器取回与最终发行包未验。`nativeCopyEligible:false` 的原双平台条件不变，Android 暂缓 |
 | V25 备份与卸载 | 普通 SQLite 配置允许备份、商业缓存排除备份；两类数据分别落盘 | 真机 OS 备份／恢复、卸载重装及商店恢复组合未执行；配置与模拟器读写不能代替系统验收 |
-| V27 展示、隐私与权利 | 已完成 [iOS 展示／隐私入口建议](p5-f-ios-presentation-privacy-scope-proposal.md)、[数据流盘点](p5-ios-privacy-data-audit.md)与[素材许可静态清单](p5-ios-asset-rights-audit.md) | 设备范围、真实 HTTPS 政策／支持地址、图标／启动图权属待冻结；当前 iPhone／iPad 横屏配置和模板图不符合首版固定竖屏目标，真机性能与正式隐私声明未验 |
+| V27 展示、隐私与权利 | 已完成 [iOS 展示／隐私入口建议](p5-f-ios-presentation-privacy-scope-proposal.md)、[数据流盘点](p5-ios-privacy-data-audit.md)与[素材许可静态清单](p5-ios-asset-rights-audit.md)；iOS 27 模拟器实际点击政策按钮后显示打开失败反馈 | 政策入口仍不可用；设备范围、真实 HTTPS 政策／支持地址、图标／启动图权属待冻结；当前 iPhone／iPad 横屏配置和模板图不符合首版固定竖屏目标，真机性能与正式隐私声明未验 |
 | V17／V18 发布 | 本地 Node、浏览器、模拟器和无签名模拟器包证据已按层记录 | 微信开发者工具／上传与 App 发行签名、商店表单、上传、送审、发布均未由现有证据证明，也未获相应操作授权 |
 
 代码、配置或数据变化后执行完整 `node tests/run.js`；新增测试导出 `run` 并注册到聚合入口。完成每阶段后执行 `git diff --check` 并核验文件及方法白名单；纯文档远端编辑若未执行本地命令，必须如实单列，不能沿用历史成功记录。
