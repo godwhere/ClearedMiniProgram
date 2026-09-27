@@ -1005,6 +1005,8 @@ git diff --check
 | V27 展示、隐私与权利 | 已完成 [iOS 展示／隐私入口建议](p5-f-ios-presentation-privacy-scope-proposal.md)、[数据流盘点](p5-ios-privacy-data-audit.md)与[素材许可静态清单](p5-ios-asset-rights-audit.md)；iOS 27 模拟器实际点击政策按钮后显示打开失败反馈，缓存 Debug 包已把应用 dylib 纳入定向符号检查 | 政策入口仍不可用；设备范围、真实 HTTPS 政策／支持地址、图标／启动图权属待冻结；当前 iPhone／iPad 横屏配置和模板图不符合首版固定竖屏目标，最终设备 archive／隐私报告、真机性能与正式隐私声明未验 |
 | V17／V18 发布 | 本地 Node、浏览器、模拟器和无签名模拟器包证据已按层记录 | 微信开发者工具／上传与 App 发行签名、商店表单、上传、送审、发布均未由现有证据证明，也未获相应操作授权 |
 
+2026-09-27 iOS 优先顺序下复核放行语义：H 的 `p5-scope-lock.json` 将 `nativeCopyEligible` 固定为 `false`，`scripts/build.js` 只把它写进 provenance，`scripts/scan-bundle.js` 只比对该值，`scripts/verify-p5-scope.js` 和合同测试断言其仍为 `false`。与此同时，`scripts/run-native-matrix.mjs` 为调试矩阵实际执行 `cap copy ios`，`capacitor.config.json` 的 `webDir` 指向可玩候选 `dist/native-web`。因此这个字段是**证据状态与双平台放行约束，不是阻止复制／构建的执行门禁**；“扫描通过”或“已有模拟器 `.app`”不能推出可签名、可上传或 iOS 已单独放行。若后续只推进 iOS 发行候选，应先单独审查并批准可执行的 iOS 发行门禁及其负向测试，把正式 StoreKit、隐私／许可、最低系统与真机／归档证据逐项列为前提；不要靠翻转现有双平台布尔值绕开暂停中的 Android 验收。此审计未修改构建、签名或上传命令。
+
 代码、配置或数据变化后执行完整 `node tests/run.js`；新增测试导出 `run` 并注册到聚合入口。完成每阶段后执行 `git diff --check` 并核验文件及方法白名单；纯文档远端编辑若未执行本地命令，必须如实单列，不能沿用历史成功记录。
 
 平台／资源改动还应运行对应现有资源和包预算检查。Node 全绿不替代开发者工具、真机、StoreKit／Play Billing 沙盒、恢复购买或送审证据。
