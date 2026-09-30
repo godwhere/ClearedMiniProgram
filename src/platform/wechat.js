@@ -382,6 +382,42 @@ class WechatPlatform {
     return !!(this.api && typeof this.api.createUserInfoButton === 'function');
   }
 
+  getAuthorizedUserInfo() {
+    if (!this.api || typeof this.api.getSetting !== 'function' ||
+        typeof this.api.getUserInfo !== 'function') return Promise.resolve({ ok: false, reason: 'not-supported' });
+    return new Promise(resolve => {
+      let finished = false;
+      const timer = setTimeout(() => finish({ ok: false, reason: 'timeout' }), 8000);
+      const finish = result => {
+        if (finished) return;
+        finished = true;
+        clearTimeout(timer);
+        resolve(result);
+      };
+      try {
+        this.api.getSetting({
+          success: setting => {
+            if (finished) return;
+            if (!setting || !setting.authSetting || setting.authSetting['scope.userInfo'] !== true) {
+              finish({ ok: false, reason: 'not-authorized' });
+              return;
+            }
+            try {
+              this.api.getUserInfo({ withCredentials: false,
+                success: result => {
+                  const info = result && result.userInfo;
+                  finish({ ok: true, profile: info ? { nickname: info.nickName, avatarUrl: info.avatarUrl } : null });
+                },
+                fail: () => finish({ ok: false, reason: 'unavailable' })
+              });
+            } catch (error) { finish({ ok: false, reason: 'unavailable' }); }
+          },
+          fail: () => finish({ ok: false, reason: 'unavailable' })
+        });
+      } catch (error) { finish({ ok: false, reason: 'unavailable' }); }
+    });
+  }
+
   getLaunchOptions() {
     try { return this.api.getLaunchOptionsSync ? this.api.getLaunchOptionsSync() : {}; } catch (error) { return {}; }
   }

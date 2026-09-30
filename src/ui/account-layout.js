@@ -6,7 +6,6 @@ function accountLayout(metrics, options) {
   const safeTop = Math.max(0, Math.min(height, Number(metrics.safeTop) || 0));
   const safeBottom = Math.max(safeTop, Math.min(height, Number(metrics.safeBottom) || height));
   const backupMode = !!(options && options.backupMode);
-  const profileSupported = !!(options && options.profileSupported);
   const margin = Math.min(24, width * 0.06);
   const landscape = width > height * 1.2;
   const panelWidth = Math.min(landscape ? 620 : 360, width - margin * 2);
@@ -14,7 +13,7 @@ function accountLayout(metrics, options) {
   const available = Math.max(1, safeBottom - panelTop - (landscape ? 12 : 16));
   const x = (width - panelWidth) / 2;
   const inset = Math.min(12, panelWidth * 0.04);
-  const rowCount = 3 + (profileSupported ? 1 : 0) + (backupMode ? 1 : 0);
+  const rowCount = 3 + (backupMode ? 1 : 0);
   let summary;
   let rowX;
   let rowWidth;
@@ -91,7 +90,6 @@ function accountLayout(metrics, options) {
     }
   };
   let rowIndex = 1;
-  if (profileSupported) result.profileButton = row(rowIndex++);
   result.retryButton = row(rowIndex++);
   if (backupMode) result.restoreButton = row(rowIndex++);
   result.privacyButton = row(rowIndex);

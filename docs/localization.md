@@ -107,7 +107,8 @@ The English release is complete only when all reachable player-facing text is co
 - Play controls, tutorials, Portal instructions, hints, undo/restart/exit confirmations, result screens, and failure feedback.
 - Themes, clear effects, mechanic names, ownership/unlock states, prices, pending-cloud amounts, and purchase feedback.
 - Account, authorization, network, sync, storage, migration-protection, and recovery messages shown to players.
-- Share-card titles and the native profile authorization button created by the game.
+- Share-card titles and the native home profile authorization button created by the game.
+- The account page displays the WeChat profile obtained on the home screen or its default placeholder.
 
 Developer comments, diagnostic-only logs, test descriptions, source-data authoring labels, and documentation do not need runtime translation. WeChat-owned system UI and Mini Game console/store metadata are outside the code catalog and require separate release review.
 

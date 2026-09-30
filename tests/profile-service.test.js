@@ -82,6 +82,43 @@ async function run() {
   assert.deepStrictEqual(received, { profile: { nickname: '玩家', avatarUrl: info.avatarUrl } });
   assert.strictEqual(raw.options.withCredentials, false); wrapped.offTap(); assert.strictEqual(raw.off, raw.tap);
   adapter.api = {}; assert.strictEqual((await adapter.openPrivacyContract()).reason, 'not-supported');
+
+  let userInfoReads = 0;
+  adapter.api = {
+    getSetting(options) { options.success({ authSetting: { 'scope.userInfo': false } }); },
+    getUserInfo() { userInfoReads++; }
+  };
+  assert.strictEqual((await adapter.getAuthorizedUserInfo()).reason, 'not-authorized');
+  assert.strictEqual(userInfoReads, 0, 'a denied permission cannot read user information');
+  adapter.api.getSetting = options => options.success({ authSetting: { 'scope.userInfo': true } });
+  adapter.api.getUserInfo = options => {
+    userInfoReads++;
+    assert.strictEqual(options.withCredentials, false);
+    options.success({ userInfo: { nickName: '微信玩家', avatarUrl: info.avatarUrl }, encryptedData: 'private' });
+  };
+  assert.deepStrictEqual(await adapter.getAuthorizedUserInfo(), {
+    ok: true, profile: { nickname: '微信玩家', avatarUrl: info.avatarUrl }
+  });
+  assert.strictEqual(userInfoReads, 1);
+
+  const display = fixture();
+  display.profile.config = { displayOnly: true };
+  let finishDisplayRead;
+  display.platform.getAuthorizedUserInfo = () => new Promise(resolve => { finishDisplayRead = resolve; });
+  const oldRead = display.profile.refresh();
+  await Promise.resolve();
+  assert(display.profile.mount({ rect }).ok);
+  display.buttons[0].tap({ profile: info });
+  await display.profile.pending;
+  finishDisplayRead({ ok: true, profile: { nickname: '旧头像', avatarUrl: info.avatarUrl } });
+  assert.strictEqual((await oldRead).reason, 'stale');
+  assert.strictEqual(display.profile.current().nickname.length, 32);
+  assert.strictEqual(display.calls.length, 0, 'display-only authorization never uploads the profile');
+  assert.strictEqual(display.loginCalls(), 0, 'display-only authorization needs no HTTP login');
+  display.platform.getAuthorizedUserInfo = async () => ({ ok: false, reason: 'not-authorized' });
+  assert.strictEqual((await display.profile.refresh()).reason, 'not-authorized');
+  assert.strictEqual(display.profile.current(), null, 'revoked permission removes the displayed profile');
+  display.profile.dispose();
 }
 run.fixture = fixture;
 module.exports = run;

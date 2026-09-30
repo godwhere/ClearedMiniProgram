@@ -24,7 +24,7 @@ async function homeProfileRefresh() {
   await new Promise(resolve => setImmediate(resolve));
   assert(onlineFinished, 'profile loading cannot hold up the normal online resume flow');
   assert.strictEqual(requests, 1);
-  assert.strictEqual(f.buttons.length, 0, 'the homepage never mounts a native authorization button');
+  assert.strictEqual(f.buttons.length, 0, 'legacy profile loading cannot mount a home authorization button');
   app.dirty = false;
   finish({ ok: true, data: { profile } });
   await new Promise(resolve => setImmediate(resolve));
@@ -36,14 +36,106 @@ async function homeProfileRefresh() {
   app.dispose();
 }
 
+async function wechatProfileDisplay() {
+  const oldWx = global.wx;
+  const raw = fakeApi();
+  const buttons = [];
+  let authorized = false;
+  let gameClubButtons = 0;
+  const userInfo = { nickName: '微信玩家', avatarUrl: 'https://example.test/wechat.png' };
+  raw.getAccountInfoSync = () => ({ miniProgram: { envVersion: 'release' } });
+  raw.onWindowResize = function (callback) { this.resize = callback; };
+  raw.getSetting = options => options.success({ authSetting: { 'scope.userInfo': authorized } });
+  raw.getUserInfo = options => options.success({ userInfo });
+  raw.createGameClubButton = () => { gameClubButtons++; return {}; };
+  raw.createUserInfoButton = options => {
+    const button = { options, onTap(listener) { this.tap = listener; }, offTap() {},
+      show() {}, hide() {}, destroy() { this.destroyed = true; } };
+    buttons.push(button);
+    return button;
+  };
+  try {
+    global.wx = raw;
+    const app = require('../src/bootstrap.js').start();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.strictEqual(app.buildModel().accountProfile, null);
+    assert.strictEqual(app.profile.isSupported(), true);
+    assert.strictEqual(buttons.length, 1, 'an unapproved player sees a native home authorization button');
+    assert.strictEqual(buttons[0].options.type, 'text');
+    assert.strictEqual(buttons[0].options.text, '使用微信资料');
+    assert.strictEqual(buttons[0].options.style.left, app.homeProfileButtonRect().x);
+    assert.strictEqual(buttons[0].options.style.top, app.homeProfileButtonRect().y);
+    app.tick(Date.now());
+    assert.strictEqual(app.buildModel().profilePrompt, undefined, 'the game does not draw its own consent dialog');
+    assert(!app.renderer.hits.some(hit => hit.id === 'profilePrompt:later'));
+    assert.strictEqual(gameClubButtons, 0, 'home does not create the Game Club image');
+    authorized = true;
+    buttons[0].tap({ userInfo });
+    await app.profile.pending;
+    assert.strictEqual(buttons[0].destroyed, true);
+    assert.strictEqual(app.buildModel().accountProfile.nickname, '微信玩家');
+    app.performAction('home:account');
+    assert.strictEqual(app.buildModel().accountProfile.nickname, '微信玩家',
+      'account and home use the same approved profile');
+    app.tick(Date.now());
+    assert(!app.renderer.hits.some(hit => hit.id === 'account:authorizeProfile'),
+      'the account page does not show an authorization button');
+    assert.strictEqual(buttons.length, 1, 'the account page creates no second native button');
+    app.performAction('account:back');
+    assert.strictEqual(app.buildModel().accountProfile.avatarUrl, userInfo.avatarUrl);
+    app.dispose();
+
+    const reopened = require('../src/bootstrap.js').start();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.strictEqual(reopened.buildModel().accountProfile.nickname, '微信玩家',
+      'an existing WeChat grant refreshes the homepage without another tap');
+    assert.strictEqual(buttons.length, 1, 'an existing grant does not show the home button');
+    reopened.dispose();
+
+    authorized = false;
+    const unapproved = require('../src/bootstrap.js').start();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.strictEqual(buttons.length, 2);
+    raw.getWindowInfo = () => ({ windowWidth: 320, windowHeight: 568,
+      safeArea: { top: 54, bottom: 548 } });
+    raw.resize();
+    assert.strictEqual(buttons[1].destroyed, true);
+    assert.strictEqual(buttons.length, 3, 'resize repositions the native home button');
+    assert.strictEqual(buttons[2].options.style.left, unapproved.homeProfileButtonRect().x);
+    assert.strictEqual(buttons[2].options.style.top, unapproved.homeProfileButtonRect().y);
+    assert(buttons[2].options.style.top + buttons[2].options.style.height <= unapproved.platform.metrics.safeBottom);
+    buttons[2].tap({ userInfo: null });
+    unapproved.tick(Date.now());
+    assert.strictEqual(unapproved.buildModel().accountProfile, null);
+    assert.strictEqual(buttons.length, 3, 'refusing authorization does not interrupt play or remount a dialog');
+    unapproved.performAction('home:account');
+    assert.strictEqual(unapproved.scene, 'account', 'home navigation remains available');
+    assert.strictEqual(buttons[2].destroyed, true, 'the home button is removed on scene change');
+    unapproved.tick(Date.now());
+    assert(!unapproved.renderer.hits.some(hit => hit.id === 'account:authorizeProfile'));
+    assert.strictEqual(unapproved.performAction('account:language:next'), true);
+    unapproved.performAction('account:back');
+    unapproved.tick(Date.now());
+    assert.strictEqual(buttons.length, 4, 'returning home restores the native button');
+    assert.strictEqual(buttons[3].options.text, 'Use WeChat profile');
+    unapproved.onHide();
+    assert.strictEqual(buttons[3].destroyed, true, 'backgrounding removes the native button');
+    unapproved.onShow();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.strictEqual(buttons.length, 5, 'foreground permission check restores the native button');
+    unapproved.dispose();
+  } finally { global.wx = oldWx; }
+}
+
 module.exports = async function run() {
   await homeProfileRefresh();
+  await wechatProfileDisplay();
   const previousWx = global.wx;
   try {
     global.wx = fakeApi();
     const composed = require('../src/bootstrap.js').start();
     assert(composed.profile instanceof require('../src/services/profile-service.js'));
-    assert.strictEqual(composed.profile.isSupported(), false, 'profile remains disabled by default');
+    assert.strictEqual(composed.profile.isSupported(), false, 'a missing native button keeps profile authorization hidden');
     composed.dispose();
   } finally { global.wx = previousWx; }
   const raw = fakeApi(); raw.onWindowResize = function (callback) { this.resize = callback; };
@@ -53,32 +145,27 @@ module.exports = async function run() {
   app.start(); app.tick(Date.now()); assert.strictEqual(f.buttons.length, 0);
   assert(app.renderer.hits.some(hit => hit.id === 'home:account'));
   app.performAction('home:account'); app.tick(Date.now());
-  const layout = accountLayout(platform.metrics, { profileSupported: true });
-  assert.deepStrictEqual(app.renderer.hits.find(hit => hit.id === 'account:authorizeProfile').rect, layout.profileButton);
-  assert.strictEqual(f.buttons[0].options.style.left, layout.profileButton.x);
-  assert.strictEqual(f.buttons[0].options.style.top, layout.profileButton.y);
+  const layout = accountLayout(platform.metrics);
+  assert.deepStrictEqual(app.renderer.hits.find(hit => hit.id === 'account:retrySync').rect, layout.retryButton);
+  assert(!app.renderer.hits.some(hit => hit.id === 'account:authorizeProfile'));
+  assert.strictEqual(f.buttons.length, 0, 'account page never mounts profile authorization');
   raw.getWindowInfo = () => ({ windowWidth: 320, windowHeight: 568 }); raw.resize();
   f.platform.metrics = platform.metrics;
   app.tick(Date.now());
-  assert.strictEqual(f.buttons[0].destroyed, true);
-  assert.strictEqual(f.buttons[1].options.style.left,
-    accountLayout(platform.metrics, { profileSupported: true }).profileButton.x);
-  // Continue with the latest mounted button after resizing.
-  f.buttons.shift();
-  f.buttons[0].tap({ profile: null });
-  assert.strictEqual(app.buildModel().accountMessage, '未授权，仍可继续游玩');
-  app.performAction('account:back'); assert.strictEqual(f.buttons[0].destroyed, true); assert.strictEqual(app.scene, 'home');
-  app.performAction('home:account'); app.onHide(); assert.strictEqual(f.buttons[1].destroyed, true);
-  app.onShow(); assert.strictEqual(f.buttons.length, 3);
+  assert.deepStrictEqual(app.renderer.hits.find(hit => hit.id === 'account:retrySync').rect,
+    accountLayout(platform.metrics).retryButton);
+  assert.strictEqual(f.buttons.length, 0);
+  app.performAction('account:back'); assert.strictEqual(app.scene, 'home');
+  app.performAction('home:account'); app.onHide();
+  app.onShow(); assert.strictEqual(f.buttons.length, 0);
   app.performAction('account:back'); app.openLevel(0, 0); assert.strictEqual(app.scene, 'play');
   app.scene = 'home'; app.performAction('home:account'); app.openLevel(0, 0);
-  assert.strictEqual(f.buttons[3].destroyed, true, 'direct level navigation also unmounts the overlay');
-  app.scene = 'home'; app.performAction('home:account'); app.dispose(); assert.strictEqual(f.buttons[4].destroyed, true);
+  assert.strictEqual(f.buttons.length, 0);
+  app.scene = 'home'; app.performAction('home:account'); app.dispose();
   const count = f.buttons.length; app.onShow(); assert.strictEqual(f.buttons.length, count);
 
   const offline = new ClearedApp(new WechatPlatform(fakeApi()));
   offline.performAction('home:account'); offline.tick(Date.now());
-  assert.strictEqual(offline.buildModel().profileSupported, false);
   assert(!offline.renderer.hits.some(hit => hit.id === 'account:authorizeProfile'));
   offline.performAction('account:back'); assert.strictEqual(offline.openLevel(0, 0), true);
 

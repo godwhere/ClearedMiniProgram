@@ -17,7 +17,6 @@ const progressionConfig = require('./config/progression.js');
 const audioConfig = require('./config/audio.js');
 const CanvasRenderer = require('./ui/canvas-renderer.js');
 const portalInstructions = require('./ui/portal-instructions.js');
-const accountLayout = require('./ui/account-layout.js');
 const defaultSkins = require('./skins/index.js');
 const defaultMechanics = require('./mechanics/index.js');
 const defaultPortalMechanic = defaultMechanics.get('portal');
@@ -337,7 +336,8 @@ class ClearedApp {
     this.accountSceneGeneration = 0;
     this.accountMessage = '';
     this.accountFeedback = null;
-    this.accountProfilePending = false;
+    this.homeProfileButtonNeeded = false;
+    this.homeProfileButtonMounted = false;
     this.accountSyncPending = null;
     this.hidden = false;
     this.disposed = false;
@@ -608,6 +608,7 @@ class ClearedApp {
       this.accountGeneration++;
       if (this.engagement && this.engagement.cancelRewardUnlocks) this.engagement.cancelRewardUnlocks();
       if (this.profile && this.profile.unmount) this.profile.unmount();
+      this.homeProfileButtonMounted = false;
       this.hintRequest = null; this.dailyExtraRequest = null; this.accountSyncPending = null;
       this.pendingShare = null; this.pendingSkinId = null;
       ++this.skinLoadRequestId; ++this.rewardRequestGeneration;
@@ -750,13 +751,8 @@ class ClearedApp {
       },
       resize: () => {
         this.renderer.ctx = this.platform.context;
-        if (this.scene === 'account' && this.profile) {
-          const profileSupported = typeof this.profile.isSupported === 'function' && this.profile.isSupported();
-          this.profile.handleResize(accountLayout(this.platform.metrics, {
-            backupMode: !!(this.cloudBackup && this.cloudBackup.enabled()),
-            profileSupported
-          }).profileButton);
-        }
+        if (this.homeProfileButtonMounted) this.unmountHomeProfileButton();
+        this.syncHomeProfileButton();
         this.invalidate();
       },
       audioInterruptBegin: () => this.audio.pauseAll('interruption'),
@@ -1124,6 +1120,7 @@ class ClearedApp {
   tick(now) {
     const timestamp = Number.isFinite(Number(now)) ? Number(now) : Date.now();
     this.showNextRewardNotice(timestamp);
+    this.syncHomeProfileButton();
     this.refreshStamina(timestamp);
     if (this.accountFeedback && timestamp >= this.accountFeedback.until) this.clearAccountFeedback();
     if (this.hintPreview && this.hintPreview.manual !== true && timestamp >= this.hintPreview.until) {
@@ -1423,8 +1420,6 @@ class ClearedApp {
         accountStatus: this.auth && this.auth.readOnlyPhase && !(this.cloudBackup && this.cloudBackup.enabled()) ? 'local' : status,
         accountMessage: this.accountMessage || (this.auth && this.auth.readOnlyPhase && !(this.cloudBackup && this.cloudBackup.enabled())
           ? this.t(sync.status === 'cloud-readonly' ? 'sync.readOnly' : 'sync.identityOffline') : ''),
-        profileSupported: !!(this.profile && typeof this.profile.isSupported === 'function' && this.profile.isSupported()),
-        profilePending: this.accountProfilePending,
         syncPending: !!this.accountSyncPending,
         syncNeeded,
         backupMode: !!(this.cloudBackup && this.cloudBackup.enabled()),
@@ -1639,6 +1634,49 @@ class ClearedApp {
 
   invalidate() {
     this.dirty = true;
+  }
+
+  homeProfileButtonRect() {
+    const metrics = this.platform.metrics;
+    const skin = this.skins.current();
+    const rect = {
+      x: 18,
+      y: metrics.safeTop + (skin.layout.homeTopUiOffset || 0) + 60,
+      w: Math.min(160, metrics.width - 36),
+      h: 38
+    };
+    return rect.w >= 120 && rect.y + rect.h <= metrics.safeBottom ? rect : null;
+  }
+
+  unmountHomeProfileButton() {
+    if (!this.homeProfileButtonMounted) return;
+    this.homeProfileButtonMounted = false;
+    if (this.profile) this.profile.unmount();
+  }
+
+  syncHomeProfileButton() {
+    if (this.profile && this.profile.current && this.profile.current()) this.homeProfileButtonNeeded = false;
+    if (!this.homeProfileButtonNeeded || this.hidden || this.disposed || this.scene !== 'home' ||
+        this.storeDialog || this.rewardDialog || !this.profile || !this.profile.isDisplayOnly ||
+        !this.profile.isDisplayOnly() || !this.profile.isSupported()) {
+      this.unmountHomeProfileButton();
+      return false;
+    }
+    if (this.homeProfileButtonMounted) return true;
+    const rect = this.homeProfileButtonRect();
+    if (!rect) return false;
+    const skin = this.skins.current();
+    const result = this.profile.mount({
+      scene: 'home', rect, text: this.t('profile.authorizeHomeButton'), fontSize: 14,
+      style: { color: skin.colors.text, backgroundColor: skin.colors.levelCell },
+      onSuccess: () => {
+        this.homeProfileButtonNeeded = false;
+        this.unmountHomeProfileButton();
+        this.invalidate();
+      }
+    });
+    this.homeProfileButtonMounted = result.ok;
+    return result.ok;
   }
 
   t(key, params) {
@@ -2546,7 +2584,6 @@ class ClearedApp {
         if (!result.ok) return false;
         this.accountMessage = '';
         this.clearAccountFeedback();
-        if (this.profile) this.mountAccountProfile();
         this.invalidate();
         return true;
       });
@@ -2555,7 +2592,6 @@ class ClearedApp {
       // state. Clear it so the newly selected locale is visible immediately.
       this.accountMessage = '';
       this.clearAccountFeedback();
-      if (this.profile) this.mountAccountProfile();
       this.invalidate();
       return true;
     }
@@ -2619,10 +2655,6 @@ class ClearedApp {
         this.cloudBackup.cancelConfirmation(); this.accountMessage = ''; this.invalidate(); return true;
       }
       this.scene = 'home';
-    } else if (action === 'account:authorizeProfile' && this.scene === 'account') {
-      // The visible native button handles the actual user gesture. A Canvas
-      // hit may only mount that button, never synthesize consent.
-      this.mountAccountProfile();
     } else if (action === 'account:retrySync' && this.scene === 'account') {
       this.retryAccountSync();
     } else if (action === 'account:restoreBackup' && this.scene === 'account') {
@@ -2886,6 +2918,7 @@ class ClearedApp {
   }
 
   openAccount() {
+    this.unmountHomeProfileButton();
     this.clearHintPreview(false);
     this.scene = 'account';
     this.accountSceneGeneration++;
@@ -2894,7 +2927,6 @@ class ClearedApp {
     this.pointer = null;
     this.pressedId = null;
     this.boardInput.setRunner(null);
-    this.mountAccountProfile();
     if (this.auth && this.auth.mode === 'cloud') this.resumeOnline('account');
     if (this.profile) {
       const generation = this.accountSceneGeneration;
@@ -3087,37 +3119,10 @@ class ClearedApp {
     return true;
   }
 
-  mountAccountProfile() {
-    if (this.scene !== 'account' || this.hidden || this.disposed || !this.profile) return false;
-    const generation = this.accountSceneGeneration;
-    const account = this.captureAccountContext();
-    const current = () => this.isCurrentAccount(account) && this.scene === 'account' && !this.hidden && generation === this.accountSceneGeneration;
-    const skin = this.skins.current();
-    const profileSupported = typeof this.profile.isSupported === 'function' && this.profile.isSupported();
-    const result = this.profile.mount({
-      rect: accountLayout(this.platform.metrics, {
-        backupMode: !!(this.cloudBackup && this.cloudBackup.enabled()),
-        profileSupported
-      }).profileButton,
-      style: { color: skin.colors.text, backgroundColor: skin.colors.levelCell },
-      onPending: pending => { if (current()) { this.accountProfilePending = pending; this.invalidate(); } },
-      onSuccess: () => { if (current()) { this.accountMessage = this.t('account.profileSaved'); this.invalidate(); } },
-      onDenied: result => {
-        if (!current()) return;
-        this.accountMessage = this.t(result.reason === 'denied' ? 'account.profileDenied' : 'account.profileSaveFailed');
-        this.invalidate();
-      }
-    });
-    this.accountProfilePending = !!this.profile.pending;
-    return result.ok;
-  }
-
   leaveAccount() {
     this.accountSceneGeneration++;
     this.accountSyncPending = null;
-    this.accountProfilePending = false;
     this.accountFeedback = null;
-    if (this.profile) this.profile.unmount();
   }
 
   showAccountFeedback(reason, now) {
@@ -4429,6 +4434,8 @@ class ClearedApp {
 
   onHide() {
     if (this.disposed) return;
+    this.homeProfileButtonNeeded = false;
+    this.unmountHomeProfileButton();
     this.clearFeedback = null;
     this.homeStaminaExpanded = false;
     if (this.appPersistence) this.stamina.flushAsync(this.clockNow().getTime()).catch(() => {});
@@ -4462,8 +4469,17 @@ class ClearedApp {
   resumeOnline(reason) {
     if (!this.auth) return Promise.resolve({ ok: false, reason: 'not-configured' });
     if (this.auth.mode === 'cloud') {
+      if (this.profile && this.profile.isDisplayOnly && this.profile.isDisplayOnly() &&
+          (!reason || reason === 'launch' || reason === 'show')) {
+        Promise.resolve().then(() => this.profile.refresh()).then(result => {
+          if (this.disposed) return;
+          this.homeProfileButtonNeeded = result.reason === 'not-authorized';
+          this.syncHomeProfileButton();
+          this.invalidate();
+        }).catch(function () {});
+      }
       // Identity/read-only diagnostics never enter legacy HTTP synchronization,
-      // attribution, profile refresh, reward recovery or authoritative apply.
+      // attribution, reward recovery or authoritative apply.
       let account = this.captureAccountContext();
       const run = () => this.auth.ensureSession({ force: !reason || reason === 'launch' || reason === 'show' }).then(result => {
         if (this.disposed || !result.ok) return result;
@@ -4545,7 +4561,6 @@ class ClearedApp {
     this.renderer.ctx = this.platform.context;
     this.invalidate();
     this.startLoop();
-    if (this.scene === 'account') this.mountAccountProfile();
     this.resumeOnline('show');
     if (this.behavior) this.behavior.flush('show').catch(function () {});
   }
@@ -4576,6 +4591,7 @@ class ClearedApp {
   dispose() {
     if (this.disposed) return;
     this.disposed = true;
+    this.unmountHomeProfileButton();
     this.accountGeneration++;
     if (this.unbindAccount) this.unbindAccount();
     if (this.unbindScope) this.unbindScope();

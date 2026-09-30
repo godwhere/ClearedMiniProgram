@@ -75,6 +75,7 @@ module.exports = Object.freeze({
   'store.operation.failed': '商店操作未完成，请重试或稍后恢复购买。',
   'store.operation.not_found': '没有找到可恢复的购买记录。',
   'account.profileSaved': '头像昵称已保存',
+  'account.profileDisplayReady': '头像昵称已用于本机展示',
   'account.profileDenied': '未授权，仍可继续游玩',
   'account.profileSaveFailed': '资料暂未保存，请稍后重试',
   'account.guard.restorePending': '云备份恢复尚未完整保存，完成前不能继续游玩',
@@ -219,6 +220,7 @@ module.exports = Object.freeze({
   'share.home': '这道题你能解开吗？',
   'share.unlock': '来看看我在 CLEARED! 解锁的新外观',
   'profile.authorizeButton': '授权头像昵称',
+  'profile.authorizeHomeButton': '使用微信资料',
 
   'corridor.themes.name': '主题',
   'corridor.effects.name': '特效',

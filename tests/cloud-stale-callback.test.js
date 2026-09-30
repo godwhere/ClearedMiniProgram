@@ -169,19 +169,22 @@ async function run() {
   assert((await composed.resumeOnline()).ok); assert.strictEqual(logins, 2);
   assert.strictEqual(queue.state.boundUserId, 'alice'); composed.dispose();
 
-  // A scope commit revokes the mounted native profile button immediately,
-  // before its old callback can acquire a new account's request token.
+  // A scope commit revokes the mounted home profile button immediately,
+  // before its old callback can apply stale player information.
   const profileFixture = require('./profile-service.test.js').fixture();
   const profilePlatform = new Platform(fakeApi()); const profileQueue = new SyncStore(profilePlatform);
   assert(profileQueue.bindLegacyUser('user1')); profileFixture.platform.metrics = profilePlatform.metrics;
+  profileFixture.profile.config = { displayOnly: true };
+  profileFixture.auth.mode = 'cloud';
   const profileApp = new App(profilePlatform, { auth: profileFixture.auth, profile: profileFixture.profile, syncStore: profileQueue });
-  profileApp.openAccount(); await tick();
+  profileApp.homeProfileButtonNeeded = true;
+  assert(profileApp.syncHomeProfileButton());
   const button = profileFixture.buttons[0]; assert(button);
-  const calls = profileFixture.calls.length;
   profileFixture.setUser('user2'); assert(profileQueue.activateScope(SyncStore.legacyOwnerId('user2'), 0).ok);
   assert(button.destroyed);
+  assert.strictEqual(profileApp.homeProfileButtonMounted, false);
   button.tap({ profile: { nickname: 'old A', avatarUrl: 'https://example.test/a.png' } });
-  await tick(); assert.strictEqual(profileFixture.calls.length, calls); profileApp.dispose();
+  await tick(); assert.strictEqual(profileFixture.profile.current(), null); profileApp.dispose();
 }
 
 module.exports = run;

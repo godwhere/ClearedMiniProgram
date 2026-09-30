@@ -231,7 +231,6 @@ function run() {
     './config/audio.js',
     './ui/canvas-renderer.js',
     './ui/portal-instructions.js',
-    './ui/account-layout.js',
     './skins/index.js',
     './mechanics/index.js',
     './gameplay/run-context.js',

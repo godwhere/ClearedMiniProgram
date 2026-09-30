@@ -298,7 +298,7 @@ function run() {
   assert.strictEqual(actionLocale.current(), 'zh-CN');
   assert.strictEqual(app.dirty, true);
   assert.strictEqual(app.accountMessage, '');
-  assert.strictEqual(profileMounts, 1, 'language switching remounts the native profile button');
+  assert.strictEqual(profileMounts, 0, 'language switching cannot create a profile button on the account page');
   app.dispose();
 
   const i18nSource = fs.readFileSync(path.join(__dirname, '..', 'src', 'i18n', 'index.js'), 'utf8');

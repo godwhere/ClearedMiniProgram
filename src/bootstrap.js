@@ -93,7 +93,8 @@ function start(options) {
     transport ? { mode: 'cloud', enabled: cloudConfig.identityEnabled === true, clientVersion: backendConfig.clientVersion }
       : Object.assign({}, engagementConfig.auth, { mode: 'legacy-http' }));
   const behavior = new BehaviorService(platform, api, syncStore, engagementConfig.behavior);
-  const profile = new ProfileService(platform, api, auth, engagementConfig.profile, behavior, locale);
+  const profile = new ProfileService(platform, api, auth,
+    auth.mode === 'cloud' ? { displayOnly: true } : engagementConfig.profile, behavior, locale);
   const authoritativeApplier = new AuthoritativeStateApplier({ progress, daily: dailyStore,
     rewards: rewardUnlocks, stamina, preferences, syncStore, sessions }, null);
   const economy = new EconomyService(platform, api, auth, syncStore, rewardUnlocks, authoritativeApplier);

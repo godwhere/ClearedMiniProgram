@@ -30,11 +30,15 @@ class ProfileService {
   }
 
   isSupported() {
-    return !this.disposed && this.config.enabled === true && this.api.isConfigured() &&
+    return !this.disposed && (this.config.displayOnly === true ||
+      (this.config.enabled === true && this.api.isConfigured())) &&
       typeof this.platform.supportsUserInfoButton === 'function' && this.platform.supportsUserInfoButton();
   }
 
+  isDisplayOnly() { return this.config.displayOnly === true; }
+
   current() {
+    if (this.isDisplayOnly()) return this.profile ? Object.assign({}, this.profile) : null;
     const session = this.auth.current();
     return session && session.userId === this.profileUserId && this.profile
       ? Object.assign({}, this.profile) : null;
@@ -65,10 +69,10 @@ class ProfileService {
     this.mountOptions = options;
     const style = options.style || {};
     const button = this.platform.createUserInfoButton({
-      type: 'text', text: this.t('profile.authorizeButton'),
+      type: 'text', text: options.text || this.t('profile.authorizeButton'),
       lang: this.localeId() === 'zh-CN' ? 'zh_CN' : 'en', withCredentials: false,
       style: { left: rect.x, top: rect.y, width: rect.w, height: rect.h,
-        lineHeight: rect.h, borderRadius: 12, fontSize: 17, textAlign: 'center',
+        lineHeight: rect.h, borderRadius: 12, fontSize: options.fontSize || 17, textAlign: 'center',
         color: style.color || '#333333', backgroundColor: style.backgroundColor || '#ffffff' }
     });
     if (!button) { this.mountOptions = null; return { ok: false, reason: 'not-supported' }; }
@@ -77,7 +81,7 @@ class ProfileService {
       if (this.button !== button || this.pending || this.disposed) return;
       const profile = normalizeProfile(result && result.profile);
       if (!profile) {
-        if (this.behavior) this.behavior.track('profile_denied', { scene: 'account' });
+        if (this.behavior) this.behavior.track('profile_denied', { scene: options.scene || 'account' });
         this.emit('onDenied', { ok: false, reason: 'denied' });
         return;
       }
@@ -100,10 +104,11 @@ class ProfileService {
     if (!this.isSupported() || !this.mountOptions || !normalizeProfile(profile)) return Promise.resolve({ ok: false, reason: 'not-supported' });
     this.profileGeneration++;
     const mount = this.mountOptions;
+    const scene = mount.scene || 'account';
     const origin = this.auth.current();
     if (this.button) this.button.hide();
     this.emit('onPending', true);
-    this.pending = this.saveProfile(profile, origin && origin.userId).catch(() => ({ ok: false, reason: 'network' }))
+    this.pending = this.saveProfile(profile, origin && origin.userId, scene).catch(() => ({ ok: false, reason: 'network' }))
       .then(result => {
         if (mount === this.mountOptions && !this.disposed) this.emit(result.ok ? 'onSuccess' : 'onDenied', result);
         return result;
@@ -115,7 +120,12 @@ class ProfileService {
     return this.pending;
   }
 
-  async saveProfile(profile, originUserId) {
+  async saveProfile(profile, originUserId, scene) {
+    if (this.isDisplayOnly()) {
+      this.profile = profile;
+      if (this.behavior) this.behavior.track('profile_authorized', { scene: scene || 'account' });
+      return { ok: true, profile: Object.assign({}, profile), displayOnly: true };
+    }
     const authenticated = await this.auth.ensureSession();
     if (!authenticated.ok) return { ok: false, reason: authenticated.reason };
     const session = this.auth.current();
@@ -134,11 +144,29 @@ class ProfileService {
     if (!result.ok) return { ok: false, reason: result.error.code };
     this.profileUserId = userId;
     this.profile = profile;
-    if (this.behavior) this.behavior.track('profile_authorized', { scene: 'account' });
+    if (this.behavior) this.behavior.track('profile_authorized', { scene: scene || 'account' });
     return { ok: true, profile: Object.assign({}, profile) };
   }
 
   refresh() {
+    if (this.isDisplayOnly()) {
+      if (this.disposed || typeof this.platform.getAuthorizedUserInfo !== 'function') {
+        return Promise.resolve({ ok: false, reason: 'not-supported' });
+      }
+      if (this.refreshing) return this.refreshing;
+      const generation = this.profileGeneration;
+      this.refreshing = Promise.resolve().then(() => this.platform.getAuthorizedUserInfo()).then(result => {
+        if (this.disposed || this.profileGeneration !== generation) return { ok: false, reason: 'stale' };
+        if (!result.ok) {
+          if (result.reason === 'not-authorized') this.profile = null;
+          return result;
+        }
+        this.profile = normalizeProfile(result.profile);
+        return this.profile ? { ok: true } : { ok: false, reason: 'invalid-profile' };
+      }).catch(() => ({ ok: false, reason: 'unavailable' }))
+        .finally(() => { this.refreshing = null; });
+      return this.refreshing;
+    }
     if (this.disposed || this.config.enabled !== true || !this.api.isConfigured()) return Promise.resolve({ ok: false, reason: 'not-configured' });
     if (this.refreshing) return this.refreshing;
     const generation = this.profileGeneration;

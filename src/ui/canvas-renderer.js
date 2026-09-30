@@ -1126,8 +1126,7 @@ class CanvasRenderer {
   drawAccount(model) {
     const skin = this.skinService.current();
     const layout = accountLayout(this.platform.metrics, {
-      backupMode: model.backupMode === true,
-      profileSupported: model.profileSupported === true
+      backupMode: model.backupMode === true
     });
     this.begin(skin.colors.homeBackground);
     this.iconButton('account:back', layout.backButton, 'back', true, model.pressedId);
@@ -1191,11 +1190,6 @@ class CanvasRenderer {
       layout.languageValue.y + layout.languageValue.h / 2, 14,
       { weight: 400, maxWidth: layout.languageValue.w });
     this.iconButton('account:language:next', layout.languageNext, 'next', true, model.pressedId);
-    if (model.profileSupported === true) {
-      this.button('account:authorizeProfile', layout.profileButton,
-        this.t(model.profilePending ? 'account.profileSaving' : 'account.profileAuthorize'),
-        { enabled: !model.profilePending, fontSize: 17 }, model.pressedId);
-    }
     const backupAction = model.backupConfirmRestore ? 'account:confirmRestore'
       : model.backupConfirmCommit ? 'account:confirmBackup' : 'account:retrySync';
     const staticSyncState = !model.backupMode &&

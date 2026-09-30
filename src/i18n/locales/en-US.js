@@ -75,6 +75,7 @@ module.exports = Object.freeze({
   'store.operation.failed': 'The store operation did not finish. Retry or restore later.',
   'store.operation.not_found': 'No previous purchase was found to restore.',
   'account.profileSaved': 'Avatar and nickname saved',
+  'account.profileDisplayReady': 'Avatar and name shown on this device',
   'account.profileDenied': 'Not authorized. You can keep playing.',
   'account.profileSaveFailed': 'Could not save your profile. Try again later.',
   'account.guard.restorePending': 'The restored cloud backup is not fully saved yet. Please wait before playing.',
@@ -219,6 +220,7 @@ module.exports = Object.freeze({
   'share.home': 'Can you solve this puzzle?',
   'share.unlock': 'Check out the new look I unlocked in CLEARED!',
   'profile.authorizeButton': 'Authorize avatar and nickname',
+  'profile.authorizeHomeButton': 'Use WeChat profile',
 
   'corridor.themes.name': 'Themes',
   'corridor.effects.name': 'Effects',

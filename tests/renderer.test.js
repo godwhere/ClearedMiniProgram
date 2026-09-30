@@ -200,24 +200,24 @@ function run() {
     setStyle(set) { return { background: set.Color, palette: set.Palette }; }
   };
   const renderer = new CanvasRenderer(platform, skins);
-  renderer.render({ scene: 'account', accountStatus: 'local', profileSupported: false }, Date.now());
+  renderer.render({ scene: 'account', accountStatus: 'local' }, Date.now());
   assertHitsInsideSafeArea(renderer.hits, platform.metrics);
   assert(renderer.hits.some(hit => hit.id === 'account:back'));
   assert(!renderer.hits.some(hit => hit.id === 'account:authorizeProfile'));
   platform.context.calls.length = 0;
-  renderer.render({ scene: 'account', accountStatus: 'pending', profileSupported: false }, Date.now());
+  renderer.render({ scene: 'account', accountStatus: 'pending' }, Date.now());
   assert.strictEqual(textCalls(platform.context, '立即同步').length, 1);
-  renderer.render({ scene: 'account', accountStatus: 'syncing', profileSupported: true, profilePending: true, syncPending: true }, Date.now());
+  renderer.render({ scene: 'account', accountStatus: 'syncing', syncPending: true }, Date.now());
   assert(!renderer.hits.some(hit => hit.id === 'account:retrySync'));
   assert(!renderer.hits.some(hit => hit.id === 'account:authorizeProfile'));
   const feedbackNow = Date.now();
   platform.context.calls.length = 0;
-  renderer.render({ scene: 'account', accountStatus: 'synced', profileSupported: false,
+  renderer.render({ scene: 'account', accountStatus: 'synced',
     accountFeedback: { reason: 'privacy-open-failed', until: feedbackNow + 2200 } }, feedbackNow);
   assert.strictEqual(textCalls(platform.context, '暂时无法打开隐私协议').length, 1);
   const accountHits = renderer.hits;
   platform.context.calls.length = 0;
-  renderer.render({ scene: 'account', accountStatus: 'synced', profileSupported: false,
+  renderer.render({ scene: 'account', accountStatus: 'synced',
     accountFeedback: { reason: 'privacy-open-failed', until: feedbackNow + 2200 } }, feedbackNow + 2200);
   assert.strictEqual(textCalls(platform.context, '暂时无法打开隐私协议').length, 0);
   assert.deepStrictEqual(renderer.hits, accountHits, 'account feedback never owns a hit target');

@@ -396,31 +396,30 @@ Content-Type: application/json
 
 ### 8.1 产品入口
 
-首页左上角用 44×44 的圆形玩家头像作为账号入口，沿用原位置、safeTop 和 `home:account` 点击区域。没有资料、加载中或图片失败时使用 Canvas 默认人像，不在冷启动时弹授权：
+首页左上角用 44×44 的圆形玩家头像作为账号入口，沿用原位置、safeTop 和 `home:account` 点击区域。没有资料、加载中或图片失败时使用 Canvas 默认人像。启动和回前台时检查已有授权；未授权且主页可显示时，在头像下方挂载可见的微信原生授权按钮。玩家点击后由微信弹出资料授权窗口，游戏不会绘制自定义授权弹窗：
 
 ```text
 home:account
   -> account scene
        ├─ 放大的头像与玩家昵称卡片
        ├─ account:language:prev / account:language:next
-       ├─ account:authorizeProfile
        ├─ account:retrySync（已同步至云端 / 立即同步 / 重试同步）
        ├─ account:restoreBackup（仅 local-backup 启用时显示）
        ├─ account:privacy
        └─ account:back
 ```
 
-头像昵称必须由用户在账号页主动点击。资料能力默认关闭时，账号页不显示“头像昵称暂不可用”占位行；能力真正开放后才显示授权入口。
+首次取得头像昵称始终需要用户主动点击微信原生按钮，程序不能在启动时直接触发微信授权窗口；`wx.authorize({scope:'scope.userInfo'})` 也不会弹窗。未点击或拒绝不阻断玩法。资料能力不可用时不显示按钮；账号页不显示授权入口。
 
-首页与账号页都消费 `ProfileService.current()` 提供的当前账号资料，并复用 Renderer 中同一个头像图片缓存。头像 URL 变化或资料清空后，旧图片的迟到回调不能覆盖新状态；加载失败不逐帧重复请求。身份就绪后异步刷新已有资料，不等待资料请求完成才进入游戏，也不在首页创建原生授权按钮。profile 默认开关仍关闭，此时显示默认人像。
+首页与账号页都消费 `ProfileService.current()` 提供的资料，并复用 Renderer 中同一个头像图片缓存。头像 URL 变化或资料清空后，旧图片的迟到回调不能覆盖新状态；加载失败不逐帧重复请求。现行微信 CloudBase 包启用仅用于展示的资料路径：启动、回前台和进入账号页时，已授权用户从微信异步刷新；未授权用户仅可在主页点击原生按钮。旧 HTTP profile 开关仍关闭。
 
-主页头像改动已通过 55 组 Node 回归，覆盖异步刷新、非正方形图片比例、圆形裁剪、加载失败和旧账号迟到回调；开发者工具已检查默认头像、点击进入账号页和返回。真实授权头像的后端联调及 Android/iOS 显示验收尚未执行。
+主页与资料页共用头像昵称的自动化回归覆盖异步刷新、非正方形图片比例、圆形裁剪、加载失败、旧账号迟到回调，以及原生按钮的出现、授权后移除、离开主页和回前台。原生授权窗口仍须经过微信开发者工具和 Android/iOS 真机验收。
 
 ### 8.2 原生按钮边界
 
 小游戏的用户信息按钮是原生覆盖层，不得由 Renderer 直接创建。
 
-新增纯布局模块：
+账号页仍使用纯布局模块：
 
 ```text
 src/ui/account-layout.js
@@ -437,7 +436,6 @@ function accountLayout(metrics, options) {
     languagePrevious: { x, y, w, h },
     languageValue: { x, y, w, h },
     languageNext: { x, y, w, h },
-    profileButton: { x, y, w, h }, // 仅资料授权能力可用时
     retryButton: { x, y, w, h },
     restoreButton: { x, y, w, h }, // 仅 local-backup 模式
     privacyButton: { x, y, w, h }
@@ -450,24 +448,24 @@ function accountLayout(metrics, options) {
 - 只根据 `width`、`height`、`safeTop`、`safeBottom` 计算矩形。
 - 不引用 Canvas context。
 - 不引用平台或 service。
-- Renderer 和 App/ProfileService 共用同一布局结果，避免原生按钮与视觉位置错位。
+- 账号页布局不含授权按钮；主页原生按钮的位置由 App 按安全区计算。
 
 `ProfileService` 负责：
 
 ```js
-mount({ rect, style, onSuccess, onDenied })
+mount({ rect, text, style, onSuccess, onDenied })
 unmount()
 handleResize(rect)
 isSupported()
 ```
 
-进入账号页时 mount；离开账号页、`onHide`、销毁或尺寸变化时 unmount/remount。
+首次未授权时，App 在主页头像下方 mount 可见的原生文字按钮；授权成功、场景切换、`onHide` 或销毁时 unmount。尺寸变化时按安全区重新定位。账号页只显示头像昵称或默认占位。
 
 禁止：
 
 - 全屏透明授权按钮。
 - 看不见的原生按钮覆盖 Canvas 其他区域。
-- 在首页启动时自动创建授权按钮。
+- 在微信授权状态检查完成前创建授权按钮，或创建隐形按钮。
 - 授权失败后循环弹窗。
 - 把用户拒绝视为登录失败。
 
@@ -480,6 +478,8 @@ isSupported()
 账号页可提供“隐私协议”入口，但隐私文案、收集目的和平台后台声明必须在提审前完成。平台无法打开协议时，使用与体力反馈相同的底部短时提示，约 2.2 秒后自动消失；失败文案不得写入头像昵称卡片。
 
 ### 8.4 资料保存
+
+以下 HTTP 保存合同是旧服务的预留路径，现行微信 CloudBase 包不调用它。当前头像昵称只保留在运行内存中，并由已有微信授权在下次启动时重新读取；它不进入云存档、身份或结算数据。
 
 客户端拿到用户资料后：
 
@@ -2078,7 +2078,6 @@ account
 ```text
 home:account
 account:back
-account:authorizeProfile
 account:retrySync
 account:privacy
 result:share
