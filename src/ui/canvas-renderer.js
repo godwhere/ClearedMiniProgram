@@ -3,6 +3,7 @@ const BoardRenderer = require('./board/board-renderer.js');
 const PortalOverlay = require('./board/portal-overlay.js');
 const portalInstructions = require('./portal-instructions.js');
 const accountLayout = require('./account-layout.js');
+const topBarLayout = require('./top-bar-layout.js');
 const i18n = require('../i18n/index.js');
 
 function clamp(value, min, max) {
@@ -879,17 +880,16 @@ class CanvasRenderer {
 
   drawHome(model) {
     const skin = this.skinService.current();
-    const { width, height, safeTop, safeBottom } = this.platform.metrics;
+    const metrics = this.platform.metrics;
+    const { width, height, safeTop, safeBottom } = metrics;
     const ctx = this.ctx;
     this.begin(skin.colors.homeBackground);
-    const topUi = safeTop + (skin.layout.homeTopUiOffset || 0) + 8;
-    const staminaRect = { x: width - 78, y: topUi, w: 64, h: 44 };
+    const staminaRect = topBarLayout.trailing(metrics, 64);
     const currencyWidth = clamp(width * 0.2, 62, 78);
-    const currencyRect = { x: staminaRect.x - currencyWidth - 6, y: topUi, w: currencyWidth, h: 44 };
-    this.iconButton('home:sound', { x: currencyRect.x - 50, y: topUi, w: 44, h: 44 },
+    const currencyRect = topBarLayout.item(metrics, staminaRect.x - currencyWidth - 6, currencyWidth);
+    this.iconButton('home:sound', topBarLayout.item(metrics, currencyRect.x - topBarLayout.CONTROL_SIZE - 6),
       model.soundEnabled ? 'sound' : 'mute', true, model.pressedId);
-    this.drawHomeAvatar(model.accountProfile,
-      { x: 18, y: topUi, w: 44, h: 44 }, model.pressedId);
+    this.drawHomeAvatar(model.accountProfile, topBarLayout.leading(metrics), model.pressedId);
     if (model.stamina && model.stamina.enabled) {
       if (model.pressedId === 'home:stamina') {
         ctx.save();
@@ -1132,7 +1132,7 @@ class CanvasRenderer {
     this.iconButton('account:back', layout.backButton, 'back', true, model.pressedId);
     const panel = layout.panel;
     const center = panel.x + panel.w / 2;
-    this.text(this.t('account.title'), center, layout.backButton.y + 22, 22);
+    this.text(this.t('account.title'), center, layout.backButton.y + layout.backButton.h / 2, 22);
     const summary = layout.summary;
     this.roundedRect(summary.x, summary.y, summary.w, summary.h, 12);
     this.ctx.fillStyle = skin.colors.secondaryButton;
@@ -1451,23 +1451,13 @@ class CanvasRenderer {
 
     const headerTop = safeTop + 4;
     const headerHeight = 68;
-    const requestedThemesOffset = Number(skin.layout.themesTopUiOffset);
-    // Keep the larger back button inside the header with six pixels of
-    // padding before the card grid.
-    const themesTopUiOffset = clamp(
-      Number.isFinite(requestedThemesOffset) ? requestedThemesOffset : 0,
-      0,
-      Math.max(0, headerHeight - 52)
-    );
-    const topButtonY = headerTop + 8 + themesTopUiOffset;
+    const titleY = topBarLayout.centerY(metrics);
     const backAction = model && (model.backAction === 'themes:corridor' || model.backAction === 'themes:home')
       ? model.backAction
       : 'themes:home';
-    // Expand around the existing center, retaining a gap before the card grid.
-    this.iconButton(backAction, { x: 4, y: topButtonY - 6, w: 56, h: 56 },
-      'back', true, model && model.pressedId);
-    this.text(this.t('gallery.themes'), width / 2, headerTop + 27, 25, { weight: 300 });
-    this.text(`${pageIndex + 1} / ${pageCount}`, width / 2, headerTop + 53, 12, { alpha: 0.58 });
+    this.iconButton(backAction, topBarLayout.leading(metrics), 'back', true, model && model.pressedId);
+    this.text(this.t('gallery.themes'), width / 2, titleY, 25, { weight: 300 });
+    this.text(`${pageIndex + 1} / ${pageCount}`, width / 2, titleY + 26, 12, { alpha: 0.58 });
 
     const sidePadding = clamp(width * 0.055, 16, 24);
     const columnGap = clamp(width * 0.032, 9, 14);
@@ -1787,14 +1777,12 @@ class CanvasRenderer {
 
     const headerTop = safeTop + 4;
     const headerHeight = 68;
-    const topOffset = clamp(Number(skin.layout.themesTopUiOffset) || 0, 0, headerHeight - 52);
-    const topButtonY = headerTop + 8 + topOffset;
+    const titleY = topBarLayout.centerY(metrics);
     const backAction = model && model.backAction === 'corridor:home'
       ? model.backAction : 'corridor:home';
-    this.iconButton(backAction, { x: 10, y: topButtonY, w: 44, h: 44 },
-      'home', true, model && model.pressedId);
-    this.text(this.t('gallery.corridor'), width / 2, headerTop + 27, 25, { weight: 300 });
-    this.text(`${pageIndex + 1} / ${pageCount}`, width / 2, headerTop + 53, 12, { alpha: 0.58 });
+    this.iconButton(backAction, topBarLayout.leading(metrics), 'home', true, model && model.pressedId);
+    this.text(this.t('gallery.corridor'), width / 2, titleY, 25, { weight: 300 });
+    this.text(`${pageIndex + 1} / ${pageCount}`, width / 2, titleY + 26, 12, { alpha: 0.58 });
 
     const sidePadding = clamp(width * 0.055, 16, 24);
     const columnGap = clamp(width * 0.032, 9, 14);
@@ -1876,14 +1864,12 @@ class CanvasRenderer {
 
     const headerTop = safeTop + 4;
     const headerHeight = 68;
-    const topOffset = clamp(Number(skin.layout.themesTopUiOffset) || 0, 0, headerHeight - 52);
-    const topButtonY = headerTop + 8 + topOffset;
+    const titleY = topBarLayout.centerY(metrics);
     const backAction = model && (model.backAction === 'effects:corridor' || model.backAction === 'effects:home')
       ? model.backAction : 'effects:corridor';
-    this.iconButton(backAction, { x: 4, y: topButtonY - 6, w: 56, h: 56 },
-      'back', true, model && model.pressedId);
-    this.text(this.t('gallery.clearEffects'), width / 2, headerTop + 27, 25, { weight: 300 });
-    this.text(`${pageIndex + 1} / ${pageCount}`, width / 2, headerTop + 53, 12, { alpha: 0.58 });
+    this.iconButton(backAction, topBarLayout.leading(metrics), 'back', true, model && model.pressedId);
+    this.text(this.t('gallery.clearEffects'), width / 2, titleY, 25, { weight: 300 });
+    this.text(`${pageIndex + 1} / ${pageCount}`, width / 2, titleY + 26, 12, { alpha: 0.58 });
 
     const sidePadding = clamp(width * 0.055, 16, 24);
     const columnGap = clamp(width * 0.032, 9, 14);
@@ -1966,7 +1952,8 @@ class CanvasRenderer {
 
   drawLevels(model, now) {
     const skin = this.skinService.current();
-    const { width, safeTop, safeBottom } = this.platform.metrics;
+    const metrics = this.platform.metrics;
+    const { width, safeTop, safeBottom } = metrics;
     const legacyGames = model && model.set && Array.isArray(model.set.Games)
       ? model.set.Games : [];
     const items = Array.isArray(model && model.levelItems)
@@ -1993,13 +1980,13 @@ class CanvasRenderer {
 
     const headerTop = safeTop + 4;
     const headerHeight = 72;
-    const controlTop = headerTop + 4;
-    this.iconButton('levels:home', { x: 10, y: controlTop, w: 44, h: 44 }, 'home', true, model.pressedId);
-    this.text(this.t('gallery.selectLevel'), width / 2, headerTop + 26, 26, { weight: 300 });
+    const titleY = topBarLayout.centerY(metrics);
+    this.iconButton('levels:home', topBarLayout.leading(metrics), 'home', true, model.pressedId);
+    this.text(this.t('gallery.selectLevel'), width / 2, titleY, 26, { weight: 300 });
     this.text(items.length ? `${rangeStart}–${rangeEnd} / ${totalLevels}` : `0 / ${totalLevels}`,
-      width / 2, headerTop + 53, 12, { alpha: 0.58 });
+      width / 2, titleY + 26, 12, { alpha: 0.58 });
     this.drawStaminaStatus(model.stamina,
-      { x: width - 78, y: controlTop, w: 64, h: 44 }, { showDetail: false });
+      topBarLayout.trailing(metrics, 64), { showDetail: false });
 
     const columns = items.length <= 5 ? Math.max(1, items.length) : 5;
     const rows = Math.ceil(items.length / columns);
@@ -2230,7 +2217,8 @@ class CanvasRenderer {
 
   drawPlay(model, now) {
     const skin = this.skinService.current();
-    const { width, safeTop, safeBottom } = this.platform.metrics;
+    const metrics = this.platform.metrics;
+    const { width, safeTop, safeBottom } = metrics;
     const setStyle = this.skinService.setStyle(model.set);
     const game = model.level;
     const renderModel = this.renderBoardViewModel(model, game, now);
@@ -2244,22 +2232,15 @@ class CanvasRenderer {
 
     const headerTop = safeTop;
     const headerHeight = 70;
-    const topUi = headerTop + (skin.layout.playTopUiOffset || 0);
-    const controlSize = 42;
-    // Center the single-row controls on the level title; time stays below it.
-    const controlTop = topUi + 5;
-    // Preserve the reset control position across theme layouts.
-    const hasExplicitMargin = skin.layout.playRightMargin !== undefined;
-    const rightShift = Number(skin.layout.playRightShift) || 0;
-    const resetX = hasExplicitMargin
-      ? width - Number(skin.layout.playRightMargin) - controlSize
-      : width - 100 + rightShift;
+    const backRect = topBarLayout.leading(metrics);
+    const resetRect = topBarLayout.trailing(metrics);
+    const titleY = topBarLayout.centerY(metrics);
     const ctx = this.ctx;
     ctx.fillStyle = skin.colors.panel;
-    ctx.fillRect(0, 0, width, topUi + headerHeight);
-    this.iconButton('play:back', { x: 8, y: controlTop, w: 44, h: 44 }, 'back', true, model.pressedId);
+    ctx.fillRect(0, 0, width, headerTop + headerHeight);
+    this.iconButton('play:back', backRect, 'back', true, model.pressedId);
     const hintPreviewActive = !!(model.hintPreview && (model.hintPreview.manual === true || now < model.hintPreview.until));
-    this.iconButton('play:reset', { x: resetX, y: controlTop, w: controlSize, h: 44 }, 'reset', model.scene !== 'result' && !hintPreviewActive, model.pressedId);
+    this.iconButton('play:reset', resetRect, 'reset', model.scene !== 'result' && !hintPreviewActive, model.pressedId);
 
     const ordinaryNumber = Number(model.ordinaryLevelNumber);
     const ordinaryCount = Number(model.ordinaryLevelCount);
@@ -2268,11 +2249,11 @@ class CanvasRenderer {
     const numberedTitle = hasOrdinaryNumber
       ? `${ordinaryNumber} / ${ordinaryCount}`
       : `${model.levelIndex + 1} / ${(model.set.Games || []).length}`;
-    this.text(model.trial ? this.t('play.iceTrial') : numberedTitle, width / 2, topUi + 27, model.trial ? 18 : 24, {
+    this.text(model.trial ? this.t('play.iceTrial') : numberedTitle, width / 2, titleY, model.trial ? 18 : 24, {
       weight: 300,
-      maxWidth: width - 220
+      maxWidth: Math.max(1, resetRect.x - (backRect.x + backRect.w) - 24)
     });
-    this.text(model.elapsedText || '0:00', width / 2, topUi + 51, 12, { alpha: 0.62 });
+    this.text(model.elapsedText || '0:00', width / 2, titleY + 25, 12, { alpha: 0.62 });
 
     const failedResult = model.scene === 'result' && model.result && model.result.outcome === 'failed';
     // Keep the failed board in its exact play-layout position so the remaining
@@ -2283,7 +2264,7 @@ class CanvasRenderer {
     const actionTop = safeBottom - actionHeight;
     const defaultBoardTop = headerTop + headerHeight + 16;
     const boardTop = hasPromptBand
-      ? Math.max(defaultBoardTop, topUi + headerHeight + 8)
+      ? Math.max(defaultBoardTop, headerTop + headerHeight + PLAY_PROMPT_BAND_HEIGHT)
       : defaultBoardTop;
     const boardBottom = actionTop - (showActions ? 14 : 20);
     if (board) {
@@ -2434,24 +2415,20 @@ class CanvasRenderer {
     // addition to the date. Keep a little extra vertical room so the 3×3
     // intro and 8×10 hard board share the same safe-area contract.
     const headerHeight = 82;
-    const topUi = headerTop + (skin.layout.playTopUiOffset || 0);
-    const controlSize = 42;
-    const hasExplicitMargin = skin.layout.playRightMargin !== undefined;
-    const rightShift = Number(skin.layout.playRightShift) || 0;
-    const resetX = hasExplicitMargin
-      ? width - Number(skin.layout.playRightMargin) - controlSize
-      : width - 100 + rightShift;
+    const backRect = topBarLayout.leading(metrics);
+    const resetRect = topBarLayout.trailing(metrics);
+    const titleY = topBarLayout.centerY(metrics);
     const isResult = model && model.scene === 'dailyResult';
     // Keep the top-left back affordance distinct from the result-panel home
     // button so one logical action does not create duplicate hit records.
     const backAction = isResult ? 'dailyResult:back' : 'daily:home';
     const ctx = this.ctx;
     ctx.fillStyle = skin.colors.panel;
-    ctx.fillRect(0, 0, width, topUi + headerHeight);
-    this.iconButton(backAction, { x: 8, y: topUi + 12, w: 44, h: 44 }, 'back', true, model && model.pressedId);
+    ctx.fillRect(0, 0, width, headerTop + headerHeight);
+    this.iconButton(backAction, backRect, 'back', true, model && model.pressedId);
     const hintPreviewActive = !!(model && model.hintPreview &&
       (model.hintPreview.manual === true || now < model.hintPreview.until));
-    this.iconButton('daily:reset', { x: resetX, y: topUi + 12, w: controlSize, h: 44 },
+    this.iconButton('daily:reset', resetRect,
       'reset', !isResult && !!board && !hintPreviewActive, model && model.pressedId);
 
     const levelIndex = Math.max(0, Number(model && (
@@ -2472,7 +2449,9 @@ class CanvasRenderer {
       current: Math.min(levelIndex + 1, levelCount),
       total: levelCount
     }),
-      width / 2, topUi + 21, 20, { weight: 300, maxWidth: width - 180 });
+      width / 2, titleY, 20, {
+        weight: 300, maxWidth: Math.max(1, resetRect.x - (backRect.x + backRect.w) - 24)
+      });
     const dateKey = model && model.dailyDateKey;
     const entryKnown = model && (model.dailyDebugUnlimited === true ||
       (model.dailyEntriesRemaining !== undefined && model.dailyEntryLimit !== undefined));
@@ -2488,7 +2467,7 @@ class CanvasRenderer {
     this.text(
       [specText, difficulty || '', dateKey || '', entryText].filter(Boolean).join(' · '),
       width / 2,
-      topUi + 48,
+      titleY + 28,
       11,
       { alpha: 0.62, maxWidth: width - 96 }
     );

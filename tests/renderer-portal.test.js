@@ -213,7 +213,7 @@ function run() {
   assert(lockedPromptA, 'PORTAL_LOCKED draws the release instruction');
   assert.deepStrictEqual(renderer.boardLayout, initialLayout,
     'reserving the portal prompt band keeps the board stationary');
-  const headerBottom = platform.metrics.safeTop + classic.layout.playTopUiOffset + 70;
+  const headerBottom = platform.metrics.safeTop + 70;
   assert(lockedPromptA.y > headerBottom && lockedPromptA.y < renderer.boardLayout.y,
     'portal instructions sit between the header and board');
   assert(renderer.boardLayout.y - lockedPromptA.y >= 8,

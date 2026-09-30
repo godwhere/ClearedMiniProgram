@@ -153,6 +153,8 @@ core/portal-validation.js
   └─ core/portal-schema.js
 ```
 
+`src/ui/top-bar-layout.js` 只根据平台安全区和逻辑宽度计算顶部栏矩形；`CanvasRenderer`、`account-layout` 和 App 的微信原生资料按钮共同使用它。该布局模块不持有场景状态，也不改变 action/hit ID。尺寸与对齐标准见 [Canvas UI 标准](ui-standard.md)。
+
 依赖只能向下：
 
 ```text

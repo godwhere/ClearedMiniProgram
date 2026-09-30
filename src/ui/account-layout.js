@@ -1,5 +1,7 @@
 'use strict';
 
+const topBarLayout = require('./top-bar-layout.js');
+
 function accountLayout(metrics, options) {
   const width = Math.max(1, Number(metrics.width) || 1);
   const height = Math.max(1, Number(metrics.height) || 1);
@@ -60,7 +62,7 @@ function accountLayout(metrics, options) {
   const languageControlWidth = Math.min(164, languageRow.w * 0.58);
   const languageControlX = languageRow.x + languageRow.w - languageControlWidth;
   const result = {
-    backButton: { x: margin, y: safeTop + 8, w: 44, h: 44 },
+    backButton: topBarLayout.leading(metrics),
     panel: {
       x,
       y: panelTop,

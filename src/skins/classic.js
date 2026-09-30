@@ -34,16 +34,9 @@ module.exports = {
     minCellGap: 2,
     activeCellScale: 1.045,
     buttonRadius: 8,
-    homeTopUiOffset: 24,
     // Home-only inset: leave extra breathing room above the bottom gesture
     // area after the actions switch to a two-column first row.
-    homeButtonBottomInset: 72,
-    playTopUiOffset: 24,
-    themesTopUiOffset: 16,
-    // Keep the original top-right control geometry stable while themes are
-    // added.  New manifests may override this token, but the default play
-    // screen must not shift as a side effect of the theme gallery.
-    playRightShift: 34
+    homeButtonBottomInset: 72
   },
   animation: {
     pathClearMs: 300,

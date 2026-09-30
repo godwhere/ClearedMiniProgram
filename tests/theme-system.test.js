@@ -293,7 +293,7 @@ function runRendererChecks() {
   assert(renderer.hits.some(hit => hit.id === 'themes:home'));
   const themeHomeHit = renderer.hits.find(hit => hit.id === 'themes:home');
   assert.strictEqual(themeHomeHit.rect.y + themeHomeHit.rect.h / 2,
-    platform.metrics.safeTop + 4 + 8 + 16 + 22, 'enlarged back button retains the original toolbar center');
+    platform.metrics.safeTop + 36, 'gallery back button uses the shared top-bar center');
   assert(renderer.hits.some(hit => hit.id === 'theme:classic'));
   assert(renderer.hits.some(hit => hit.id === 'theme:gem'));
   assert(renderer.hits.some(hit => hit.id === 'theme:animals'));

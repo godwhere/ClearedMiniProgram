@@ -12,6 +12,9 @@ module.exports = function run() {
         assert(rect.x >= 0 && rect.x + rect.w <= metrics.width);
         assert(rect.y >= metrics.safeTop && rect.y + rect.h <= metrics.safeBottom);
       });
+      assert.deepStrictEqual(layout.backButton,
+        { x: 16, y: metrics.safeTop + 12, w: 48, h: 48 },
+        'portrait and landscape account pages share the top-bar slot');
       assert.strictEqual(layout.profileButton, undefined, 'the account screen has no profile authorization row');
       assert(layout.languageRow.y + layout.languageRow.h < layout.retryButton.y);
       assert(layout.retryButton.y + layout.retryButton.h < layout.privacyButton.y);

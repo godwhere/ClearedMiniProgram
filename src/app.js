@@ -16,6 +16,7 @@ const adConfig = require('./config/ads.js');
 const progressionConfig = require('./config/progression.js');
 const audioConfig = require('./config/audio.js');
 const CanvasRenderer = require('./ui/canvas-renderer.js');
+const topBarLayout = require('./ui/top-bar-layout.js');
 const portalInstructions = require('./ui/portal-instructions.js');
 const defaultSkins = require('./skins/index.js');
 const defaultMechanics = require('./mechanics/index.js');
@@ -1638,11 +1639,11 @@ class ClearedApp {
 
   homeProfileButtonRect() {
     const metrics = this.platform.metrics;
-    const skin = this.skins.current();
+    const avatar = topBarLayout.leading(metrics);
     const rect = {
-      x: 18,
-      y: metrics.safeTop + (skin.layout.homeTopUiOffset || 0) + 60,
-      w: Math.min(160, metrics.width - 36),
+      x: avatar.x,
+      y: avatar.y + avatar.h + 8,
+      w: Math.min(160, metrics.width - avatar.x * 2),
       h: 38
     };
     return rect.w >= 120 && rect.y + rect.h <= metrics.safeBottom ? rect : null;

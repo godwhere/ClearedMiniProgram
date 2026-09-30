@@ -230,6 +230,7 @@ function run() {
     './config/progression.js',
     './config/audio.js',
     './ui/canvas-renderer.js',
+    './ui/top-bar-layout.js',
     './ui/portal-instructions.js',
     './skins/index.js',
     './mechanics/index.js',

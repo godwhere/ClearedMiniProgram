@@ -87,7 +87,7 @@ function run() {
       render(app.buildModel()); assertBadge();
       const homeBadge = renderer.hits.find(hit => hit.id === 'home:stamina');
       const sound = renderer.hits.find(hit => hit.id === 'home:sound');
-      assert.deepStrictEqual(homeBadge.rect, { x: width - 78, y: sound.rect.y, w: 64, h: 44 });
+      assert.deepStrictEqual(homeBadge.rect, { x: width - 80, y: sound.rect.y, w: 64, h: 48 });
       assert(sound.rect.x + sound.rect.w < homeBadge.rect.x,
         'the currency display sits between sound and stamina');
       for (const [snapshot, label] of cases) {
@@ -108,7 +108,7 @@ function run() {
       const title = texts.find(call => call.value === '选择关卡');
       const selectorStamina = texts.find(call => call.value === '0');
       const homeControl = renderer.hits.find(hit => hit.id === 'levels:home');
-      assert.deepStrictEqual(badges[0], { x: width - 78, y: homeControl.rect.y, w: 64, h: 44 },
+      assert.deepStrictEqual(badges[0], { x: width - 80, y: homeControl.rect.y, w: 64, h: 48 },
         'level selection uses the compact current-amount badge');
       assert.strictEqual(selectorStamina.y, title.y);
       assert.strictEqual(selectorStamina.y, homeControl.rect.y + homeControl.rect.h / 2,

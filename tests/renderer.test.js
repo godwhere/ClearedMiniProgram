@@ -112,9 +112,9 @@ function testHomeAvatar() {
   const second = { nickname: 'Second', avatarUrl: 'https://example.test/b.png' };
   renderer.drawHome({ accountProfile: first });
   const target = renderer.hits.find(hit => hit.id === 'home:account');
-  assert.deepStrictEqual(target.rect, { x: 18, y: 44 + (classic.layout.homeTopUiOffset || 0) + 8, w: 44, h: 44 });
+  assert.deepStrictEqual(target.rect, { x: 16, y: 44 + 12, w: 48, h: 48 });
   assert.strictEqual(textCalls(context, '账号').length, 0, 'the home entry no longer draws the account text');
-  assert(context.calls.some(call => call.method === 'arc' && call.args[0] === target.rect.x + 22), 'loading uses a visible default portrait');
+  assert(context.calls.some(call => call.method === 'arc' && call.args[0] === target.rect.x + 24), 'loading uses a visible default portrait');
   assert.strictEqual(loads.length, 1);
   const image = { width: 80, height: 120 };
   loads[0].callback(null, image);
@@ -136,7 +136,7 @@ function testHomeAvatar() {
   context.calls.length = 0;
   renderer.drawHome({ accountProfile: second });
   assert.strictEqual(loads.length, 2, 'image failures do not retry on every frame');
-  assert(context.calls.some(call => call.method === 'arc' && call.args[0] === target.rect.x + 22));
+  assert(context.calls.some(call => call.method === 'arc' && call.args[0] === target.rect.x + 24));
   renderer.drawHome({ accountProfile: null });
   loads[1].callback(null, image);
   context.calls.length = 0;
@@ -239,7 +239,7 @@ function run() {
   assert(renderer.hitTest(280, 640), 'themes is hit on the right side of the first row');
   const soundHit = renderer.hits.find(hit => hit.id === 'home:sound');
   assert(soundHit, 'the home scene keeps the sound switch');
-  assert.strictEqual(soundHit.rect.y, platform.metrics.safeTop + classic.layout.homeTopUiOffset + 8);
+  assert.strictEqual(soundHit.rect.y, platform.metrics.safeTop + 12);
 
   for (const width of [320, 390]) {
     platform.metrics.width = width;
@@ -333,10 +333,10 @@ function run() {
   assert.deepStrictEqual(renderer.getBoardLayout(), renderer.boardLayout,
     'legacy boardLayout access and the locator API share one layout');
   const backHit = renderer.hits.find(hit => hit.id === 'play:back');
-  assert.strictEqual(backHit.rect.y + backHit.rect.h / 2, platform.metrics.safeTop + classic.layout.playTopUiOffset + 27);
+  assert.strictEqual(backHit.rect.y + backHit.rect.h / 2, platform.metrics.safeTop + 36);
   const resetTopHit = renderer.hits.find(hit => hit.id === 'play:reset');
   assert(!renderer.hits.some(hit => hit.id === 'play:sound'), 'play has no sound switch');
-  assert.strictEqual(resetTopHit.rect.x, platform.metrics.width - 100 + classic.layout.playRightShift);
+  assert.strictEqual(resetTopHit.rect.x, platform.metrics.width - 64);
   const hintHit = renderer.hits.find(hit => hit.id === 'play:hint');
   const undoHit = renderer.hits.find(hit => hit.id === 'play:undo');
   assert(hintHit && undoHit);

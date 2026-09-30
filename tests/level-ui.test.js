@@ -11,10 +11,10 @@ const { createUnlimitedStaminaFixture } = require('./helpers/stamina-fixture.js'
 const FIRST = '连接两个相同的色块或物体';
 const FOLLOWING = '别漏掉空白格，全部消除才能通关哦';
 
-function fixture(width, height) {
+function fixture(width, height, safeTop = 44) {
   const raw = fakeApi();
   raw.getWindowInfo = () => ({ windowWidth: width, windowHeight: height, pixelRatio: 2,
-    safeArea: { top: 44, bottom: height - 24 } });
+    safeArea: { top: safeTop, bottom: height - 24 } });
   const app = new App(new Platform(raw), { solutionCatalog: solutions,
     clock: () => new Date('2026-08-31T00:00:00Z'),
     progressionConfig: { unlockAllLevelsInDevTools: true }, stamina: createUnlimitedStaminaFixture() });
@@ -162,7 +162,7 @@ function galleryBackButtons() {
     const f = fixture(width, 568);
     f.app.performAction('home:corridor'); f.render();
     const home = f.renderer.hits.find(hit => hit.id === 'corridor:home').rect;
-    assert.strictEqual(home.w, 44, 'the corridor home button is unchanged');
+    assert.strictEqual(home.w, 48, 'the corridor home button uses the shared top-bar size');
     assert(!f.renderer.hits.some(hit => hit.id === 'corridor:sound'), 'corridor has no sound switch');
     assert(f.icons.some(icon => icon.type === 'home' && icon.x === home.x + home.w / 2));
     for (const scene of ['themes', 'effects']) {
@@ -170,10 +170,11 @@ function galleryBackButtons() {
       const back = f.renderer.hits.find(hit => hit.id === scene + ':corridor');
       assert(back);
       assert(!f.renderer.hits.some(hit => hit.id === scene + ':sound'), 'gallery has no sound switch');
-      assert(back.rect.w > 44 && back.rect.h > 44, 'the return touch target is enlarged');
+      assert.strictEqual(back.rect.w, 48);
+      assert.strictEqual(back.rect.h, 48);
       assert(back.rect.y >= f.app.platform.metrics.safeTop);
       const arrow = f.icons.find(icon => icon.x === back.rect.x + back.rect.w / 2 && icon.y === back.rect.y + back.rect.h / 2);
-      assert(arrow && arrow.type === 'back' && arrow.size > 44 * 0.48, 'return uses a larger arrow');
+      assert(arrow && arrow.type === 'back' && arrow.size === 48 * 0.48, 'return uses the shared icon size');
       assert.strictEqual(f.renderer.hits.filter(hit => hit.id === scene + ':corridor').length, 1);
       assert(!f.renderer.hits.some(hit => hit.id === scene + ':home'));
       const cards = f.renderer.hits.filter(hit => hit.id.startsWith(scene === 'themes' ? 'theme:' : 'effect:'));
@@ -181,11 +182,67 @@ function galleryBackButtons() {
       assert(back.rect.y + back.rect.h <= Math.min(...cards.map(hit => hit.rect.y)), 'back cannot overlap gallery cards');
       const point = { x: back.rect.x + back.rect.w - 2, y: back.rect.y + back.rect.h / 2, id: 7 };
       f.app.onPointerStart(point); f.app.onPointerEnd(point);
-      assert.strictEqual(f.app.scene, 'corridor', 'the enlarged outer edge returns to the corridor');
+      assert.strictEqual(f.app.scene, 'corridor', 'the outer edge returns to the corridor');
     }
     f.app.performAction('corridor:home');
     f.app.performAction('home:themes'); f.render();
     assert(f.renderer.hits.some(hit => hit.id === 'themes:home'), 'legacy direct navigation retains its original action');
+    f.app.dispose();
+  }
+}
+
+function topBarAlignment() {
+  for (const [width, height, safeTop] of [[280, 568, 44], [320, 568, 54], [390, 844, 94]]) {
+    const f = fixture(width, height, safeTop);
+    const expected = { x: 16, y: safeTop + 12, w: 48, h: 48 };
+    const centerY = safeTop + 36;
+    const check = (action, title) => {
+      f.render();
+      const hit = f.renderer.hits.find(item => item.id === action);
+      assert(hit, `${action} is present`);
+      assert.deepStrictEqual(hit.rect, expected, `${action} uses the shared top-bar slot`);
+      if (action !== 'home:account') {
+        const icon = f.icons.find(item => item.x === expected.x + 24 && item.y === centerY);
+        assert(icon && icon.size === 48 * 0.48, `${action} uses the shared icon size`);
+      }
+      if (title) {
+        const heading = f.texts.find(item => typeof title === 'string'
+          ? item.value === title : title.test(item.value));
+        assert(heading && heading.y === centerY, `${action} aligns with the page heading`);
+      }
+    };
+
+    check('home:account');
+    const sound = f.renderer.hits.find(hit => hit.id === 'home:sound').rect;
+    const stamina = f.renderer.hits.find(hit => hit.id === 'home:stamina').rect;
+    assert.strictEqual(sound.y + sound.h / 2, centerY);
+    assert.strictEqual(stamina.y + stamina.h / 2, centerY);
+    assert(sound.x >= expected.x + expected.w && sound.x + sound.w < stamina.x);
+    assert.deepStrictEqual(f.app.homeProfileButtonRect(), {
+      x: 16, y: safeTop + 68, w: 160, h: 38
+    }, 'the native profile button starts below the avatar');
+
+    f.app.performAction('home:account'); check('account:back', '账号');
+    f.app.performAction('account:back');
+    f.app.performAction('home:levels'); check('levels:home', '选择关卡');
+    f.open(0);
+    check('play:back', '1 / ' + catalog.levels.length);
+    const reset = f.renderer.hits.find(hit => hit.id === 'play:reset').rect;
+    assert.deepStrictEqual(reset, { x: width - 64, y: safeTop + 12, w: 48, h: 48 });
+    f.app.performAction('play:back');
+    f.app.performAction('levels:home');
+
+    f.app.performAction('home:corridor'); check('corridor:home', '回廊');
+    f.app.performAction('corridor:themes'); check('themes:corridor', '主题');
+    f.app.performAction('themes:corridor');
+    f.app.performAction('corridor:effects'); check('effects:corridor', '消除特效');
+    f.app.performAction('effects:corridor');
+    f.app.performAction('corridor:home');
+
+    assert(f.app.enterDaily());
+    check('daily:home', /^每日挑战/);
+    assert.deepStrictEqual(f.renderer.hits.find(hit => hit.id === 'daily:reset').rect,
+      { x: width - 64, y: safeTop + 12, w: 48, h: 48 });
     f.app.dispose();
   }
 }
@@ -256,5 +313,6 @@ module.exports = function run() {
   difficultyBars();
   earlyLevelDifficultyBars();
   galleryBackButtons();
+  topBarAlignment();
   beginnerInstructions();
 };
