@@ -71,7 +71,7 @@
 | 2 | home:corridor | 回廊 | 始终可用 |
 | 3 | home:start | 继续游戏／开始游戏 | 始终可用 |
 
-home:sound 保持现有顶部音效命中区域；home:levels 可保留为兼容 action，但主页不注册其命中区域。
+home:sound 保持现有顶部音效命中区域；每日挑战及结果页不另设音乐开关。home:levels 可保留为兼容 action，但主页不注册其命中区域。
 
 ### 4.2 尺寸与纵向位置
 

@@ -144,7 +144,7 @@ module.exports = Object.freeze({
   'portal.instruction.continue': 'Release at the portal, then continue from the other one',
   'hint.unavailable': 'Hint unavailable',
   'hint.view': 'View Hint',
-  'hint.free': 'Free Hint',
+  'hint.free': 'Hint',
   'hint.shareUnlock': 'Share to Unlock',
   'hint.adUnlock': 'Watch Ad to Unlock',
   'hint.none': 'No hint available',

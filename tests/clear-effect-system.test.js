@@ -103,8 +103,8 @@ function run() {
   assert(app.renderer.hits.some(hit => hit.id === 'corridor:effects'));
   assert(!platform.sources.some(source => source.indexOf('preview') >= 0),
     'corridor entry illustrations remain Canvas-drawn and do not load bitmap previews');
-  assert.strictEqual(app.renderer.hits.filter(hit => /^corridor:/.test(hit.id)).length, 4,
-    'back, sound, and two corridor cards are registered');
+  assert.strictEqual(app.renderer.hits.filter(hit => /^corridor:/.test(hit.id)).length, 3,
+    'only back and the two corridor cards are registered');
 
   const corridorThemeHit = app.renderer.hits.find(hit => hit.id === 'corridor:themes');
   app.onPointerStart({ x: corridorThemeHit.rect.x + corridorThemeHit.rect.w / 2,
@@ -202,11 +202,13 @@ function run() {
     effectPageIndex: 0, effectPageCount: 1, effectPageSize: 6, currentEffectId: 'fade',
     backAction: 'effects:corridor', soundEnabled: true, pressedId: null
   }, now);
+  assert(!deferredRenderer.hits.some(hit => hit.id === 'effects:sound'));
   assert(deferredCallbacks['assets/effects/fade/preview.png']);
   deferredRenderer.render({
     scene: 'corridor', corridorEntries: [], corridorPageIndex: 0, corridorPageCount: 1,
     corridorPageSize: 6, backAction: 'corridor:home', soundEnabled: true, pressedId: null
   }, now + 1);
+  assert(!deferredRenderer.hits.some(hit => hit.id === 'corridor:sound'));
   deferredCallbacks['assets/effects/fade/preview.png'](null, { source: 'late', width: 512, height: 384 });
   assert(!Object.prototype.hasOwnProperty.call(deferredRenderer.effectPreviewImages, 'fade'));
 
@@ -325,6 +327,7 @@ function run() {
     soundEnabled: true,
     pressedId: null
   }, now);
+  assert(!renderer.hits.some(hit => hit.id === 'daily:sound'));
   renderer.drawClearAnimation = originalClearAnimation;
   assert.strictEqual(dailyAdapterCalls, 1);
 

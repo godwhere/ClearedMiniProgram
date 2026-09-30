@@ -238,6 +238,7 @@ function run() {
   assert(renderer.hitTest(110, 640), 'daily challenge is hit on the left side of the first row');
   assert(renderer.hitTest(280, 640), 'themes is hit on the right side of the first row');
   const soundHit = renderer.hits.find(hit => hit.id === 'home:sound');
+  assert(soundHit, 'the home scene keeps the sound switch');
   assert.strictEqual(soundHit.rect.y, platform.metrics.safeTop + classic.layout.homeTopUiOffset + 8);
 
   for (const width of [320, 390]) {
@@ -333,11 +334,9 @@ function run() {
     'legacy boardLayout access and the locator API share one layout');
   const backHit = renderer.hits.find(hit => hit.id === 'play:back');
   assert.strictEqual(backHit.rect.y + backHit.rect.h / 2, platform.metrics.safeTop + classic.layout.playTopUiOffset + 27);
-  const soundTopHit = renderer.hits.find(hit => hit.id === 'play:sound');
   const resetTopHit = renderer.hits.find(hit => hit.id === 'play:reset');
-  assert(soundTopHit.rect.x > backHit.rect.x);
+  assert(!renderer.hits.some(hit => hit.id === 'play:sound'), 'play has no sound switch');
   assert.strictEqual(resetTopHit.rect.x, platform.metrics.width - 100 + classic.layout.playRightShift);
-  assert.strictEqual(resetTopHit.rect.x - soundTopHit.rect.x - 42, 6);
   const hintHit = renderer.hits.find(hit => hit.id === 'play:hint');
   const undoHit = renderer.hits.find(hit => hit.id === 'play:undo');
   assert(hintHit && undoHit);
@@ -354,6 +353,7 @@ function run() {
     hasNext: false
   }, renderState(runner)), Date.now());
   assert(renderer.hits.some(hit => hit.id === 'result:replay'));
+  assert(!renderer.hits.some(hit => hit.id === 'play:sound'), 'result has no sound switch');
 
   platform.context.calls.length = 0;
   renderer.render(Object.assign({

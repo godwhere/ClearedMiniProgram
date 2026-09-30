@@ -131,7 +131,7 @@ AdsService 继续根据 `onClose.isEnded === true` 产生 `rewarded:true`。上�
 
 | 状态 | 按钮文案 | 点击结果 |
 | --- | --- | --- |
-| 第一个新关，N = 0 | 免费提示 | 校验解答、保存许可后立即显示路径 |
+| 第一个新关，N = 0 | 提示 | 校验解答、保存许可后立即显示路径 |
 | 需要分享，包括广告未开通时的替代 | 分享解锁 | 同步发起分享；保存成功后等待再次点击 |
 | 需要广告 | 广告解锁 | 请求广告；资格确认并保存后等待再次点击 |
 | 分享／广告请求进行中 | 处理中 | 禁用新解锁请求 |
@@ -341,7 +341,7 @@ pages/** / app.js / app.json / app.wxss
 | `tests/hint-share.test.js` | 保留显式 share 模式回归；更新当前默认配置相关断言，不能继续宣称生产默认 share |
 | `tests/ads-service.test.js` | 能力查询无副作用、平台结果 true/false/缺失、重复回调与标准 attemptId |
 | `tests/app-smoke.test.js`（未修改） | 保留原预览和免费回滚回归；新增 tiered 的 guard、预检与展示时机由 hint-tiered 覆盖 |
-| `tests/renderer-button.test.js` | 免费提示、广告解锁、重试广告/保存等文案在窄屏中保持原触摸区域 |
+| `tests/renderer-button.test.js` | 提示、广告解锁、重试广告/保存等文案在窄屏中保持原触摸区域 |
 | `tests/architecture-boundaries.test.js`（未修改） | 继续执行既有 core/平台/奖励边界断言 |
 | `tests/run.js` | 注册新增测试组，保留所有原测试 |
 | 本文、`docs/hint-access-and-sharing.md`、`docs/user-account-sharing-ads-integration.md`、README | 实施后同步真实模式、开关、存储、方法合同和验收证据 |

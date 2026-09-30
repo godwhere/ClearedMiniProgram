@@ -1452,8 +1452,8 @@ class CanvasRenderer {
     const headerTop = safeTop + 4;
     const headerHeight = 68;
     const requestedThemesOffset = Number(skin.layout.themesTopUiOffset);
-    // Keep the 44px sound button inside the header. The larger back button
-    // shares its center and uses six pixels of padding before the card grid.
+    // Keep the larger back button inside the header with six pixels of
+    // padding before the card grid.
     const themesTopUiOffset = clamp(
       Number.isFinite(requestedThemesOffset) ? requestedThemesOffset : 0,
       0,
@@ -1466,12 +1466,6 @@ class CanvasRenderer {
     // Expand around the existing center, retaining a gap before the card grid.
     this.iconButton(backAction, { x: 4, y: topButtonY - 6, w: 56, h: 56 },
       'back', true, model && model.pressedId);
-    // Keep the sound affordance available on the gallery just like the home
-    // and play scenes.  Apps that do not route this action can simply ignore
-    // the optional hit; the required gallery IDs remain unchanged.
-    this.iconButton('themes:sound', { x: width - 58, y: topButtonY, w: 44, h: 44 },
-      model && model.soundEnabled === false ? 'mute' : 'sound', true,
-      model && model.pressedId);
     this.text(this.t('gallery.themes'), width / 2, headerTop + 27, 25, { weight: 300 });
     this.text(`${pageIndex + 1} / ${pageCount}`, width / 2, headerTop + 53, 12, { alpha: 0.58 });
 
@@ -1799,9 +1793,6 @@ class CanvasRenderer {
       ? model.backAction : 'corridor:home';
     this.iconButton(backAction, { x: 10, y: topButtonY, w: 44, h: 44 },
       'home', true, model && model.pressedId);
-    this.iconButton('corridor:sound', { x: width - 58, y: topButtonY, w: 44, h: 44 },
-      model && model.soundEnabled === false ? 'mute' : 'sound', true,
-      model && model.pressedId);
     this.text(this.t('gallery.corridor'), width / 2, headerTop + 27, 25, { weight: 300 });
     this.text(`${pageIndex + 1} / ${pageCount}`, width / 2, headerTop + 53, 12, { alpha: 0.58 });
 
@@ -1891,9 +1882,6 @@ class CanvasRenderer {
       ? model.backAction : 'effects:corridor';
     this.iconButton(backAction, { x: 4, y: topButtonY - 6, w: 56, h: 56 },
       'back', true, model && model.pressedId);
-    this.iconButton('effects:sound', { x: width - 58, y: topButtonY, w: 44, h: 44 },
-      model && model.soundEnabled === false ? 'mute' : 'sound', true,
-      model && model.pressedId);
     this.text(this.t('gallery.clearEffects'), width / 2, headerTop + 27, 25, { weight: 300 });
     this.text(`${pageIndex + 1} / ${pageCount}`, width / 2, headerTop + 53, 12, { alpha: 0.58 });
 
@@ -2260,24 +2248,16 @@ class CanvasRenderer {
     const controlSize = 42;
     // Center the single-row controls on the level title; time stays below it.
     const controlTop = topUi + 5;
-    // Preserve the pre-theme control positions.  A manifest can opt into the
-    // newer margin/gap tokens, but classic continues to use playRightShift so
-    // existing layouts and touch targets remain unchanged.
+    // Preserve the reset control position across theme layouts.
     const hasExplicitMargin = skin.layout.playRightMargin !== undefined;
-    const hasExplicitGap = skin.layout.playControlGap !== undefined;
     const rightShift = Number(skin.layout.playRightShift) || 0;
     const resetX = hasExplicitMargin
       ? width - Number(skin.layout.playRightMargin) - controlSize
       : width - 100 + rightShift;
-    const soundX = hasExplicitMargin || hasExplicitGap
-      ? resetX - (hasExplicitGap ? Number(skin.layout.playControlGap) : 8) - controlSize
-      : width - 148 + rightShift;
     const ctx = this.ctx;
     ctx.fillStyle = skin.colors.panel;
     ctx.fillRect(0, 0, width, topUi + headerHeight);
     this.iconButton('play:back', { x: 8, y: controlTop, w: 44, h: 44 }, 'back', true, model.pressedId);
-    this.iconButton('play:sound', { x: soundX, y: controlTop, w: controlSize, h: 44 },
-      model.soundEnabled ? 'sound' : 'mute', true, model.pressedId);
     const hintPreviewActive = !!(model.hintPreview && (model.hintPreview.manual === true || now < model.hintPreview.until));
     this.iconButton('play:reset', { x: resetX, y: controlTop, w: controlSize, h: 44 }, 'reset', model.scene !== 'result' && !hintPreviewActive, model.pressedId);
 
@@ -2457,16 +2437,11 @@ class CanvasRenderer {
     const topUi = headerTop + (skin.layout.playTopUiOffset || 0);
     const controlSize = 42;
     const hasExplicitMargin = skin.layout.playRightMargin !== undefined;
-    const hasExplicitGap = skin.layout.playControlGap !== undefined;
     const rightShift = Number(skin.layout.playRightShift) || 0;
     const resetX = hasExplicitMargin
       ? width - Number(skin.layout.playRightMargin) - controlSize
       : width - 100 + rightShift;
-    const soundX = hasExplicitMargin || hasExplicitGap
-      ? resetX - (hasExplicitGap ? Number(skin.layout.playControlGap) : 8) - controlSize
-      : width - 148 + rightShift;
     const isResult = model && model.scene === 'dailyResult';
-    const soundAction = isResult ? 'dailyResult:sound' : 'daily:sound';
     // Keep the top-left back affordance distinct from the result-panel home
     // button so one logical action does not create duplicate hit records.
     const backAction = isResult ? 'dailyResult:back' : 'daily:home';
@@ -2474,8 +2449,6 @@ class CanvasRenderer {
     ctx.fillStyle = skin.colors.panel;
     ctx.fillRect(0, 0, width, topUi + headerHeight);
     this.iconButton(backAction, { x: 8, y: topUi + 12, w: 44, h: 44 }, 'back', true, model && model.pressedId);
-    this.iconButton(soundAction, { x: soundX, y: topUi + 12, w: controlSize, h: 44 },
-      model && model.soundEnabled === false ? 'mute' : 'sound', true, model && model.pressedId);
     const hintPreviewActive = !!(model && model.hintPreview &&
       (model.hintPreview.manual === true || now < model.hintPreview.until));
     this.iconButton('daily:reset', { x: resetX, y: topUi + 12, w: controlSize, h: 44 },

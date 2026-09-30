@@ -62,7 +62,7 @@ async function tierSequence() {
   for (const enabled of [false, true]) {
     const f = fixture({ enabled }); f.open(0);
     const before = clone(f.app.progress.state);
-    assert.strictEqual(f.app.buildModel().hintLabel, '免费提示');
+    assert.strictEqual(f.app.buildModel().hintLabel, '提示');
     f.tap(); assert(f.app.hintPreview, 'the first new hint is saved and shown on its first tap');
     assert.strictEqual(f.count(), 1); assert.deepStrictEqual(f.counts, { shares: 0, created: 0, shown: 0, loaded: 0, attempts: 0 });
     assert.deepStrictEqual(f.app.progress.state, before);
@@ -193,7 +193,7 @@ async function lifecycleAndSharedScope() {
     f.video.close({ isEnded: true }); await settle();
     assert.strictEqual(f.app.hintPreview, null, change);
     if (change === 'date') {
-      assert.strictEqual(f.count(), 0); assert.strictEqual(f.app.buildModel().hintLabel, '免费提示');
+      assert.strictEqual(f.count(), 0); assert.strictEqual(f.app.buildModel().hintLabel, '提示');
       f.tap(); assert(f.app.hintPreview); assert.strictEqual(f.count(), 1);
     } else if (change === 'dispose') assert.strictEqual(f.count(), 2);
     else { assert(f.access.status(original).unlocked); assert.strictEqual(f.count(), 3); }

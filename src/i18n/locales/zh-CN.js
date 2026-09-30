@@ -144,7 +144,7 @@ module.exports = Object.freeze({
   'portal.instruction.continue': '到达传送门后松手，再从另一扇门继续',
   'hint.unavailable': '提示不可用',
   'hint.view': '查看提示',
-  'hint.free': '免费提示',
+  'hint.free': '提示',
   'hint.shareUnlock': '分享解锁',
   'hint.adUnlock': '广告解锁',
   'hint.none': '暂无提示',

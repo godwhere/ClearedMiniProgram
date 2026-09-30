@@ -146,10 +146,11 @@ function run() {
             const title = texts.find(call => call.value === model.ordinaryLevelNumber + ' / ' + model.ordinaryLevelCount);
             assert.strictEqual(title.x, width / 2, 'the level title stays centered without stamina');
             if (scene === 'play') {
-              ['play:back', 'play:sound', 'play:reset'].forEach(id => {
+              ['play:back', 'play:reset'].forEach(id => {
                 const control = renderer.hits.find(hit => hit.id === id);
                 assert.strictEqual(control.rect.y + control.rect.h / 2, title.y);
               });
+              assert(!renderer.hits.some(hit => hit.id === 'play:sound'));
             }
           }
         }
@@ -161,6 +162,7 @@ function run() {
       for (const outcome of ['won', 'failed']) {
         app.daily.result = { outcome, remainingCells: 2, elapsedMs: 1000 };
         render(app.buildModel()); assert.strictEqual(badges.length, 0);
+        assert(!renderer.hits.some(hit => hit.id === 'dailyResult:sound'));
       }
 
       app.scene = 'home';

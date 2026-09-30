@@ -83,18 +83,20 @@
 | `corridor:home` | 回到主页 | 回廊左上角返回 |
 | `corridor:themes` | 进入主题画廊 | 设置 `galleryOrigin = 'corridor'` |
 | `corridor:effects` | 进入特效画廊 | 设置 `galleryOrigin = 'corridor'` |
-| `corridor:sound` | 切换静音 | 与其他场景的音效入口一致 |
+| `corridor:sound` | 旧 action 兼容 | 当前不绘制按钮或注册命中区域；声音只在主页切换 |
 | `themes:corridor` | 从回廊来源的主题页返回回廊 | 新契约；仅在 `galleryOrigin === 'corridor'` 时绘制 |
 | `themes:home` | 从旧主题入口返回主页 | 兼容旧流程和旧测试 |
-| `themes:sound`、`themes:prev`、`themes:next` | 主题页现有控制 | 保持现有协议 |
+| `themes:sound` | 旧 action 兼容 | 当前不绘制按钮或注册命中区域 |
+| `themes:prev`、`themes:next` | 主题页分页 | 保持现有协议 |
 | `effects:corridor` | 从特效页返回回廊 | 特效页左上角返回 |
 | `effects:home` | 从旧/内部直达特效页返回主页 | 兼容别名，不作为回廊主流程的首选 |
-| `effects:sound`、`effects:prev`、`effects:next` | 特效页控制 | 分页只有超过 6 个特效时才启用 prev/next |
+| `effects:sound` | 旧 action 兼容 | 当前不绘制按钮或注册命中区域 |
+| `effects:prev`、`effects:next` | 特效页分页 | 分页只有超过 6 个特效时才启用 prev/next |
 | `effect:<id>` | 选择指定特效并留在当前页 | 选择失败不得改写存档 |
 
 顶部返回按钮的命中 ID 必须和 `model.backAction` 一致，不能同一帧同时注册 `themes:home` 与 `themes:corridor` 两个重叠 hit。
 
-主题页和特效页左上角使用返回箭头，触摸区域围绕原按钮中心由 44×44 扩大为 56×56，箭头同步放大；保留安全区和卡片间距。音效、页标题和网格不移动，回廊入口页的主页按钮保持原样。从回廊进入时仍返回回廊，旧直达主题流程仍沿用 `themes:home` 返回主页。
+主题页和特效页左上角使用返回箭头，触摸区域围绕原按钮中心由 44×44 扩大为 56×56，箭头同步放大；保留安全区和卡片间距。页标题和网格位置不变，回廊入口页的主页按钮保持原样。从回廊进入时仍返回回廊，旧直达主题流程仍沿用 `themes:home` 返回主页。
 
 ## 4. 回廊页面契约
 

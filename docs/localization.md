@@ -145,6 +145,8 @@ Initial glossary:
 | 撤销 | Undo |
 | 重新开始 | Restart |
 
+The first free hint button uses “提示” / “Hint”; hint eligibility still determines whether the action is free.
+
 The complete catalog receives a final consistency pass in context. This table is a terminology baseline, not permission to translate unrelated identifiers or data.
 
 ## 7. Execution sequence

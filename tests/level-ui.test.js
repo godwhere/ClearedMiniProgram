@@ -163,15 +163,15 @@ function galleryBackButtons() {
     f.app.performAction('home:corridor'); f.render();
     const home = f.renderer.hits.find(hit => hit.id === 'corridor:home').rect;
     assert.strictEqual(home.w, 44, 'the corridor home button is unchanged');
+    assert(!f.renderer.hits.some(hit => hit.id === 'corridor:sound'), 'corridor has no sound switch');
     assert(f.icons.some(icon => icon.type === 'home' && icon.x === home.x + home.w / 2));
     for (const scene of ['themes', 'effects']) {
       f.app.performAction('corridor:' + scene); f.render();
       const back = f.renderer.hits.find(hit => hit.id === scene + ':corridor');
-      const sound = f.renderer.hits.find(hit => hit.id === scene + ':sound');
-      assert(back && sound);
+      assert(back);
+      assert(!f.renderer.hits.some(hit => hit.id === scene + ':sound'), 'gallery has no sound switch');
       assert(back.rect.w > 44 && back.rect.h > 44, 'the return touch target is enlarged');
       assert(back.rect.y >= f.app.platform.metrics.safeTop);
-      assert.strictEqual(back.rect.y + back.rect.h / 2, sound.rect.y + sound.rect.h / 2);
       const arrow = f.icons.find(icon => icon.x === back.rect.x + back.rect.w / 2 && icon.y === back.rect.y + back.rect.h / 2);
       assert(arrow && arrow.type === 'back' && arrow.size > 44 * 0.48, 'return uses a larger arrow');
       assert.strictEqual(f.renderer.hits.filter(hit => hit.id === scene + ':corridor').length, 1);

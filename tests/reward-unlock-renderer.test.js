@@ -105,6 +105,8 @@ function run() {
   };
   const before = JSON.stringify(model);
   gallery.renderer.render(model, 1);
+  assert(!gallery.renderer.hits.some(hit => hit.id === 'themes:sound'),
+    'the gallery does not repeat the home sound switch');
   assert(gallery.ctx.calls.some(call => call.op === 'fillText' && call.args[0] === '通关第 5 关解锁'));
   assert.strictEqual(JSON.stringify(model), before, 'gallery drawing remains read-only');
 
