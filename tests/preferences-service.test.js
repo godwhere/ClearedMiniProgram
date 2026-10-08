@@ -18,6 +18,7 @@ module.exports = function run() {
   assert(fallback.ok); assert.strictEqual(progress.getSetting('skinId'), 'classic');
   assert.strictEqual(progress.getSetting('clearEffectId'), 'none');
   assert.strictEqual(progress.getSetting('soundEnabled'), false);
+  assert.strictEqual(progress.getSetting('clearMode'), 'simultaneous', 'old cloud snapshots use the current default');
 
   preferences.bind({ skins: registry, clearEffects: registry, audio: refresh, canUse: () => true });
   const overlay = preferences.applyAuthoritativeSnapshot({ schemaVersion: 1,
@@ -26,8 +27,15 @@ module.exports = function run() {
     { domain: 'preferences', type: 'PREFERENCE_FIELD_SET', payload: { field: 'soundEnabled', value: false } }
   ]);
   assert(overlay.ok); assert.deepStrictEqual(preferences.exportAuthoritativeSnapshot().snapshot,
-    { schemaVersion: 1, skinId: 'gem', clearEffectId: 'none', soundEnabled: false });
+    { schemaVersion: 1, skinId: 'gem', clearEffectId: 'none', clearMode: 'simultaneous', soundEnabled: false });
   assert(refreshes >= 6, 'each authoritative apply refreshes theme, effect and audio caches');
+  const chosen = { schemaVersion: 1, skinId: 'classic', clearEffectId: 'none', soundEnabled: true, clearMode: 'sequential' };
+  assert(preferences.applyAuthoritativeSnapshot(chosen, []).ok);
+  assert.strictEqual(progress.getSetting('clearMode'), 'sequential', 'explicit cloud choices remain selected');
+  assert(preferences.applyAuthoritativeSnapshot({ schemaVersion: 1, skinId: 'classic', clearEffectId: 'none', soundEnabled: true }, [
+    { domain: 'preferences', type: 'PREFERENCE_FIELD_SET', payload: { field: 'clearMode', value: 'sequential' } }
+  ]).ok);
+  assert.strictEqual(progress.getSetting('clearMode'), 'sequential', 'pending offline choices override a missing cloud field');
 
   platform.writeFailures[ProgressStore.STORAGE_KEY] = true;
   const before = JSON.stringify(progress.state);

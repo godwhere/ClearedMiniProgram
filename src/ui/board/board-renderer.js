@@ -1,6 +1,8 @@
 'use strict';
 
 const drawIce = require('./ice-overlay.js');
+const clearParticles = require('./clear-particles.js');
+const clearTiming = require('../../services/clear-animation-timing.js');
 
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
@@ -228,7 +230,7 @@ class BoardRenderer {
   }
 
   drawClearAnimation(animation, palette, now, gap, layout, portalCells) {
-    if (!animation || !layout || animation.type === 'none') return;
+    if (!animation || !layout || animation.type === 'none' && animation.clearMode !== 'sequential') return;
     const skin = this.getSkin();
     let effect = null;
     let effectType = typeof animation.type === 'string' ? animation.type : null;
@@ -255,10 +257,10 @@ class BoardRenderer {
       }
       if (!params && effect.params && typeof effect.params === 'object') params = effect.params;
     }
-    if (effectType === 'none') return;
+    if (effectType === 'none' && animation.clearMode !== 'sequential') return;
     const rawDuration = Number(animation.durationMs);
     const legacyDuration = Number(skin.animation && skin.animation.pathClearMs);
-    const duration = Number.isFinite(rawDuration) && rawDuration > 0
+    const duration = effectType === 'none' ? 0 : Number.isFinite(rawDuration) && rawDuration > 0
       ? clamp(rawDuration, EFFECT_MIN_DURATION_MS, EFFECT_MAX_DURATION_MS)
       : Number.isFinite(effectDuration) && effectDuration > 0
         ? clamp(effectDuration, EFFECT_MIN_DURATION_MS, EFFECT_MAX_DURATION_MS)
@@ -267,12 +269,15 @@ class BoardRenderer {
           : 300;
     if (!params || typeof params !== 'object') params = DEFAULT_FADE_PARAMS;
     effectType = effectType || (effect && effect.type) || 'fade';
-    const type = effectType === 'fade' ? 'fade' : 'fade';
+    const particles = clearParticles.supports(effectType);
     const timestamp = Number.isFinite(Number(now)) ? Number(now) : Date.now();
     const startedAt = Number.isFinite(Number(animation.startedAt))
       ? Number(animation.startedAt) : timestamp;
-    const progress = clamp((timestamp - startedAt) / duration, 0, 1);
-    if (progress >= 1) return;
+    const elapsed = timestamp - startedAt;
+    const sequential = animation.clearMode === 'sequential';
+    const totalMs = clearTiming.duration(Object.assign({}, animation, { type: effectType, durationMs: duration }));
+    const progress = duration ? clamp(elapsed / duration, 0, 1) : 1;
+    if (elapsed >= totalMs) return;
     const tileGap = Number(gap) >= 0 ? Number(gap) : clamp(layout.cell * 0.085, 2, 5);
     const colors = Array.isArray(palette) && palette.length ? palette : [];
     const color = colors.length
@@ -290,28 +295,38 @@ class BoardRenderer {
       ? clamp(Number(params.staggerRatio), 0, 0.1) : 0.018;
     const excluded = portalCells || new Set();
     const cells = Array.isArray(animation.cells) ? animation.cells : [];
+    // Bound the whole stagger window, so even an 8x10 path finishes inside
+    // its snapshot duration. Keep the legacy fade timing unchanged.
+    const staggerWindow = Math.min(0.24, staggerRatio * Math.max(0, cells.length - 1));
     cells.forEach((index, order) => {
       if (!Number.isInteger(index) || index < 0 || index >= layout.cols * layout.rows) return;
       if (excluded.has(index)) return;
       const col = index % layout.cols;
       const row = Math.floor(index / layout.cols);
-      const local = clamp(progress * (1 + staggerRatio * 10) - order * staggerRatio, 0, 1);
+      const waiting = sequential && elapsed < order * clearTiming.STEP_MS;
+      const local = sequential ? waiting ? 0 : duration ? clamp((elapsed - order * clearTiming.STEP_MS) / duration, 0, 1) : 1 : particles
+        ? clamp((progress - staggerWindow * order / Math.max(1, cells.length - 1)) /
+          (1 - staggerWindow), 0, 1)
+        : clamp(progress * (1 + staggerRatio * 10) - order * staggerRatio, 0, 1);
       const alpha = alphaFrom + (alphaTo - alphaFrom) * local;
       const scale = scaleFrom + (scaleTo - scaleFrom) * local;
       const baseSize = layout.cell - tileGap * 2;
       const centerX = layout.x + (col + 0.5) * layout.cell;
       const centerY = layout.y + (row + 0.5) * layout.cell;
-      if (type === 'fade') {
-        if (Array.isArray(animation.iceBrokenCells) && animation.iceBrokenCells.includes(index)) {
-          drawIce(this.getContext(), centerX - baseSize / 2, centerY - baseSize / 2,
-            baseSize, { alpha, breakProgress: Math.max(0.001, local) });
-          return;
-        }
-        this.drawTile(animation.lineIndex,
-          centerX - baseSize / 2,
-          centerY - baseSize / 2,
-          baseSize,
-          { color, alpha, scale, skin });
+      if (Array.isArray(animation.iceBrokenCells) && animation.iceBrokenCells.includes(index)) {
+        drawIce(this.getContext(), centerX - baseSize / 2, centerY - baseSize / 2,
+          baseSize, { alpha, breakProgress: waiting ? 0 : Math.max(0.001, local) });
+        return;
+      }
+      if (sequential && !waiting && (local >= 1 || effectType === 'none')) return;
+      this.drawTile(animation.lineIndex,
+        centerX - baseSize / 2,
+        centerY - baseSize / 2,
+        baseSize,
+        { color, alpha: waiting ? 1 : particles ? alpha * alpha : alpha, scale: waiting ? 1 : scale, skin });
+      if (particles && !waiting) {
+        clearParticles.draw(this.getContext(), effectType, centerX, centerY,
+          baseSize, local, index);
       }
     });
   }

@@ -60,6 +60,9 @@ async function wechatProfileDisplay() {
     await new Promise(resolve => setImmediate(resolve));
     assert.strictEqual(app.buildModel().accountProfile, null);
     assert.strictEqual(app.profile.isSupported(), true);
+    assert(app.buildModel().updateDialog, 'the release notice precedes native profile authorization');
+    assert.strictEqual(buttons.length, 0, 'the native authorization button cannot cover the update panel');
+    app.performAction('update:confirm');
     assert.strictEqual(buttons.length, 1, 'an unapproved player sees a native home authorization button');
     assert.strictEqual(buttons[0].options.type, 'text');
     assert.strictEqual(buttons[0].options.text, '使用微信资料');

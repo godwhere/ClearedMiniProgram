@@ -5,6 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const AudioService = require('../src/services/audio-service.js');
 const audioConfig = require('../src/config/audio.js');
+const ProgressStore = require('../src/services/progress-store.js');
 
 class FakeContext {
   constructor(options) {
@@ -86,7 +87,180 @@ function bgmContexts(platform) {
   return platform.contexts.filter(context => context.src === audioConfig.bgm.src);
 }
 
+async function testMusicSelection() {
+  const first = { id: 'first', name: 'First', src: 'assets/audio/first.m4a', volume: 0.2 };
+  const second = { id: 'second', name: 'Second', src: 'assets/audio/second.m4a', volume: 0.4 };
+  const config = { bgm: first, tracks: [first, second], enabledByDefault: true };
+  const platform = audioPlatform();
+  const progress = progressFixture();
+  const service = new AudioService(platform, progress, config);
+  assert.strictEqual(service.currentMusicId(), 'first');
+  assert.deepStrictEqual(service.listMusic().map(({ id, name }) => ({ id, name })),
+    [{ id: 'first', name: 'First' }, { id: 'second', name: 'Second' }]);
+  service.listMusic()[0].name = 'Mutated';
+  assert.strictEqual(service.listMusic()[0].name, 'First', 'gallery descriptors do not mutate audio definitions');
+  service.unlock();
+  assert.strictEqual(service.selectMusic('first'), true);
+  assert.strictEqual(platform.contexts[0].playCount, 1, 'selecting the current track keeps its playback position');
+  assert.strictEqual(service.selectMusic('missing'), false);
+  assert.strictEqual(progress.settings.musicId, undefined);
+  assert.strictEqual(service.selectMusic('second'), true);
+  assert.strictEqual(platform.contexts[0].destroyed, true, 'switching releases the previous BGM');
+  assert.strictEqual(platform.contexts[1].src, second.src);
+  assert.strictEqual(platform.contexts[1].volume, second.volume);
+  assert.strictEqual(progress.settings.musicId, 'second');
+  assert.strictEqual(new AudioService(audioPlatform(), progress, config).currentMusicId(), 'second');
+  progress.settings.musicId = 'removed';
+  assert.strictEqual(new AudioService(audioPlatform(), progress, config).currentMusicId(), 'first',
+    'unknown stored tracks safely fall back to the default');
+  const originalSave = progress.setSetting;
+  progress.setSetting = () => false;
+  assert.strictEqual(service.selectMusic('first'), false);
+  assert.strictEqual(service.currentMusicId(), 'second', 'failed persistence cannot change the checked track');
+  assert.strictEqual(platform.contexts[1].destroyed, undefined);
+  progress.setSetting = originalSave;
+  service.toggle();
+  assert.strictEqual(service.selectMusic('first'), true);
+  assert.strictEqual(platform.contexts.length, 2, 'choosing music while muted does not play it');
+  assert.strictEqual(service.isEnabled(), false, 'selection does not enable sound');
+  service.toggle();
+  service.pauseAll('background');
+  service.pauseAll('interruption');
+  service.selectMusic('second');
+  assert.strictEqual(platform.contexts.length, 3, 'selection cannot bypass background/interruption guards');
+  service.resumeAll('background');
+  assert.strictEqual(platform.contexts.length, 3);
+  service.resumeAll('interruption');
+  assert.strictEqual(platform.contexts[3].src, second.src);
+
+  const asyncSave = deferred();
+  progress.setSettingAsync = () => asyncSave.promise;
+  const selection = service.selectMusicAsync('first');
+  assert.strictEqual(service.currentMusicId(), 'second', 'async selection waits for persistence');
+  asyncSave.resolve(false);
+  assert.strictEqual(await selection, false);
+  assert.strictEqual(service.currentMusicId(), 'second');
+  progress.setSettingAsync = async (key, value) => progress.setSetting(key, value);
+  assert.strictEqual(await service.selectMusicAsync('first'), true);
+  assert.strictEqual(service.currentMusicId(), 'first');
+  const pendingSave = deferred();
+  const requests = [];
+  let writeQueue = Promise.resolve();
+  progress.setSettingAsync = (key, value) => {
+    requests.push(value);
+    const saved = writeQueue.then(async () => {
+      if (value === 'second') await pendingSave.promise;
+      return progress.setSetting(key, value);
+    });
+    writeQueue = saved.then(() => undefined);
+    return saved;
+  };
+  const oldSelection = service.selectMusicAsync('second');
+  const latestSelection = service.selectMusicAsync('first');
+  assert.strictEqual(service.currentMusicId(), 'first', 'pending saves keep the current selection');
+  pendingSave.resolve(true);
+  assert.strictEqual(await oldSelection, true);
+  assert.strictEqual(await latestSelection, true);
+  assert.deepStrictEqual(requests, ['second', 'first'], 'returning to the current track also persists the latest intent');
+  assert.strictEqual(service.currentMusicId(), 'first', 'serialized saves preserve the latest selection');
+  assert.strictEqual(progress.settings.musicId, 'first', 'the checked track matches the durable preference');
+  progress.setSettingAsync = async () => { throw new Error('storage unavailable'); };
+  assert.strictEqual(await service.selectMusicAsync('second'), false);
+  assert.strictEqual(service.currentMusicId(), 'first');
+  service.dispose();
+  assert.strictEqual(service.selectMusic('second'), false);
+
+  const loader = subpackageFixture();
+  const racePlatform = audioPlatform();
+  const race = new AudioService(racePlatform, progressFixture(), {
+    bgm: audioConfig.bgm, tracks: [audioConfig.bgm, second]
+  }, { subpackages: loader });
+  race.unlock();
+  const oldRequest = race.bgmLoadPromise;
+  race.selectMusic('second');
+  loader.requests[0].resolve({ status: 'loaded' });
+  await oldRequest;
+  assert.deepStrictEqual(racePlatform.contexts.map(context => context.src), [second.src],
+    'a late download cannot start the previous track after selection changes');
+  race.dispose();
+
+  const rejectedPlay = deferred();
+  const stalePlatform = audioPlatform(index => {
+    const context = new FakeContext();
+    if (index === 0) context.play = () => rejectedPlay.promise;
+    return context;
+  });
+  const stale = new AudioService(stalePlatform, progressFixture(), config);
+  stale.unlock();
+  stale.selectMusic('second');
+  rejectedPlay.reject(new Error('old playback failed'));
+  await settle();
+  assert.strictEqual(stale.bgm.src, second.src);
+  assert.strictEqual(stale.bgm.destroyed, undefined, 'a stale rejection cannot destroy the new track');
+  stale.dispose();
+}
+
+async function testMasterVolume() {
+  const platform = audioPlatform();
+  const storage = {};
+  platform.getStorage = key => storage[key];
+  platform.setStorage = (key, value) => {
+    if (platform.failSave) return false;
+    storage[key] = JSON.parse(JSON.stringify(value)); return true;
+  };
+  const progress = new ProgressStore(platform);
+  const config = { bgm: { id: 'test', src: 'assets/audio/test.m4a', volume: 0.28 },
+    sfx: { complete: { src: 'assets/audio/path-complete.m4a', volume: 0.52, durationMs: 354 } } };
+  const service = new AudioService(platform, progress, config);
+  const near = (actual, expected) => assert(Math.abs(actual - expected) < 1e-10);
+  service.unlock(); service.playSfx('complete', true);
+  const bgm = service.bgm;
+  service.previewVolume(0.5);
+  near(bgm.volume, 0.14);
+  near(service.sfx.complete[0].volume, 0.26);
+  service.playSfx('complete', true);
+  near(service.sfx.complete[1].volume, 0.26, 'new overlapping voices inherit the master volume');
+  const plays = bgm.playCount;
+  const contextCount = platform.contexts.length;
+  for (let step = 1; step <= 20; step++) service.previewVolume(step / 20);
+  assert.strictEqual(platform.contexts.length, contextCount, 'drag frames reuse the existing contexts');
+  service.previewVolume(0.75);
+  assert.strictEqual(bgm.playCount, plays, 'dragging an audible slider does not restart the BGM');
+  assert.strictEqual(service.setVolume(0.5), true);
+  service.startClearSequence({ cells: [0, 1], startedAt: Date.now(), durationMs: 240, mode: 'sequential' });
+  service.previewVolume(0);
+  assert.strictEqual(service.clearSequence, null);
+  assert(bgm.pauseCount > 0);
+  service.refreshSetting();
+  near(bgm.volume, 0.14);
+  assert.strictEqual(service.setVolume(0), true);
+  assert.strictEqual(new AudioService(audioPlatform(), new ProgressStore(platform), config).getVolume(), 0);
+  progress.setSetting('soundEnabled', true);
+  service.refreshSetting();
+  assert.strictEqual(service.getVolume(), 0.5, 'cloud unmute keeps this device’s last audible level');
+  platform.failSave = true;
+  service.previewVolume(0.1);
+  assert.strictEqual(service.setVolume(0.1), false);
+  assert.strictEqual(service.getVolume(), 0.5);
+  near(bgm.volume, 0.14);
+  platform.failSave = false;
+  for (const value of [-0.1, 1.1, NaN, Infinity, '0.5']) {
+    assert.strictEqual(service.previewVolume(value), false);
+    assert.strictEqual(service.setVolume(value), false);
+  }
+  service.pauseAll('background');
+  const backgroundPlays = bgm.playCount;
+  service.previewVolume(0); service.previewVolume(0.4);
+  assert.strictEqual(bgm.playCount, backgroundPlays, 'adjustments cannot bypass lifecycle suspension');
+  progress.setSettingAsync = async () => false;
+  assert.strictEqual(await service.setVolumeAsync(0.2), false);
+  assert.strictEqual(service.getVolume(), 0.5);
+  service.dispose();
+}
+
 async function run() {
+  await testMasterVolume();
+  await testMusicSelection();
   const root = path.resolve(__dirname, '..');
   assert.strictEqual(audioConfig.bgm.src, 'assets/audio/bgm/cleared-bgm.m4a');
   assert.strictEqual(audioConfig.bgm.volume, 0.28);

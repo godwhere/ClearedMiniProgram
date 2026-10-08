@@ -19,6 +19,11 @@ module.exports = {
     { id: 'theme:vehicles', kind: 'theme', itemId: 'vehicles', unlock: { type: 'rewarded_ad', requiredCount: 1 } },
     { id: 'theme:festival', kind: 'theme', itemId: 'festival', unlock: { type: 'share' } },
     { id: 'effect:none', kind: 'effect', itemId: 'none', unlock: { type: 'default' } },
-    { id: 'effect:fade', kind: 'effect', itemId: 'fade', unlock: { type: 'ordinary_level', levelKey: '2:2' } }
+    { id: 'effect:fade', kind: 'effect', itemId: 'fade', unlock: { type: 'ordinary_level', levelKey: '2:2' } },
+    { id: 'effect:starburst', kind: 'effect', itemId: 'starburst', unlock: { type: 'currency', cost: 10000 } },
+    { id: 'effect:bubbles', kind: 'effect', itemId: 'bubbles', unlock: { type: 'currency', cost: 10000 } },
+    { id: 'effect:petals', kind: 'effect', itemId: 'petals', unlock: { type: 'currency', cost: 10000 } },
+    { id: 'effect:shatter', kind: 'effect', itemId: 'shatter', unlock: { type: 'currency', cost: 10000 } },
+    { id: 'music:candy-day-stroll', kind: 'music', itemId: 'candy-day-stroll', unlock: { type: 'currency', cost: 10000 } }
   ]
 };

@@ -159,6 +159,7 @@ function play(app, paths) {
     part.slice(1).forEach(cell => app.onPointerMove(point(cell)));
     app.onPointerEnd(point(part[part.length - 1]));
   }));
+  if (app.daily.nextLevelAt) app.tick(app.daily.nextLevelAt);
 }
 function appFlow() {
   for (const width of [280, 320, 390]) for (const level of pack) {

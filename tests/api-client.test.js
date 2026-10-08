@@ -84,4 +84,15 @@ module.exports = async function run() {
   assert.strictEqual((await cloud.request({ service: 'identity', action: 'identity.init' })).error.code, 'invalid-request');
   assert.strictEqual(cloudCalls, 1);
   assert.strictEqual(sessions.current().accessToken, 'replacement', 'cloud failures do not clear legacy tokens');
+
+  const owner = { ownerId: 'player_test', environmentId: 'env_test', bindingEpoch: 1, generation: 1 };
+  cloud.cloudSession = () => owner;
+  cloud.transport.config = { env: owner.environmentId };
+  const knownRevisions = { progress: 3, daily: 0, economy: 1, entitlements: 1, stamina: 2, preferences: 7 };
+  assert((await cloud.request({ service: 'playerState', action: 'state.read', requestId: 'req_preferences_upgrade',
+    payload: { claimedPlayerId: owner.ownerId, environmentId: owner.environmentId, bindingEpoch: 1, knownRevisions } })).ok);
+  assert.strictEqual(cloudRequest.payload.includeClearMode, true);
+  assert.deepStrictEqual(cloudRequest.payload.knownRevisions, Object.assign({}, knownRevisions, { preferences: 0 }),
+    'upgrade reads restore clearMode even if a legacy snapshot already used the same revision');
+  assert.strictEqual(knownRevisions.preferences, 7, 'request projection cannot reset persisted sync revisions');
 };

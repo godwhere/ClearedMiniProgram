@@ -234,8 +234,8 @@ function run() {
   assert.strictEqual(app.scene, 'result');
   assert.deepStrictEqual(api.haptics, ['medium'],
     'only completed-path feedback vibrates during a portal run');
-  assert.strictEqual(app.clearAnimation.cells.length, 25,
-    'clear animation includes both portal path segments');
+  assert.strictEqual(app.clearAnimation.cells.length, 23,
+    'both path segments clear while the two permanent portal nodes stay visible');
   assert.deepStrictEqual(app.clearAnimation.segments.map(segment => segment.length), [10, 15]);
   assert.strictEqual(app.progress.isCompleted(1, 4), true);
   assert(app.progress.state.bestMs['1:4'] > 0);
@@ -274,7 +274,7 @@ function run() {
   assert.strictEqual(app.scene, 'home');
   assert.strictEqual(app.runner, null);
   app.scene = 'corridor';
-  assert.deepStrictEqual(app.corridorDescriptors().map(item => item.id), ['themes', 'effects']);
+  assert.deepStrictEqual(app.corridorDescriptors().map(item => item.id), ['themes', 'effects', 'music']);
   app.performAction('corridor:portalTrial');
   assert.strictEqual(app.scene, 'corridor');
   assert.strictEqual(app.runner, null);
@@ -283,6 +283,7 @@ function run() {
   // cells empty. It must use the shared failure modal, keep ordinary progress
   // untouched, and return to the ordinary level selector.
   assert.strictEqual(app.setClearEffect('none'), true);
+  assert.strictEqual(app.progress.setSetting('clearMode', 'sequential'), true);
   assert.strictEqual(app.openLevel(1, 4), true);
   app.tick(Date.now() + 1000);
   const failureLayout = app.renderer.boardLayout;
@@ -301,9 +302,9 @@ function run() {
   assert.strictEqual(app.runner.outcome, GameRunner.OUTCOME.FAILED);
   assert.strictEqual(app.result.remainingCells, 8);
   assert.strictEqual(app.scene, 'result');
-  assert.strictEqual(app.clearAnimation, null,
-    'no effect skips a portal clear snapshot without changing failure settlement');
-  assert.strictEqual(app.buildModel().board.clearAnimation, null);
+  assert.strictEqual(app.clearAnimation.clearMode, 'sequential',
+    'no effect keeps the chosen order without changing failure settlement');
+  assert.strictEqual(app.buildModel().board.clearAnimation.type, 'none');
   assert.strictEqual(app.progress.completedCount(), completedBeforeFailure);
   app.tick(app.resultVisibleAt + 180);
   assert.deepStrictEqual(app.renderer.hits.map(hit => hit.id), ['result:levels', 'failure:retry']);

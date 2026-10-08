@@ -24,6 +24,7 @@ function finishLine(app, path, line, elapsedMs = 60001) {
   // their exact boundary time without changing the global clock.
   runner.elapsedMs = () => elapsedMs;
   app.onPathCompleted(line, path);
+  if (app.daily.nextLevelAt) app.advanceDailyLevel();
 }
 
 function preservedState(app) {
@@ -152,7 +153,7 @@ function run() {
   final.app.scene = 'result'; final.app.result = { outcome: 'won' };
   final.app.performAction('result:next');
   assert.strictEqual(final.app.scene, 'levels');
-  assert.strictEqual(final.app.levelPageIndex, 7);
+  assert.strictEqual(final.app.levelPageIndex, 11);
   assert.strictEqual(final.writes.length, 1);
   final.app.dispose();
 

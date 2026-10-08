@@ -171,4 +171,75 @@ module.exports = async function run() {
   assert.strictEqual(interrupted.rewards.view().balance, 0);
   assert.strictEqual(afterRestart.pending('theme:desserts'), undefined);
 
+  const music = setup(); music.rewards.state.balance = 10000;
+  assert(music.rewards.write(music.rewards.state));
+  const musicOperations = []; let musicTimeout = true;
+  const musicApi = { request: async request => {
+    musicOperations.push(request.operationId);
+    if (musicTimeout) { musicTimeout = false; return ApiClient.failure('timeout', 0, true); }
+    return { ok: true, data: envelope(request.requestId, {
+      receiptId: 'music_purchase_receipt',
+      purchase: { operationId: request.operationId, status: 'PURCHASED', kind: 'music', itemId: 'candy-day-stroll',
+        cost: 10000, balanceBefore: 10000, balanceAfter: 0, newEntitlements: ['music:candy-day-stroll'] },
+      revisions: revisions({ economy: 1, entitlements: 1 }), domains: {
+        economy: { schemaVersion: 1, balance: 0, claimedOrdinary: {}, claimedDaily: {} },
+        entitlements: { schemaVersion: 1, ownedRewards: {
+          'theme:classic': true, 'effect:none': true, 'music:candy-day-stroll': true } }
+      }, acceptedOperationIds: [], notificationHints: ['music:candy-day-stroll']
+    }, { economy: 1, entitlements: 1 }) };
+  } };
+  const musicService = new EconomyService(music.platform, musicApi, music.auth, music.store, music.rewards, music.applier);
+  musicService.accountGuard = music.guard;
+  assert.strictEqual((await musicService.purchase('music:candy-day-stroll')).reason, 'network-required');
+  assert.strictEqual(music.rewards.view().balance, 10000);
+  assert.strictEqual(music.rewards.owned('music:candy-day-stroll'), false, 'timeout never grants music or deducts locally');
+  const musicPending = musicService.pending('music:candy-day-stroll'); assert(musicPending);
+  const musicRestart = new EconomyService(music.platform, musicApi, music.auth, music.store, music.rewards, music.applier);
+  musicRestart.accountGuard = music.guard;
+  assert.strictEqual(musicRestart.pending('music:candy-day-stroll').operationId, musicPending.operationId,
+    'music purchase IDs survive restart validation');
+  const musicRecovered = await musicRestart.recoverPending(); assert(musicRecovered.ok);
+  assert.deepStrictEqual(musicOperations, [musicPending.operationId, musicPending.operationId]);
+  assert.strictEqual(music.rewards.view().balance, 0);
+  assert.strictEqual(music.rewards.owned('music:candy-day-stroll'), true);
+  assert.strictEqual(musicRestart.pending('music:candy-day-stroll'), undefined);
+
+  for (const itemId of ['starburst', 'bubbles', 'petals', 'shatter']) {
+    const effect = setup(); effect.rewards.state.balance = 10000;
+    assert(effect.rewards.write(effect.rewards.state));
+    const rewardId = `effect:${itemId}`;
+    const operations = []; let timeout = true;
+    const api = { request: async request => {
+      assert.strictEqual(request.payload.kind, 'effect');
+      assert.strictEqual(request.payload.itemId, itemId);
+      operations.push(request.operationId);
+      if (timeout) { timeout = false; return ApiClient.failure('timeout', 0, true); }
+      return { ok: true, data: envelope(request.requestId, {
+        receiptId: `${itemId}_receipt`,
+        purchase: { operationId: request.operationId, status: 'PURCHASED', kind: 'effect', itemId,
+          cost: 10000, balanceBefore: 10000, balanceAfter: 0, newEntitlements: [rewardId] },
+        revisions: revisions({ economy: 1, entitlements: 1 }), domains: {
+          economy: { schemaVersion: 1, balance: 0, claimedOrdinary: {}, claimedDaily: {} },
+          entitlements: { schemaVersion: 1, ownedRewards: {
+            'theme:classic': true, 'effect:none': true, [rewardId]: true } }
+        }, acceptedOperationIds: [], notificationHints: [rewardId]
+      }, { economy: 1, entitlements: 1 }) };
+    } };
+    const service = new EconomyService(effect.platform, api, effect.auth, effect.store, effect.rewards, effect.applier);
+    service.accountGuard = effect.guard;
+    assert.strictEqual((await service.purchase(rewardId)).reason, 'network-required');
+    assert.strictEqual(effect.rewards.view().balance, 10000);
+    assert.strictEqual(effect.rewards.owned(rewardId), false, 'timeout never grants an effect locally');
+    const pending = service.pending(rewardId); assert(pending);
+    const restarted = new EconomyService(effect.platform, api, effect.auth, effect.store, effect.rewards, effect.applier);
+    restarted.accountGuard = effect.guard;
+    assert.strictEqual(restarted.pending(rewardId).operationId, pending.operationId,
+      'effect purchase IDs survive restart validation');
+    assert((await restarted.recoverPending()).ok);
+    assert.deepStrictEqual(operations, [pending.operationId, pending.operationId]);
+    assert.strictEqual(effect.rewards.view().balance, 0);
+    assert.strictEqual(effect.rewards.canUse('effect', itemId), true);
+    assert.strictEqual(restarted.pending(rewardId), undefined);
+  }
+
 };

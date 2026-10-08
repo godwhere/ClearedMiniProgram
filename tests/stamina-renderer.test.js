@@ -86,10 +86,8 @@ function run() {
       };
       render(app.buildModel()); assertBadge();
       const homeBadge = renderer.hits.find(hit => hit.id === 'home:stamina');
-      const sound = renderer.hits.find(hit => hit.id === 'home:sound');
-      assert.deepStrictEqual(homeBadge.rect, { x: width - 80, y: sound.rect.y, w: 64, h: 48 });
-      assert(sound.rect.x + sound.rect.w < homeBadge.rect.x,
-        'the currency display sits between sound and stamina');
+      assert(!renderer.hits.some(hit => hit.id === 'home:sound'));
+      assert.deepStrictEqual(homeBadge.rect, { x: width - 80, y: 56, w: 64, h: 48 });
       for (const [snapshot, label] of cases) {
         const home = Object.assign({}, app.buildModel(), { stamina: snapshot });
         render(home);

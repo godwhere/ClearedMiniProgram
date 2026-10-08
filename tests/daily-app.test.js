@@ -84,6 +84,7 @@ function playCurrentLevelPaths(app, paths) {
     app.onPointerEnd(point(path[path.length - 1]));
     if (app.scene !== 'daily') return;
   });
+  if (app.daily.nextLevelAt) app.tick(app.daily.nextLevelAt);
 }
 
 function solveCurrentLevel(app) {
@@ -343,6 +344,7 @@ function testDailyFailureFlow() {
     clock: () => new Date('2026-08-31T15:00:00.000Z'),
     onDailyCompleted(event) { callbackEvents.push(event); }
   });
+  assert.strictEqual(app.progress.setSetting('clearMode', 'sequential'), true);
 
   assert.strictEqual(app.enterDaily(), true);
   const storageKey = 'cleared:minigame:daily:v1';
@@ -362,8 +364,8 @@ function testDailyFailureFlow() {
   assert.strictEqual(app.daily.result.reason, 'unfilled-cells');
   assert.strictEqual(app.daily.result.remainingCells, 4);
   assert.strictEqual(app.currentEffectId(), 'none');
-  assert.strictEqual(app.daily.clearAnimation, null,
-    'daily boards share the no-effect snapshot semantics');
+  assert.strictEqual(app.daily.clearAnimation.clearMode, 'sequential',
+    'daily no-effect boards retain the chosen disappearance order');
   const originalBuildBoardViewModel = app.buildBoardViewModel;
   let boardModelCalls = 0;
   app.buildBoardViewModel = function () {
@@ -374,7 +376,7 @@ function testDailyFailureFlow() {
   app.buildBoardViewModel = originalBuildBoardViewModel;
   assert.strictEqual(boardModelCalls, 1,
     'the daily model delegates one already-built board projection');
-  assert.strictEqual(failedModel.board.clearAnimation, null);
+  assert.strictEqual(failedModel.board.clearAnimation.clearMode, 'sequential');
   assert.strictEqual(failedModel.result, app.daily.result,
     'the App-owned result object must not be replaced by ViewModel mapping');
   assert.strictEqual(failedModel.levels, app.daily.levels);

@@ -213,7 +213,7 @@ function appFlow(width, height, effect) {
   assert.strictEqual(layers(app.runner), 1);
   assert.strictEqual(app.buildModel().board.cells[12].frozen, false);
   if (effect === 'fade') assert.deepStrictEqual(app.clearAnimation.iceBrokenCells, [12]);
-  else assert.strictEqual(app.clearAnimation, null);
+  else assert.strictEqual(app.clearAnimation, null, 'default simultaneous play needs no no-effect snapshot');
   checkHint();
   app.performAction('play:undo');
   assert.strictEqual(layers(app.runner), 2);

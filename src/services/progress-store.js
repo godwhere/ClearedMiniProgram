@@ -1,6 +1,7 @@
 const STORAGE_KEY = 'cleared:minigame:progress:v2';
 const LEGACY_KEY = 'cleared:progress:v1';
 const cloudCatalog = require('../../data/catalog-v2.js');
+const clearTiming = require('./clear-animation-timing.js');
 
 function validCloudKey(key) {
   if (!/^(0|[1-9]\d*):(0|[1-9]\d*)$/.test(key)) return false;
@@ -43,6 +44,8 @@ function createDefaultState(clearEffectId) {
     settings: {
       skinId: 'classic',
       clearEffectId: effectId,
+      clearMode: clearTiming.DEFAULT_MODE,
+      soundVolume: 1,
       soundEnabled: true
     },
     stats: {
@@ -79,6 +82,7 @@ class ProgressStore {
       (saved.lastPlayed === null || saved.lastPlayed === undefined || !!normalizeTarget(saved.lastPlayed)) &&
       (saved.settings.skinId === undefined || typeof saved.settings.skinId === 'string' && !!saved.settings.skinId) &&
       (saved.settings.clearEffectId === undefined || typeof saved.settings.clearEffectId === 'string' && !!saved.settings.clearEffectId) &&
+      (saved.settings.clearMode === undefined || clearTiming.validMode(saved.settings.clearMode)) &&
       (saved.settings.soundEnabled === undefined || typeof saved.settings.soundEnabled === 'boolean') &&
       (saved.stats.totalClears === undefined || Number.isSafeInteger(saved.stats.totalClears) && saved.stats.totalClears >= 0);
   }
@@ -105,12 +109,15 @@ class ProgressStore {
     // A v2 save without clearEffectId predates the selector. Preserve its
     // visible fade behavior rather than changing it silently on upgrade.
     const defaults = createDefaultState('fade');
+    const settings = mergeRecord(defaults.settings, saved.settings);
+    if (!clearTiming.validMode(settings.clearMode)) settings.clearMode = clearTiming.DEFAULT_MODE;
+    if (!(Number.isFinite(settings.soundVolume) && settings.soundVolume > 0 && settings.soundVolume <= 1)) settings.soundVolume = 1;
     return {
       schemaVersion: 2,
       completed: mergeRecord({}, saved.completed),
       bestMs: mergeRecord({}, saved.bestMs),
       lastPlayed: normalizeTarget(saved.lastPlayed || saved.last),
-      settings: mergeRecord(defaults.settings, saved.settings),
+      settings,
       stats: mergeRecord(defaults.stats, saved.stats)
     };
   }
@@ -158,8 +165,11 @@ class ProgressStore {
   }
 
   async setSettingAsync(name, value) {
+    if (name === 'clearMode' && !clearTiming.validMode(value)) return false;
+    if (name === 'soundVolume' && !(Number.isFinite(value) && value >= 0 && value <= 1)) return false;
     const saved = await this.updateAsync(previous => ({ candidate: Object.assign({}, previous, {
-      settings: Object.assign({}, previous.settings, { [name]: value })
+      settings: Object.assign({}, previous.settings, name === 'soundVolume'
+        ? { soundEnabled: value > 0, soundVolume: value || this.normalize(previous).settings.soundVolume } : { [name]: value })
     }) }));
     return saved.ok;
   }
@@ -229,6 +239,7 @@ class ProgressStore {
         (saved.settings.clearEffectId !== undefined &&
           (typeof saved.settings.clearEffectId !== 'string' || !saved.settings.clearEffectId)) ||
         (saved.settings.soundEnabled !== undefined && typeof saved.settings.soundEnabled !== 'boolean') ||
+        (saved.settings.clearMode !== undefined && !clearTiming.validMode(saved.settings.clearMode)) ||
         (saved.stats.totalClears !== undefined &&
           (!Number.isSafeInteger(saved.stats.totalClears) || saved.stats.totalClears < 0))) {
       return { ok: false, reason: 'invalid-storage' };
@@ -241,7 +252,7 @@ class ProgressStore {
     if (!persisted.ok) return persisted;
     const settings = persisted.state.settings;
     return { ok: true, snapshot: { schemaVersion: 1, skinId: settings.skinId,
-      clearEffectId: settings.clearEffectId, soundEnabled: settings.soundEnabled } };
+      clearEffectId: settings.clearEffectId, clearMode: settings.clearMode, soundEnabled: settings.soundEnabled } };
   }
 
   applyBackupSnapshot(snapshot) {
@@ -327,13 +338,16 @@ class ProgressStore {
   }
 
   applyAuthoritativePreferencesSnapshot(snapshot) {
-    if (!isRecord(snapshot) || snapshot.schemaVersion !== 1 || Object.keys(snapshot).length !== 4 ||
+    if (!isRecord(snapshot) || snapshot.schemaVersion !== 1 ||
+        Object.keys(snapshot).length !== (snapshot.clearMode === undefined ? 4 : 5) ||
+        (snapshot.clearMode !== undefined && !clearTiming.validMode(snapshot.clearMode)) ||
         typeof snapshot.skinId !== 'string' || !snapshot.skinId ||
         typeof snapshot.clearEffectId !== 'string' || !snapshot.clearEffectId ||
         typeof snapshot.soundEnabled !== 'boolean') return { ok: false, reason: 'invalid-snapshot' };
     const previous = this.state;
     this.state = Object.assign({}, previous, { settings: Object.assign({}, previous.settings, {
-      skinId: snapshot.skinId, clearEffectId: snapshot.clearEffectId, soundEnabled: snapshot.soundEnabled
+      skinId: snapshot.skinId, clearEffectId: snapshot.clearEffectId, soundEnabled: snapshot.soundEnabled,
+      clearMode: snapshot.clearMode || clearTiming.DEFAULT_MODE
     }) });
     let saved = false;
     try { saved = this.save() === true; } catch (error) {}
@@ -395,9 +409,13 @@ class ProgressStore {
   }
 
   setSetting(name, value) {
+    if (name === 'clearMode' && !clearTiming.validMode(value)) return false;
+    if (name === 'soundVolume' && !(Number.isFinite(value) && value >= 0 && value <= 1)) return false;
     const previous = this.state;
     const next = Object.assign({}, previous, {
-      settings: Object.assign({}, previous.settings, { [name]: value })
+      // Zero mutes atomically while retaining the last audible volume for cloud unmute.
+      settings: Object.assign({}, previous.settings, name === 'soundVolume'
+        ? { soundEnabled: value > 0, soundVolume: value || previous.settings.soundVolume || 1 } : { [name]: value })
     });
     this.state = next;
     let saved = false;

@@ -213,11 +213,10 @@ function topBarAlignment() {
     };
 
     check('home:account');
-    const sound = f.renderer.hits.find(hit => hit.id === 'home:sound').rect;
+    assert(!f.renderer.hits.some(hit => hit.id === 'home:sound'));
     const stamina = f.renderer.hits.find(hit => hit.id === 'home:stamina').rect;
-    assert.strictEqual(sound.y + sound.h / 2, centerY);
     assert.strictEqual(stamina.y + stamina.h / 2, centerY);
-    assert(sound.x >= expected.x + expected.w && sound.x + sound.w < stamina.x);
+    assert(stamina.x >= expected.x + expected.w);
     assert.deepStrictEqual(f.app.homeProfileButtonRect(), {
       x: 16, y: safeTop + 68, w: 160, h: 38
     }, 'the native profile button starts below the avatar');

@@ -20,6 +20,7 @@ function run() {
   const store = new ProgressStore(platform);
   assert.strictEqual(store.state.schemaVersion, 2);
   assert.strictEqual(store.state.settings.clearEffectId, 'none');
+  assert.strictEqual(store.getSetting('clearMode'), 'simultaneous', 'new installs clear simultaneously by default');
   const first = store.recordCompletion(1, 2, 8000);
   assert.strictEqual(first.firstClear, true);
   assert.strictEqual(first.newBest, true);
@@ -57,7 +58,17 @@ function run() {
   const oldV2 = new ProgressStore(oldV2Platform);
   assert.strictEqual(oldV2.getSetting('clearEffectId'), 'fade');
   assert.strictEqual(oldV2.getSetting('soundEnabled'), false);
+  assert.strictEqual(oldV2.getSetting('soundVolume'), 1, 'legacy mute retains a safe audible volume for unmute');
+  oldV2Platform.storage[ProgressStore.STORAGE_KEY].settings.soundVolume = 2;
+  const invalidVolume = new ProgressStore(oldV2Platform);
+  assert.strictEqual(invalidVolume.getSetting('soundVolume'), 1);
+  assert.strictEqual(invalidVolume.isCompleted(2, 3), true, 'invalid volume cannot discard progress');
+  assert.strictEqual(oldV2.getSetting('clearMode'), 'simultaneous', 'old saves without a mode use the current default');
   assert.strictEqual(oldV2.isCompleted(2, 3), true);
+  oldV2Platform.storage[ProgressStore.STORAGE_KEY].settings.clearMode = 'invalid';
+  assert.strictEqual(new ProgressStore(oldV2Platform).getSetting('clearMode'), 'simultaneous');
+  oldV2Platform.storage[ProgressStore.STORAGE_KEY].settings.clearMode = 'sequential';
+  assert.strictEqual(new ProgressStore(oldV2Platform).getSetting('clearMode'), 'sequential', 'saved choices survive default changes');
 
   const sets = [
     { Games: [{}, {}] },
@@ -76,6 +87,7 @@ function run() {
   assert.strictEqual(migrated.isCompleted(0, 0), true);
   assert.deepStrictEqual(migrated.state.lastPlayed, { setIndex: 0, levelIndex: 1 });
   assert.strictEqual(migrated.getSetting('clearEffectId'), 'fade');
+  assert.strictEqual(migrated.getSetting('clearMode'), 'simultaneous', 'legacy migration uses the current mode default');
 
   const explicitSelectionPlatform = new MemoryPlatform();
   explicitSelectionPlatform.storage[ProgressStore.STORAGE_KEY] = {

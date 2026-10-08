@@ -18,6 +18,7 @@ function solveForShare(app, paths) {
     path.slice(1).forEach(index => app.onPointerMove(point(index)));
     app.onPointerEnd(point(path[path.length - 1]));
   }
+  if (app.daily.nextLevelAt) app.tick(app.daily.nextLevelAt);
 }
 
 async function menuAfterNavigation() {

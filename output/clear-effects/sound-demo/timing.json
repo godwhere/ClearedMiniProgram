@@ -1,0 +1,114 @@
+{
+  "stepMs": 120,
+  "durationMs": 1860,
+  "sharedGain": 1.0,
+  "source": "assets/audio/path-complete.m4a",
+  "events": {
+    "once": [
+      {
+        "atMs": 0,
+        "semitones": 0
+      }
+    ],
+    "per-cell": [
+      {
+        "atMs": 0,
+        "semitones": 0
+      },
+      {
+        "atMs": 120,
+        "semitones": 0
+      },
+      {
+        "atMs": 240,
+        "semitones": 0
+      },
+      {
+        "atMs": 360,
+        "semitones": 0
+      },
+      {
+        "atMs": 480,
+        "semitones": 0
+      },
+      {
+        "atMs": 600,
+        "semitones": 0
+      },
+      {
+        "atMs": 720,
+        "semitones": 0
+      },
+      {
+        "atMs": 840,
+        "semitones": 0
+      },
+      {
+        "atMs": 960,
+        "semitones": 0
+      },
+      {
+        "atMs": 1080,
+        "semitones": 0
+      },
+      {
+        "atMs": 1200,
+        "semitones": 0
+      },
+      {
+        "atMs": 1320,
+        "semitones": 0
+      }
+    ],
+    "rising": [
+      {
+        "atMs": 0,
+        "semitones": 0
+      },
+      {
+        "atMs": 120,
+        "semitones": 1
+      },
+      {
+        "atMs": 240,
+        "semitones": 2
+      },
+      {
+        "atMs": 360,
+        "semitones": 3
+      },
+      {
+        "atMs": 480,
+        "semitones": 4
+      },
+      {
+        "atMs": 600,
+        "semitones": 5
+      },
+      {
+        "atMs": 720,
+        "semitones": 6
+      },
+      {
+        "atMs": 840,
+        "semitones": 7
+      },
+      {
+        "atMs": 960,
+        "semitones": 8
+      },
+      {
+        "atMs": 1080,
+        "semitones": 9
+      },
+      {
+        "atMs": 1200,
+        "semitones": 10
+      },
+      {
+        "atMs": 1320,
+        "semitones": 11
+      }
+    ]
+  }
+}

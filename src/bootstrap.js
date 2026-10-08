@@ -5,6 +5,8 @@ const effects = require('./effects/index.js');
 const adConfig = require('./config/ads.js');
 const progressionConfig = require('./config/progression.js');
 const audioConfig = require('./config/audio.js');
+const updateNoticeConfig = require('./config/update-notice.js');
+const UpdateNoticeService = require('./services/update-notice-service.js');
 const solutionCatalog = require('../data/solutions.js');
 const dailyManifest = require('../data/daily-challenges.js');
 const dailySolutions = require('../data/daily-solutions.js');
@@ -129,6 +131,7 @@ function start(options) {
     stamina, preferences, rewardUnlocks, syncStore, economy, authoritativeApplier,
     progress, dailyStore, auth, progressSync, behavior, ads, engagement, profile, share, rewards, hintAccess, locale,
     subpackages,
+    updateNotice: new UpdateNoticeService(platform, updateNoticeConfig),
     skins,
     effects,
     adConfig,

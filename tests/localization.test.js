@@ -162,9 +162,21 @@ function run() {
   const accountGeometry = accountLayout(view.renderer.platform.metrics);
   assert.deepStrictEqual(previousHit && previousHit.rect, accountGeometry.languagePrevious);
   assert.deepStrictEqual(nextHit && nextHit.rect, accountGeometry.languageNext);
+  ['prev', 'next'].forEach((direction, index) => {
+    const hit = view.renderer.hits.find(item => item.id === `account:clearMode:${direction}`);
+    assert.deepStrictEqual(hit && hit.rect, accountGeometry[index ? 'clearModeNext' : 'clearModePrevious']);
+    assert.strictEqual(view.renderer.hitTest(hit.rect.x + hit.rect.w / 2, hit.rect.y + hit.rect.h / 2), hit.id);
+  });
+  assert(!view.renderer.hits.some(hit => hit.id === 'account:clearMode'), 'clear mode only registers its arrows');
+  const clearRow = accountGeometry.clearModeButton;
+  const clearValue = accountGeometry.clearModeValue;
+  assert.strictEqual(view.renderer.hitTest(clearRow.x + 18, clearRow.y + clearRow.h / 2), null);
+  assert.strictEqual(view.renderer.hitTest(clearValue.x + clearValue.w / 2, clearValue.y + clearValue.h / 2), null);
   assert(view.text.includes('Account'));
   assert(view.text.includes('Language'));
   assert(view.text.includes('English'));
+  assert(view.text.includes('Clear mode'));
+  assert(view.text.includes('Simultaneous'));
   assert(view.text.includes('Sync Now'));
   assert(!view.text.includes('Avatar and nickname unavailable'),
     'unsupported profile authorization does not occupy an account option row');

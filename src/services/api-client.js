@@ -163,7 +163,7 @@ function validatePurchaseEnvelope(data, env) {
   const base = validId(value.receiptId) && validRevisions(value.revisions) && validDomains(value.domains) &&
     Object.keys(value.domains).length === 2 && record(value.domains.economy) && record(value.domains.entitlements) &&
     validId(purchase.operationId) && ['PURCHASED', 'ALREADY_OWNED', 'INSUFFICIENT_BALANCE'].includes(purchase.status) &&
-    purchase.kind === 'theme' && validId(purchase.itemId) && Number.isSafeInteger(purchase.cost) && purchase.cost > 0 &&
+    ['theme', 'effect', 'music'].includes(purchase.kind) && validId(purchase.itemId) && Number.isSafeInteger(purchase.cost) && purchase.cost > 0 &&
     Number.isSafeInteger(purchase.balanceBefore) && purchase.balanceBefore >= 0 &&
     Number.isSafeInteger(purchase.balanceAfter) && purchase.balanceAfter >= 0 && Array.isArray(purchase.newEntitlements) &&
     purchase.newEntitlements.every(validId) && Array.isArray(value.notificationHints) && value.notificationHints.every(validId) &&
@@ -206,6 +206,8 @@ function validateBackupCommitEnvelope(data, env, requestId, snapshotHash, baseVe
 function cloudPayload(action, source) {
   if (!record(source)) return null;
   const binding = { claimedPlayerId: source.claimedPlayerId, bindingEpoch: source.bindingEpoch, environmentId: source.environmentId };
+  // Opt in explicitly: released clients still receive their three-field preferences.
+  if (action === 'state.read' || action === 'sync.push') binding.includeClearMode = true;
   if (action === 'identity.init') return { installId: source.installId, clientVersion: source.clientVersion,
     localBinding: source.localBinding && { claimedPlayerId: source.localBinding.claimedPlayerId,
       bindingEpoch: source.localBinding.bindingEpoch, environmentId: source.localBinding.environmentId } };
@@ -214,7 +216,13 @@ function cloudPayload(action, source) {
       if (typeof source.includeMutationAccess !== 'boolean') return null;
       binding.includeMutationAccess = source.includeMutationAccess;
     }
-    return Object.assign(binding, { knownRevisions: clone(source.knownRevisions) });
+    const knownRevisions = clone(source.knownRevisions);
+    // A legacy client may know this revision without having stored clearMode.
+    // Fetch the compact preferences in the existing read, without another call.
+    if (record(knownRevisions) && Number.isSafeInteger(knownRevisions.preferences) && knownRevisions.preferences >= 0) {
+      knownRevisions.preferences = 0;
+    }
+    return Object.assign(binding, { knownRevisions });
   }
   if (action === 'migration.prepare') return Object.assign(binding, { importId: source.importId,
     policyVersion: source.policyVersion, snapshotHash: source.snapshotHash, source: clone(source.source), summary: clone(source.summary) });

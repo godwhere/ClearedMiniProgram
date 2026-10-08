@@ -1,5 +1,6 @@
 const InteractionMap = require('./board/interaction-map.js');
 const BoardRenderer = require('./board/board-renderer.js');
+const clearParticles = require('./board/clear-particles.js');
 const PortalOverlay = require('./board/portal-overlay.js');
 const portalInstructions = require('./portal-instructions.js');
 const accountLayout = require('./account-layout.js');
@@ -227,6 +228,7 @@ class CanvasRenderer {
       // it must not invalidate or overwrite a newer page generation.
       this.effectSceneGeneration += 1;
     }
+    if (model.updateDialog) return this.drawUpdateDialog(model);
     switch (model.scene) {
       case 'account':
         this.drawAccount(model);
@@ -250,6 +252,9 @@ class CanvasRenderer {
         break;
       case 'effects':
         this.drawEffects(model, now);
+        break;
+      case 'music':
+        this.drawMusic(model, now);
         break;
       default:
         this.drawHome(model, now);
@@ -763,15 +768,16 @@ class CanvasRenderer {
       ctx.lineTo(-size * 0.1, size * 0.3);
       ctx.lineTo(size * 0.46, -size * 0.34);
       ctx.stroke();
-    } else if (type === 'warning') {
+    } else if (type === 'warning' || type === 'info') {
+      const info = type === 'info';
       ctx.arc(0, 0, size * 0.43, 0, Math.PI * 2);
       ctx.stroke();
       ctx.beginPath();
-      ctx.moveTo(0, -size * 0.22);
-      ctx.lineTo(0, size * 0.08);
+      ctx.moveTo(0, size * (info ? -1 / 24 : -0.22));
+      ctx.lineTo(0, size * (info ? 5 / 24 : 0.08));
       ctx.stroke();
       ctx.beginPath();
-      ctx.arc(0, size * 0.24, Math.max(1.5, size * 0.045), 0, Math.PI * 2);
+      ctx.arc(0, size * (info ? -1 / 6 : 0.24), Math.max(info ? 1 : 1.5, size * 0.045), 0, Math.PI * 2);
       ctx.fill();
     } else if (type === 'home') {
       ctx.moveTo(-size * 0.42, -size * 0.02);
@@ -884,12 +890,13 @@ class CanvasRenderer {
     const { width, height, safeTop, safeBottom } = metrics;
     const ctx = this.ctx;
     this.begin(skin.colors.homeBackground);
-    const staminaRect = topBarLayout.trailing(metrics, 64);
-    const currencyWidth = clamp(width * 0.2, 62, 78);
-    const currencyRect = topBarLayout.item(metrics, staminaRect.x - currencyWidth - 6, currencyWidth);
-    this.iconButton('home:sound', topBarLayout.item(metrics, currencyRect.x - topBarLayout.CONTROL_SIZE - 6),
-      model.soundEnabled ? 'sound' : 'mute', true, model.pressedId);
-    this.drawHomeAvatar(model.accountProfile, topBarLayout.leading(metrics), model.pressedId);
+    const homeStatus = topBarLayout.homeStatus(metrics);
+    const staminaRect = homeStatus.stamina;
+    const currencyRect = homeStatus.currency;
+    this.drawHomeAvatar(model.accountProfile, homeStatus.avatar, model.pressedId);
+    if (model.updateAvailable) {
+      this.iconButton('home:updates', homeStatus.updates, 'info', true, model.pressedId);
+    }
     if (model.stamina && model.stamina.enabled) {
       if (model.pressedId === 'home:stamina') {
         ctx.save();
@@ -1133,14 +1140,20 @@ class CanvasRenderer {
     const panel = layout.panel;
     const center = panel.x + panel.w / 2;
     this.text(this.t('account.title'), center, layout.backButton.y + layout.backButton.h / 2, 22);
+    [[layout.profileSection, layout.profileHeading, 'account.profileSection'],
+      [layout.settingsSection, layout.settingsHeading, 'account.settingsSection']].forEach(([rect, heading, key]) => {
+      this.roundedRect(rect.x, rect.y, rect.w, rect.h, 12);
+      this.ctx.fillStyle = skin.colors.secondaryButton;
+      this.ctx.fill();
+      this.text(this.t(key), heading.x + 4, heading.y + heading.h / 2, 13,
+        { align: 'left', maxWidth: heading.w - 8, alpha: 0.8 });
+    });
     const summary = layout.summary;
-    this.roundedRect(summary.x, summary.y, summary.w, summary.h, 12);
-    this.ctx.fillStyle = skin.colors.secondaryButton;
-    this.ctx.fill();
-    const verticalSummary = summary.h > summary.w * 0.75;
-    const avatarSize = Math.min(80, verticalSummary ? summary.w * 0.38 : summary.h - 32);
+    const verticalSummary = layout.settingsSection.x > layout.profileSection.x;
+    const avatarSize = Math.max(1, Math.min(80, verticalSummary
+      ? Math.min(64, summary.w * 0.38, summary.h - (model.accountMessage ? 64 : 44)) : summary.h - 32));
     const avatarRect = verticalSummary
-      ? { x: summary.x + (summary.w - avatarSize) / 2, y: summary.y + 24, w: avatarSize, h: avatarSize }
+      ? { x: summary.x + (summary.w - avatarSize) / 2, y: summary.y + 12, w: avatarSize, h: avatarSize }
       : { x: summary.x + 16, y: summary.y + (summary.h - avatarSize) / 2, w: avatarSize, h: avatarSize };
     const profile = model.accountProfile;
     const avatar = this.ensureAccountAvatar(profile);
@@ -1155,10 +1168,10 @@ class CanvasRenderer {
     }
     if (verticalSummary) {
       const summaryCenter = summary.x + summary.w / 2;
-      const nameY = avatarRect.y + avatarRect.h + 28;
+      const nameY = avatarRect.y + avatarRect.h + 20;
       this.text(profile ? profile.nickname : this.t('account.localPlayer'), summaryCenter, nameY, 21,
         { maxWidth: summary.w - 24 });
-      if (model.accountMessage) this.text(model.accountMessage, summaryCenter, nameY + 32, 11,
+      if (model.accountMessage) this.text(model.accountMessage, summaryCenter, nameY + 20, 11,
         { maxWidth: summary.w - 24, alpha: 0.76 });
     } else {
       const textX = avatarRect.x + avatarRect.w + 14;
@@ -1174,22 +1187,43 @@ class CanvasRenderer {
       ? this.locale.current() : 'zh-CN';
     const localeLabel = this.locale && typeof this.locale.displayName === 'function'
       ? this.locale.displayName(localeId) : i18n.localeDisplayName(localeId);
-    const languagePressed = model.pressedId === 'account:language:prev' ||
-      model.pressedId === 'account:language:next';
-    this.roundedRect(layout.languageRow.x, layout.languageRow.y,
-      layout.languageRow.w, layout.languageRow.h, skin.layout.buttonRadius);
-    this.ctx.fillStyle = languagePressed ? skin.colors.levelCellPressed : skin.colors.levelCell;
-    this.ctx.fill();
-    this.text(this.t('account.language'), layout.languageRow.x + 18,
-      layout.languageRow.y + layout.languageRow.h / 2, 15, {
-        align: 'left', weight: 400,
-        maxWidth: Math.max(1, layout.languagePrevious.x - layout.languageRow.x - 28)
+    const volume = clamp(Number.isFinite(model.soundVolume) ? model.soundVolume : 1, 0, 1);
+    [['language', this.t('account.language'), localeLabel],
+      ['clearMode', this.t('account.clearMode'), this.t(model.clearMode === 'sequential'
+        ? 'clearMode.sequential' : 'clearMode.simultaneous')],
+      ['volume', this.t('account.volume'), `${Math.round(volume * 100)}%`]].forEach(([key, label, selection]) => {
+      const row = key === 'language' ? layout.languageRow : key === 'volume' ? layout.volumeRow : layout.clearModeButton;
+      const previous = key === 'volume' ? layout.volumeControl : layout[`${key}Previous`];
+      const value = layout[`${key}Value`];
+      const next = layout[`${key}Next`];
+      const prefix = `account:${key}`;
+      const pressed = model.pressedId === prefix || model.pressedId === `${prefix}:prev` || model.pressedId === `${prefix}:next`;
+      this.roundedRect(row.x, row.y, row.w, row.h, skin.layout.buttonRadius);
+      this.ctx.fillStyle = pressed ? skin.colors.levelCellPressed : skin.colors.levelCell;
+      this.ctx.fill();
+      this.text(label, row.x + 18, row.y + row.h / 2, 15, {
+        align: 'left', weight: 400, maxWidth: Math.max(1, previous.x - row.x - 28)
       });
-    this.iconButton('account:language:prev', layout.languagePrevious, 'back', true, model.pressedId);
-    this.text(localeLabel, layout.languageValue.x + layout.languageValue.w / 2,
-      layout.languageValue.y + layout.languageValue.h / 2, 14,
-      { weight: 400, maxWidth: layout.languageValue.w });
-    this.iconButton('account:language:next', layout.languageNext, 'next', true, model.pressedId);
+      if (key === 'volume') {
+        const track = layout.volumeTrack;
+        const ctx = this.ctx;
+        ctx.save();
+        ctx.fillStyle = skin.colors.text;
+        ctx.globalAlpha = 0.28;
+        this.roundedRect(track.x, track.y, track.w, track.h, 3); ctx.fill();
+        ctx.globalAlpha = 1;
+        if (volume > 0) { this.roundedRect(track.x, track.y, track.w * volume, track.h, 3); ctx.fill(); }
+        ctx.beginPath(); ctx.arc(track.x + track.w * volume, track.y + track.h / 2, 7, 0, Math.PI * 2); ctx.fill();
+        ctx.restore();
+        this.text(selection, row.x + row.w - 12, row.y + row.h / 2, 12, { align: 'right', weight: 400, maxWidth: 32 });
+        this.addHit(prefix, layout.volumeControl, !model.volumePending);
+        return;
+      }
+      this.iconButton(`${prefix}:prev`, previous, 'back', true, model.pressedId);
+      this.text(selection, value.x + value.w / 2, value.y + value.h / 2, 14,
+        { weight: 400, maxWidth: value.w });
+      this.iconButton(`${prefix}:next`, next, 'next', true, model.pressedId);
+    });
     const backupAction = model.backupConfirmRestore ? 'account:confirmRestore'
       : model.backupConfirmCommit ? 'account:confirmBackup' : 'account:retrySync';
     const staticSyncState = !model.backupMode &&
@@ -1233,7 +1267,8 @@ class CanvasRenderer {
         h: layout.privacyButton.h
       }, this.t('account.privacy'), { fontSize: 15 }, model.pressedId);
     } else {
-      this.button('account:privacy', layout.privacyButton, this.t('account.privacy'), { fontSize: 17 }, model.pressedId);
+      this.button('account:privacy', layout.privacyButton, this.t('account.privacy'),
+        { fontSize: 15, fill: skin.colors.homeBackground, opacity: 0.82 }, model.pressedId);
     }
   }
 
@@ -1552,7 +1587,8 @@ class CanvasRenderer {
     if (model && Array.isArray(model.corridorEntries)) return model.corridorEntries;
     return [
       { id: 'themes', name: this.t('corridor.themes.name'), action: 'corridor:themes' },
-      { id: 'effects', name: this.t('corridor.effects.name'), action: 'corridor:effects' }
+      { id: 'effects', name: this.t('corridor.effects.name'), action: 'corridor:effects' },
+      { id: 'music', name: this.t('corridor.music.name'), action: 'corridor:music' }
     ];
   }
 
@@ -1661,6 +1697,15 @@ class CanvasRenderer {
     const centerX = rect.x + rect.w * 0.45;
     const centerY = rect.y + rect.h * 0.52;
     const span = Math.min(rect.w, rect.h);
+    if (clearParticles.supports(effectType)) {
+      for (let index = 0; index < 3; index++) {
+        clearParticles.draw(ctx, effectType,
+          rect.x + rect.w * (0.3 + index * 0.2),
+          rect.y + rect.h * (index === 1 ? 0.36 : 0.6),
+          span * 0.48, 0.45, index);
+      }
+      return;
+    }
     // Three short vector wind strokes communicate "fade away" without
     // requiring an image asset or introducing a second animation system.
     ctx.save();
@@ -1730,6 +1775,33 @@ class CanvasRenderer {
     ctx.restore();
   }
 
+  drawMusicPreview(rect) {
+    const ctx = this.ctx;
+    const size = Math.min(rect.w, rect.h) * 0.76;
+    const x = rect.x + (rect.w - size) / 2;
+    const y = rect.y + (rect.h - size) / 2;
+    ctx.save();
+    ctx.strokeStyle = '#79cddd';
+    ctx.fillStyle = '#79cddd';
+    ctx.lineWidth = Math.max(2, size * 0.065);
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.beginPath();
+    ctx.moveTo(x + size * 0.32, y + size * 0.78);
+    ctx.lineTo(x + size * 0.32, y + size * 0.28);
+    ctx.lineTo(x + size * 0.78, y + size * 0.16);
+    ctx.lineTo(x + size * 0.78, y + size * 0.66);
+    ctx.moveTo(x + size * 0.32, y + size * 0.42);
+    ctx.lineTo(x + size * 0.78, y + size * 0.30);
+    ctx.stroke();
+    [ { x: 0.22, y: 0.79 }, { x: 0.68, y: 0.67 } ].forEach(note => {
+      ctx.beginPath();
+      ctx.arc(x + size * note.x, y + size * note.y, size * 0.12, 0, Math.PI * 2);
+      ctx.fill();
+    });
+    ctx.restore();
+  }
+
   drawCorridorEntryPreview(entry, rect) {
     const ctx = this.ctx;
     const id = entry && String(entry.id || '');
@@ -1739,6 +1811,11 @@ class CanvasRenderer {
     ctx.save();
     if (id === 'effects' || id === 'clear-effects') {
       this.drawEffectFallbackPreview(rect, entry);
+      ctx.restore();
+      return;
+    }
+    if (id === 'music') {
+      this.drawMusicPreview(rect);
       ctx.restore();
       return;
     }
@@ -1846,29 +1923,39 @@ class CanvasRenderer {
   }
 
   drawEffects(model, now) {
+    this.drawSelectionGallery(model, now, 'effect');
+  }
+
+  drawMusic(model, now) {
+    this.drawSelectionGallery(model, now, 'music');
+  }
+
+  drawSelectionGallery(model, now, kind) {
+    const music = kind === 'music';
+    const scene = music ? 'music' : 'effects';
     const skin = this.skinService.current();
     const metrics = this.platform.metrics;
     const width = metrics.width;
     const height = metrics.height;
     const safeTop = metrics.safeTop || 0;
     const safeBottom = metrics.safeBottom || height;
-    const effects = this.effectList(model);
-    const pageSize = Number(model && model.effectPageSize) || 6;
+    const items = music ? (model && model.musicTracks || []) : this.effectList(model);
+    const pageSize = Number(model && model[`${kind}PageSize`]) || 6;
     const pageCount = Math.max(1,
-      Number(model && model.effectPageCount) || Math.ceil(effects.length / pageSize));
-    const rawPage = Number(model && model.effectPageIndex);
+      Number(model && model[`${kind}PageCount`]) || Math.ceil(items.length / pageSize));
+    const rawPage = Number(model && model[`${kind}PageIndex`]);
     const pageIndex = clamp(Number.isFinite(rawPage) ? rawPage : 0, 0, pageCount - 1);
-    const currentEffectId = model && model.currentEffectId;
+    const currentId = model && model[music ? 'currentMusicId' : 'currentEffectId'];
     const ctx = this.ctx;
     this.begin(skin.colors.homeBackground);
 
     const headerTop = safeTop + 4;
     const headerHeight = 68;
     const titleY = topBarLayout.centerY(metrics);
-    const backAction = model && (model.backAction === 'effects:corridor' || model.backAction === 'effects:home')
-      ? model.backAction : 'effects:corridor';
+    const backAction = model && (model.backAction === `${scene}:corridor` ||
+      (!music && model.backAction === 'effects:home')) ? model.backAction : `${scene}:corridor`;
     this.iconButton(backAction, topBarLayout.leading(metrics), 'back', true, model && model.pressedId);
-    this.text(this.t('gallery.clearEffects'), width / 2, titleY, 25, { weight: 300 });
+    this.text(this.t(music ? 'gallery.music' : 'gallery.clearEffects'), width / 2, titleY, 25, { weight: 300 });
     this.text(`${pageIndex + 1} / ${pageCount}`, width / 2, titleY + 26, 12, { alpha: 0.58 });
 
     const sidePadding = clamp(width * 0.055, 16, 24);
@@ -1894,11 +1981,11 @@ class CanvasRenderer {
         w: cardWidth,
         h: cardHeight
       };
-      const effect = effects[pageIndex * pageSize + slot];
-      const valid = !!(effect && effect.id);
-      const reward = effect && effect.reward || { owned: true };
-      const selected = valid && reward.owned !== false && currentEffectId !== undefined &&
-        String(effect.id) === String(currentEffectId);
+      const item = items[pageIndex * pageSize + slot];
+      const valid = !!(item && item.id);
+      const reward = item && item.reward || { owned: true };
+      const selected = valid && reward.owned !== false && currentId !== undefined &&
+        String(item.id) === String(currentId);
       ctx.save();
       this.roundedRect(rect.x, rect.y, rect.w, rect.h, skin.layout.buttonRadius || 8);
       if (!valid) {
@@ -1918,18 +2005,27 @@ class CanvasRenderer {
       }
       ctx.restore();
 
-      const conditionStatus = rewardUnlockStatus(reward, (key, params) => this.t(key, params));
+      const conditionStatus = rewardUnlockStatus(reward, (key, params) => this.t(key, params)) || (music
+        ? item.assetState === 'idle' ? this.t('gallery.download')
+          : item.assetState === 'loading' ? this.t('gallery.downloading', {
+            percent: Math.round(clamp(Number(item.assetProgress) || 0, 0, 100))
+          }) : item.assetState === 'failed' ? this.t('gallery.downloadFailed') : '' : '');
       const previewRect = {
         x: rect.x + previewPadding,
         y: rect.y + previewPadding,
         w: rect.w - previewPadding * 2,
         h: previewHeight
       };
-      const image = this.ensureEffectPreviewImage(effect);
-      if (!image || !this.drawImageContain(image, previewRect, { fit: 'contain' })) {
-        this.drawEffectFallbackPreview(previewRect, effect);
+      if (music) {
+        const image = this.ensurePreviewImage(item);
+        if (!image || !this.drawImageContain(image, previewRect, { fit: 'contain' })) this.drawMusicPreview(previewRect);
+      } else {
+        const image = this.ensureEffectPreviewImage(item);
+        if (!image || !this.drawImageContain(image, previewRect, { fit: 'contain' })) {
+          this.drawEffectFallbackPreview(previewRect, item);
+        }
       }
-      const name = this.displayName('effect', effect.id, 'name', effect.name || effect.title || effect.id);
+      const name = this.displayName(kind, item.id, 'name', item.name || item.title || item.id);
       this.text(name, rect.x + rect.w / 2, rect.y + cardHeight - labelHeight * 0.56 - (conditionStatus ? 14 : 0),
         clamp(cardWidth * 0.105, 13, 18), { weight: selected ? 500 : 300, maxWidth: rect.w - 18 });
       if (conditionStatus) this.text(conditionStatus, rect.x + rect.w / 2,
@@ -1937,16 +2033,17 @@ class CanvasRenderer {
       if (selected) {
         this.text('✓', rect.x + rect.w - 14, rect.y + 14, 13, { weight: 500, alpha: 0.86 });
       }
-      this.addHit(`effect:${effect.id}`, rect, true);
+      this.addHit(`${kind}:${item.id}`, rect, true);
     }
 
     if (pageCount > 1) {
       const controlY = safeBottom - 70 + 8;
-      this.iconButton('effects:prev', { x: width / 2 - 92, y: controlY, w: 52, h: 44 },
+      this.iconButton(`${scene}:prev`, { x: width / 2 - 92, y: controlY, w: 52, h: 44 },
         'back', pageIndex > 0, model && model.pressedId);
-      this.iconButton('effects:next', { x: width / 2 + 40, y: controlY, w: 52, h: 44 },
+      this.iconButton(`${scene}:next`, { x: width / 2 + 40, y: controlY, w: 52, h: 44 },
         'next', pageIndex < pageCount - 1, model && model.pressedId);
-      this.text(this.t('gallery.swipeEffects'), width / 2, controlY + 50, 11, { alpha: 0.42 });
+      this.text(this.t(music ? 'gallery.swipeMusic' : 'gallery.swipeEffects'), width / 2, controlY + 50, 11,
+        { alpha: 0.42 });
     }
   }
 
@@ -2730,6 +2827,69 @@ class CanvasRenderer {
       this.t('result.share'), { fontSize: 16, enabled: !model.sharePending }, model.pressedId);
   }
 
+  drawUpdateDialog(model) {
+    const colors = this.skinService.current().colors;
+    this.begin(colors.homeBackground);
+    const { width, height, safeTop, safeBottom } = this.platform.metrics;
+    const contentWidth = Math.min(560, width - 40);
+    const contentX = (width - contentWidth) / 2;
+    const availableHeight = (safeBottom || height) - (safeTop || 0) - 16;
+    const ctx = this.ctx;
+    ctx.fillStyle = colors.strongPanel;
+    ctx.fillRect(0, 0, width, height);
+    let fontSize = 14;
+    let entries;
+    let desiredHeight;
+    do {
+      ctx.save();
+      ctx.font = `300 ${fontSize}px ${CANVAS_FONT_FAMILY}`;
+      const measure = value => {
+        const measured = typeof ctx.measureText === 'function' && ctx.measureText(value);
+        return measured && Number.isFinite(measured.width) ? measured.width : value.length * fontSize;
+      };
+      entries = model.updateDialog.entries.map(entry => {
+        const lines = [];
+        let line = '';
+        for (const char of entry.body) {
+          if (measure(line + char) > contentWidth && line) {
+            const space = line.lastIndexOf(' ');
+            if (space > 0) {
+              lines.push(line.slice(0, space));
+              line = line.slice(space + 1);
+            } else {
+              lines.push(line);
+              line = '';
+            }
+          }
+          line += char;
+        }
+        if (line.trim()) lines.push(line.trim());
+        return { title: entry.title, lines };
+      });
+      ctx.restore();
+      desiredHeight = 140 + entries.reduce((sum, entry) =>
+        sum + 34 + entry.lines.length * (fontSize + 5), 0);
+      if (desiredHeight <= availableHeight || fontSize <= 10) break;
+      fontSize--;
+    } while (true);
+    const panel = this.drawResultPanel(desiredHeight);
+    this.text(this.t('home.updates'), width / 2, panel.y + 28, 24,
+      { weight: 400, maxWidth: contentWidth });
+    this.text(model.updateDialog.releaseId, width / 2, panel.y + 53, 12, { alpha: 0.6 });
+    let cursor = panel.y + 78;
+    entries.forEach(entry => {
+      this.text(entry.title, contentX, cursor, fontSize + 1,
+        { align: 'left', weight: 500, maxWidth: contentWidth });
+      entry.lines.forEach((line, index) => this.text(line, contentX,
+        cursor + 22 + index * (fontSize + 5), fontSize, { align: 'left', maxWidth: contentWidth, alpha: 0.82 }));
+      cursor += 22 + entry.lines.length * (fontSize + 5) + 12;
+    });
+    const buttonWidth = Math.min(168, contentWidth);
+    this.button('update:confirm', { x: (width - buttonWidth) / 2,
+      y: panel.y + panel.h - 60, w: buttonWidth, h: 44 }, this.t('common.confirm'),
+    { fontSize: 16 }, model.pressedId);
+  }
+
   drawRewardDialog(model) {
     const dialog = model.rewardDialog;
     if (!dialog) return;
@@ -2743,6 +2903,10 @@ class CanvasRenderer {
     const previewRect = { x: width / 2 - 20, y: panel.y + 27, w: 40, h: 40 };
     if (preview && dialog.rewardId.indexOf('theme:') === 0) {
       this.drawThemeElementsPreview(preview, previewRect, this.skinService.current());
+      this.drawIcon(statusIcon, width / 2 + 24, panel.y + 62, 14);
+    } else if (preview && dialog.rewardId.indexOf('music:') === 0) {
+      const image = this.ensurePreviewImage(preview);
+      if (!image || !this.drawImageContain(image, previewRect, { fit: 'contain' })) this.drawMusicPreview(previewRect);
       this.drawIcon(statusIcon, width / 2 + 24, panel.y + 62, 14);
     } else if (preview && dialog.rewardId.indexOf('effect:') === 0) {
       const image = this.ensureEffectPreviewImage(preview);

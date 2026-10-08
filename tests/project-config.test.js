@@ -33,7 +33,7 @@ function run() {
   assert.strictEqual(fs.existsSync(path.join(root, 'game.js')), true);
   assert.strictEqual(gameConfig.deviceOrientation, 'portrait');
   const packages = gameConfig.subpackages;
-  assert.strictEqual(packages.length, 11);
+  assert.strictEqual(packages.length, 12);
   assert.deepStrictEqual(packages, subpackageConfig.packages.map(item => ({ name: item.name, root: item.root })));
   const themeIds = ['gem', 'animals', 'fruits', 'desserts', 'space',
     'ocean', 'spring', 'festival', 'music', 'vehicles'];
@@ -41,8 +41,9 @@ function run() {
   const audioPackage = packages[themeIds.length];
   assert.deepStrictEqual(themePackages.map(item => item.name), themeIds.map(id => `theme-${id}`));
   assert.deepStrictEqual(audioPackage, { name: 'audio-bgm', root: 'assets/audio/bgm/' });
-  assert.strictEqual(new Set(packages.map(item => item.name)).size, 11);
-  assert.strictEqual(new Set(packages.map(item => item.root)).size, 11);
+  assert.deepStrictEqual(packages[11], { name: 'audio-candy-day-stroll', root: 'assets/audio/candy-day-stroll/' });
+  assert.strictEqual(new Set(packages.map(item => item.name)).size, 12);
+  assert.strictEqual(new Set(packages.map(item => item.root)).size, 12);
   const ignored = source => isIgnored(source, config.packOptions.ignore);
   themePackages.forEach((item, index) => {
     assert.strictEqual(item.root, `assets/skins/${themeIds[index]}/`);

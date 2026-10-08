@@ -25,6 +25,7 @@ function completeDailyLevel(app) {
     path.slice(1).forEach(cell => assert(runner.touchMove(cell)));
     runner.touchEnd(path[path.length - 1]); app.onPathCompleted(index, path);
   });
+  if (app.daily.nextLevelAt) app.tick(app.daily.nextLevelAt);
 }
 
 module.exports = async function run() {

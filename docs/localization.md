@@ -8,7 +8,17 @@
 >
 > Product boundary: this plan applies only to the WeChat Mini Game. A future standalone App will have separate users, accounts, storage, and online data, with no migration or interoperability implied by this work.
 
+The 201–250 stellar mainline pack adds 50 matching Chinese and English name keys (`level.stellar-8x8-01.name` through `level.stellar-8x8-50.name`). Stable IDs and the previous 200 level names remain unchanged; the play heading continues to show numeric progress.
+
+The 251–300 aurora pack adds another 50 matching name keys (`level.aurora-8x8-01.name` through `level.aurora-8x8-50.name`). The previous 250 level names and IDs remain unchanged, with the same numeric play heading and locale lookup contract.
+
 ## 1. Target outcome
+
+The version-update panel adds `home.updates` and matching `update.levels/effects/music.title/body` keys in both catalogs. The Home entry and automatic notice show the same translated content; the confirm button uses `common.confirm`. The release ID and device-local acknowledgement are language-independent. See [Version update panel](update-notice.md) for release maintenance and modal behavior.
+
+The music gallery adds `music.candy-day-stroll.name`: **漫步** in `zh-CN`, **Stroll** in `en-US`. Price, download progress, retry, ownership and purchase confirmation reuse the existing translated gallery/reward copy. The stable music and entitlement IDs are language independent; this adds no locale or preference field.
+
+The clear-effect gallery adds matching `effect.<id>.name` keys for `starburst` (星光迸散 / Starlight Burst), `bubbles` (泡泡轻弹 / Bubble Pop), `petals` (花瓣飘落 / Falling Petals), and `shatter` (冰晶碎裂 / Crystal Shatter). All four use the existing translated 10000-coin permanent-purchase flow; the stable IDs and locale preference contract remain unchanged.
 
 Add complete Simplified Chinese and American English presentation to the existing CommonJS, single-Canvas WeChat Mini Game without changing gameplay, progression, settlement, or online authority.
 
@@ -17,7 +27,9 @@ The first implementation supports exactly two locales:
 - `zh-CN`: existing Simplified Chinese product language.
 - `en-US`: natural American English, written for an English-speaking mobile game audience rather than translated word for word.
 
-The account screen gains a compact settings row rendered as `语言  ‹ 中文 ›` or `Language  ‹ English ›`. The two arrows switch languages immediately. A future standalone App may reuse the existing Account screen, layout, and general settings interactions; its title is not predetermined to be Settings. The current WeChat Mini Game keeps its existing Account title and account responsibilities. Existing scene, action, level, mechanic, reward, storage, and cloud protocol identifiers remain stable.
+The Account screen also adds `account.clearMode`, `clearMode.sequential`, `clearMode.simultaneous`, and `account.saveFailed` in both locales. `account.clearMode` is the standalone row label; its left and right arrows switch Simultaneous (default) / Sequential. The selected mode is a language-independent gameplay preference synced through the existing preferences domain. Locale and the master volume percentage remain device-local. The Account screen adds `account.volume` (音量 / Volume) below clear mode; the shared slider shows 0–100%, with 0% muting music and effects. The existing `soundEnabled` boolean still syncs mute state. The Home sound icon is removed.
+
+The account screen groups avatar, nickname and cloud-save status under `用户资料与存档` / `Profile & Save`, and language, clear mode and volume under `游戏设置` / `Game Settings`. Both headings use `account.profileSection` and `account.settingsSection` in the two locale bundles; privacy remains a separate footer action. The language row renders as `语言  ‹ 中文 ›` or `Language  ‹ English ›`, with immediate switching through the two arrows. A future standalone App may reuse the existing Account screen, layout, and general settings interactions; its title is not predetermined to be Settings. The current WeChat Mini Game keeps its existing Account title and account responsibilities. Existing scene, action, level, mechanic, reward, storage, and cloud protocol identifiers remain stable.
 
 ## 2. Locale resolution contract
 
@@ -61,8 +73,8 @@ This key is device-level and account-independent. It must not be added to `Prefe
 
 ## 3. Account-screen selector contract
 
-- Location: account screen only, within the current safe-area and responsive Canvas layout.
-- Presentation: a language label plus left arrow, native language name, and right arrow — `语言  ‹ 中文 ›` or `Language  ‹ English ›`; the row uses the same card geometry as the other account actions.
+- Location: account screen only, beside the clear-mode row within the Game Settings card and the current safe-area and responsive Canvas layout.
+- Presentation: a language label plus left arrow, native language name, and right arrow — `语言  ‹ 中文 ›` or `Language  ‹ English ›`; both settings share the card's inset row geometry.
 - Actions: `account:language:prev` and `account:language:next`.
 - Interaction: only the arrow controls change the locale; each arrow has a minimum `44 × 44` logical-pixel hit area.
 - Order: `zh-CN` and `en-US`, wrapping in both directions.
@@ -70,6 +82,8 @@ This key is device-level and account-independent. It must not be added to `Prefe
 - Stability: language labels are presentation only and are never inspected to decide an action.
 
 Reuse the existing `back` and `next` shapes from `CanvasRenderer.drawIcon()`. No new bitmap, SVG, font, package, or runtime dependency is needed. If visual review later proves those shapes unsuitable, selecting or exporting a replacement icon requires a separate boundary update before assets are added.
+
+The clear-mode row uses the same selector geometry and aligned arrow columns, displaying `消除方式  ‹ 同时消除 ›` or `Clear mode  ‹ Simultaneous ›` by default. `account:clearMode:prev` and `account:clearMode:next` wrap the two existing choices in either direction; only the arrows register hits. The original `account:clearMode` action remains available to older callers without a whole-row hit target. Failed saves retain the last confirmed choice and enqueue no preference update. New installs and missing fields use Simultaneous; saved valid choices remain selected. The stored values and CloudBase preferences shape are unchanged.
 
 ## 4. Architecture and ownership
 
@@ -94,7 +108,7 @@ Reuse the existing `back` and `next` shapes from `CanvasRenderer.drawIcon()`. No
 - Use complete sentences with named parameters, for example `daily.attemptsRemaining({ count })`; do not assemble sentences from translated fragments.
 - Both catalogs must have identical keys and compatible placeholder names. Missing keys must be caught by tests before release.
 - Scene IDs, action/hit IDs, level IDs, mechanic IDs, reward IDs, error codes, storage keys, share query values, and sync types are not localized.
-- Theme, effect, mechanic, and named-level display text is resolved by stable ID at the presentation boundary, for example `skin.classic.name` or `level.portal-main-8x8-01.name`. The source manifests and generated level data remain unchanged.
+- Theme, effect, music, mechanic, and named-level display text is resolved by stable ID at the presentation boundary, for example `skin.classic.name`, `music.grid-glow.name`, or `level.portal-main-8x8-01.name`. Music names come from the data-only list in `src/config/audio.js`; the current track is “格间微光” / “Glimmer Between Tiles”. Stable music IDs are independent of the existing `skin.music` theme.
 - Date and number formatting is display-only. In particular, switching language must not change the `Asia/Shanghai` daily date key, reset schedule, deduplication key, stamina timing, server, or environment.
 - Translation lookup must never throw. Tests, rather than a mixed-language production fallback, enforce complete `en-US` coverage.
 
@@ -105,7 +119,7 @@ The English release is complete only when all reachable player-facing text is co
 - Home navigation, resume/start state, currency and energy labels, plus the account-screen language selector.
 - Level selection, named levels, difficulty labels, locked/completed states, and daily challenge screens.
 - Play controls, tutorials, Portal instructions, hints, undo/restart/exit confirmations, result screens, and failure feedback.
-- Themes, clear effects, mechanic names, ownership/unlock states, prices, pending-cloud amounts, and purchase feedback.
+- Themes, clear effects, the music gallery and track names, mechanic names, ownership/unlock states, prices, pending-cloud amounts, and purchase feedback.
 - Account, authorization, network, sync, storage, migration-protection, and recovery messages shown to players.
 - Share-card titles and the native home profile authorization button created by the game.
 - The account page displays the WeChat profile obtained on the home screen or its default placeholder.

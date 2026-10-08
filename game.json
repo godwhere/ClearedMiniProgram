@@ -46,6 +46,10 @@
     {
       "name": "audio-bgm",
       "root": "assets/audio/bgm/"
+    },
+    {
+      "name": "audio-candy-day-stroll",
+      "root": "assets/audio/candy-day-stroll/"
     }
   ]
 }

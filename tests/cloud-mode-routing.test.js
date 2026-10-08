@@ -84,6 +84,7 @@ function offlineReply(request) {
 async function establishedCloudFixture(clock, native) {
   const f = cloudFixture({ native, config: CLOUD_CONFIG });
   try {
+    f.app.performAction('update:confirm');
     attachClock(f, clock);
     f.reply = authoritativeReply;
     const result = await f.app.resumeOnline();
@@ -160,6 +161,7 @@ function solveDailyLevel(app, clock) {
     path.slice(1).forEach(index => app.onPointerMove(point(index)));
     app.onPointerEnd(point(path[path.length - 1]));
   });
+  if (app.daily.nextLevelAt) { clock.advance(Math.max(0, app.daily.nextLevelAt - clock.now())); app.tick(clock.now()); }
 }
 
 function routingFixture(options) {

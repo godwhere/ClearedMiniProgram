@@ -9,7 +9,7 @@ function run() {
   const root = path.resolve(__dirname, '..');
   const report = budget.checkProject(root);
   assert.deepStrictEqual(report.errors, []);
-  assert.strictEqual(report.packages.length, 12, 'main plus ten theme packages and one audio package');
+  assert.strictEqual(report.packages.length, 13, 'main plus ten theme packages and two audio packages');
   assert(report.packages.every(row => row.passed));
   assert(report.total.passed);
   assert.strictEqual(report.total.bytes, report.packages.reduce((sum, row) => sum + row.bytes, 0));
@@ -48,7 +48,7 @@ function run() {
     assert.strictEqual(budget.packageForFile(definition.src, packages), 'main');
     assert.strictEqual(budget.isIgnored(definition.src, config.packOptions.ignore), false);
   });
-  assert.strictEqual(budget.BUDGETS.main, Math.floor(1.6 * 1024 * 1024));
+  assert.strictEqual(budget.BUDGETS.main, Math.floor(1.63 * 1024 * 1024));
   ['none', 'fade'].forEach(id => {
     const preview = `assets/effects/${id}/preview.png`;
     assert.strictEqual(budget.packageForFile(preview, packages), 'main');

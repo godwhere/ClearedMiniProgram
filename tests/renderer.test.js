@@ -204,6 +204,13 @@ function run() {
   assertHitsInsideSafeArea(renderer.hits, platform.metrics);
   assert(renderer.hits.some(hit => hit.id === 'account:back'));
   assert(!renderer.hits.some(hit => hit.id === 'account:authorizeProfile'));
+  assert.strictEqual(textCalls(platform.context, '用户资料与存档').length, 1);
+  assert.strictEqual(textCalls(platform.context, '游戏设置').length, 1);
+  assert.strictEqual(textCalls(platform.context, '音量').length, 1);
+  assert(renderer.hits.some(hit => hit.id === 'account:volume'));
+  renderer.render({ scene: 'account', soundVolume: 0.35, volumePending: true }, Date.now());
+  assert.strictEqual(textCalls(platform.context, '35%').length, 1);
+  assert(!renderer.hits.some(hit => hit.id === 'account:volume'), 'pending saves cannot start another drag');
   platform.context.calls.length = 0;
   renderer.render({ scene: 'account', accountStatus: 'pending' }, Date.now());
   assert.strictEqual(textCalls(platform.context, '立即同步').length, 1);
@@ -237,9 +244,7 @@ function run() {
   renderer.render({ scene: 'home', completedCount: 0, totalLevels: 92, pressedId: null }, Date.now());
   assert(renderer.hitTest(110, 640), 'daily challenge is hit on the left side of the first row');
   assert(renderer.hitTest(280, 640), 'themes is hit on the right side of the first row');
-  const soundHit = renderer.hits.find(hit => hit.id === 'home:sound');
-  assert(soundHit, 'the home scene keeps the sound switch');
-  assert.strictEqual(soundHit.rect.y, platform.metrics.safeTop + 12);
+  assert(!renderer.hits.some(hit => hit.id === 'home:sound'), 'volume controls live in Account settings');
 
   for (const width of [320, 390]) {
     platform.metrics.width = width;
@@ -289,20 +294,20 @@ function run() {
   assert(renderer.hits.some(hit => hit.id === 'levels:next'));
   assert.strictEqual(renderer.hits.some(hit => hit.id === 'levels:prev'), false);
 
-  const lastPageItems = catalog.levels.slice(175).map((entry, index) => ({
+  const lastPageItems = catalog.levels.slice(275).map((entry, index) => ({
     action: `level:${entry.setIndex}:${entry.levelIndex}`,
-    displayNumber: 176 + index,
+    displayNumber: 276 + index,
     completed: false,
     unlocked: true
   }));
   renderer.render({
     scene: 'levels', levelItems: lastPageItems,
-    levelPageIndex: 7, levelPageCount: 8,
-    levelRangeStart: 176, levelRangeEnd: 200,
-    totalLevels: 200, pressedId: null
+    levelPageIndex: 11, levelPageCount: 12,
+    levelRangeStart: 276, levelRangeEnd: 300,
+    totalLevels: 300, pressedId: null
   }, Date.now());
   assert.strictEqual(renderer.hits.filter(hit => hit.id.indexOf('level:') === 0).length, 25);
-  assert.strictEqual(textCalls(platform.context, '176–200 / 200').length, 1);
+  assert.strictEqual(textCalls(platform.context, '276–300 / 300').length, 1);
   assert(renderer.hits.some(hit => hit.id === lastPageItems[0].action));
   assert(renderer.hits.some(hit => hit.id === lastPageItems[24].action));
   assert(renderer.hits.some(hit => hit.id === 'levels:prev'));

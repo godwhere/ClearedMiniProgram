@@ -65,13 +65,13 @@ function run() {
   [[320, 0, '0'], [375, 9999, '9999'], [390, 10000, '1万'], [390, 100000, '10万']].forEach(entry => {
     const test = renderer(entry[0]);
     test.renderer.render(homeModel(entry[1]), 1);
-    const sound = test.renderer.hits.find(hit => hit.id === 'home:sound');
+    const avatar = test.renderer.hits.find(hit => hit.id === 'home:account');
     const stamina = test.renderer.hits.find(hit => hit.id === 'home:stamina');
     const currencyText = test.ctx.calls.find(call => call.op === 'fillText' && call.args[0] === entry[2]);
-    assert(sound && stamina && currencyText, `${entry[0]}/${entry[1]} exposes the top-row controls`);
-    assert(sound.rect.x + sound.rect.w < currencyText.args[1]);
+    assert(avatar && stamina && currencyText, `${entry[0]}/${entry[1]} exposes the top-row controls`);
+    assert(avatar.rect.x + avatar.rect.w < currencyText.args[1]);
     assert(currencyText.args[1] < stamina.rect.x + stamina.rect.w);
-    assert(sound.rect.x > 62, 'narrow layout clears the avatar region');
+    assert(!test.renderer.hits.some(hit => hit.id === 'home:sound'));
   });
 
   const appHome = renderer(390);

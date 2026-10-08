@@ -230,7 +230,7 @@ tests/theme-assets.test.js                      # 10 套 manifest/正式图集�
 6. **规则隔离**：切换主题前后 `GameRunner` 的路径、owner、计时和完成结果一致。
 7. **素材像素合同**：`tests/theme-assets.test.js` 必须覆盖全部 10 套非经典主题，确认正式资源为 `2000×800`、包含 10 个非空 `400×400` 槽位，且每槽四边的可见 alpha 距离均不小于 `24px`；任意尺寸错误、空槽或格线串边都应使测试失败。
 8. **回归**：运行 `node tests/run.js`，现有连线、关卡、进度、音频、Canvas 和主题素材测试全部通过。
-9. **分包与预算**：`subpackage-service`、`theme-system`、`project-config`、`package-budget` 测试覆盖并发去重、进度/重试、不支持宿主、原型键防护、快速切换、启动恢复、资源门控、十个主题配置/入口、一个音频配置/入口和预算。运行 `node scripts/check-package-budget.js`，源码预算为主包 1.6 MiB、各分包 3.5 MiB、总包 18 MiB，单包硬门禁严格小于 4 MiB。
+9. **分包与预算**：`subpackage-service`、`theme-system`、`project-config`、`package-budget` 测试覆盖并发去重、进度/重试、不支持宿主、原型键防护、快速切换、启动恢复、资源门控、十个主题配置/入口、两个音频配置/入口和预算。音乐封面复用主包预览合同，见 [音乐系统](music-system.md)。运行 `node scripts/check-package-budget.js`，源码预算为主包 1.6 MiB、各分包 3.5 MiB、总包 18 MiB，单包硬门禁严格小于 4 MiB。
 
 发布前仍需在“详情 -> 本地代码 -> 代码包分析”核实实际包体与主包依赖，确认十张正式 sprite sheet 均归入各自分包，并以微信后台当前上限校验总包。预算脚本只计算源码字节，支持当前 file/folder ignore；出现其他规则类型、非空 include 或发布符号链接时会失败，必须先补齐相应统计语义与测试。Android/iOS 还需验证断网、弱网、下载中切后台、失败重试、快速点击和清理微信缓存后重启。分包方案与 BGM 二级兜底边界见 [`package-splitting.md`](package-splitting.md)。
 

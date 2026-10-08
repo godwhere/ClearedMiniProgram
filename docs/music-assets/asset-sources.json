@@ -1,0 +1,14 @@
+{
+  "soundfont": {
+    "name": "GeneralUser GS",
+    "upstream": "https://github.com/mrbumpy409/GeneralUser-GS",
+    "commit": "684543d5e5efaef08d02be50dcda8d552478fa60",
+    "sha256": "9575028c7a1f589f5770fccc8cff2734566af40cd26ed836944e9a5152688cfe"
+  },
+  "synthesizer": {
+    "name": "js-synthesizer",
+    "version": "1.13.0",
+    "tarball": "https://registry.npmjs.org/js-synthesizer/-/js-synthesizer-1.13.0.tgz",
+    "sha1": "fcf8d9b12bd43b7b017c8ac9f52ca99192cd64b0"
+  }
+}

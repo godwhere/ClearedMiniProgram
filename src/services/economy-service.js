@@ -25,7 +25,7 @@ class EconomyService {
     const pending = {};
     Object.keys(value.pending).forEach(key => {
       const item = value.pending[key];
-      if (item && /^theme:[a-z0-9-]{1,80}$/.test(item.rewardId) && validId(item.operationId) &&
+      if (item && /^(theme|effect|music):[a-z0-9-]{1,80}$/.test(item.rewardId) && validId(item.operationId) &&
           validOwner(item.ownerIdAtCreation) && Number.isSafeInteger(item.bindingEpochAtCreation) &&
           item.bindingEpochAtCreation > 0 && validEnvironment(item.environmentIdAtCreation) &&
           Number.isSafeInteger(item.createdAt) && item.createdAt >= 0 &&

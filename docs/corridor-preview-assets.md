@@ -10,7 +10,9 @@
 点击主题后仍使用既有下载进度、失败重试和成功后才切换/保存的流程。预览在下载中、下载失败后继续显示。
 
 本次统一所有现有回廊位图预览：十个非经典主题，以及“无特效”“逐渐消失”两张特效预览。
-经典主题和回廊“主题／特效”入口现由 Canvas 绘制，维持零图片资源开销。
+
+2026-10-08 新增的星光、泡泡、花瓣、冰晶使用 Canvas 静态形状预览，manifest 不声明 `preview`，不新增 PNG 输出或源图；下文位图生成和校验仍只覆盖有 `preview` 的条目。新效果的绘制与数量上限见 [消除特效](corridor-and-clear-effects.md)。
+经典主题和回廊“主题／特效／音乐”入口由 Canvas 绘制。默认曲目仍用矢量音符；《漫步》曲目卡片和解锁弹窗使用主包 `assets/music-previews/candy-day-stroll.png`，不提前读取音频分包，图片失败回退矢量音符。音乐预览也由 `validate-gallery-previews.js` 校验尺寸、透明 PNG-8、颜色、体积和主包归属，见 [音乐系统](music-system.md)。
 以后回廊增加位图预览时，暂按本文同一规格生产和验收；不为未来栏目预先增加注册器、场景或加载系统。
 
 ## 2. 素材合同
@@ -25,7 +27,7 @@
 | 主题图安全边 | 每个 64 像素格四边至少 2 像素不出现可见 alpha（阈值 8），四槽均非空 |
 | 特效图内容 | 原图等比缩入 128×128，透明居中补边，不拉伸、不裁掉原构图 |
 | 图片职责 | 只包含美术；主题底砖、卡片背景、名称、状态与选中框由现有 Canvas 绘制 |
-| 路径 | 主题：`assets/theme-previews/<id>.png`；特效保留 `assets/effects/<id>/preview.png` |
+| 路径 | 主题：`assets/theme-previews/<id>.png`；特效：`assets/effects/<id>/preview.png`；音乐：`assets/music-previews/<id>.png` |
 | 包归属 | 全部预览位于主包，必须不被 `packOptions.ignore` 排除；正式棋盘精灵表仍在原分包 |
 
 PNG-8 是当前 PNG 加载链可直接消费的格式。本次不增加运行时解码器，也不引入 WebP/AVIF。

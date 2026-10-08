@@ -16,5 +16,11 @@ packages.push(Object.freeze({
   themeIds: Object.freeze([]),
   assetPrefixes: Object.freeze(['assets/audio/bgm/'])
 }));
+packages.push(Object.freeze({
+  name: 'audio-candy-day-stroll',
+  root: 'assets/audio/candy-day-stroll/',
+  themeIds: Object.freeze([]),
+  assetPrefixes: Object.freeze(['assets/audio/candy-day-stroll/'])
+}));
 
 module.exports = Object.freeze({ packages: Object.freeze(packages) });

@@ -1,4 +1,5 @@
 'use strict';
+const clearTiming = require('../../services/clear-animation-timing.js');
 
 function portalCells(definition) {
   if (!definition || typeof definition !== 'object') return [];
@@ -102,10 +103,9 @@ class PortalOverlay {
     const lockedEntry = isLocked ? portal.lockedEntry : null;
     const animation = board && board.clearAnimation;
     const clearStartedAt = Number(animation && animation.startedAt);
-    const clearDuration = Number(animation && animation.durationMs);
-    const clearActive = !!animation && animation.type !== 'none' &&
+    const clearActive = !!animation && (animation.type !== 'none' || animation.clearMode === 'sequential') &&
       Number.isFinite(clearStartedAt) &&
-      now < clearStartedAt + (Number.isFinite(clearDuration) && clearDuration > 0 ? clearDuration : 300);
+      now < clearStartedAt + clearTiming.duration(animation);
     const clearingCells = new Set(clearActive && animation && Array.isArray(animation.cells)
       ? animation.cells : []);
     const cells = board && Array.isArray(board.cells) ? board.cells : [];

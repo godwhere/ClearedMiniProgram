@@ -8,6 +8,8 @@ const AdsService = require('./services/ads-service.js');
 const EngagementService = require('./services/engagement-service.js');
 const ProgressionService = require('./services/progression-service.js');
 const AudioService = require('./services/audio-service.js');
+const clearTiming = require('./services/clear-animation-timing.js');
+const accountLayout = require('./ui/account-layout.js');
 const HintService = require('./services/hint-service.js');
 const HintAccessService = require('./services/hint-access-service.js');
 const RewardUnlockService = require('./services/reward-unlock-service.js');
@@ -123,6 +125,7 @@ const LEVEL_PAGE_SIZE = 25;
 const THEME_PAGE_SIZE = 6;
 const CORRIDOR_PAGE_SIZE = 6;
 const EFFECT_PAGE_SIZE = 6;
+const MUSIC_PAGE_SIZE = 6;
 const EFFECT_MIN_DURATION_MS = 80;
 const EFFECT_MAX_DURATION_MS = 500;
 const FAILURE_DIALOG_ENTER_MS = 180;
@@ -299,6 +302,8 @@ class ClearedApp {
     this.pendingCompletion = null;
     this.openingLevel = false;
     this.locale = opts.locale || compatibilityLocale();
+    this.updateNotice = opts.updateNotice || null;
+    this.updateDialog = null;
     this.subpackages = opts.subpackages || null;
     this.pendingSkinId = null;
     this.skinLoadRequestId = 0;
@@ -361,9 +366,6 @@ class ClearedApp {
     this.hintRequest = null;
     this.hintFeedback = null;
     this.runSequence = 0;
-    this.audio = new AudioService(platform, this.progress, opts.audioConfig || audioConfig, {
-      subpackages: this.subpackages
-    });
     // Daily mode owns a separate service/store pair.  They are deliberately
     // injectable so tests and future remote manifests can control the clock
     // and persistence without leaking daily state into ProgressStore.
@@ -464,6 +466,10 @@ class ClearedApp {
     // accessed until the renderer, pointer and scene state have been created.
     if (!this.appPersistence) this.recoverRewardUnlocks();
     const canUse = (kind, itemId) => this.rewardUnlocks.canUse(kind, itemId);
+    this.audio = new AudioService(platform, this.progress, opts.audioConfig || audioConfig, {
+      subpackages: this.subpackages,
+      canUse: (kind, id) => !this.rewardUnlocks.item(`${kind}:${id}`) || canUse(kind, id)
+    });
     this.skins = new SkinService(this.progress,
       opts.skins === undefined ? defaultSkins : opts.skins, canUse);
     this.clearEffects = opts.clearEffects || opts.clearEffectService || null;
@@ -550,12 +556,15 @@ class ClearedApp {
     // theme page index when adding future corridor/effect entries.
     this.corridorPageIndex = 0;
     this.effectPageIndex = 0;
+    this.musicPageIndex = 0;
+    this.musicLoadRequestId = 0;
     this.galleryOrigin = 'home';
     this.corridorEntries = Array.isArray(opts.corridorEntries)
       ? opts.corridorEntries.map(item => cloneData(item))
       : [
         { id: 'themes', name: '主题', action: 'corridor:themes' },
-        { id: 'effects', name: '特效', action: 'corridor:effects' }
+        { id: 'effects', name: '特效', action: 'corridor:effects' },
+        { id: 'music', name: '音乐', action: 'corridor:music' }
       ];
     this.runner = null;
     this.pointer = null;
@@ -751,6 +760,7 @@ class ClearedApp {
         this.refreshFullGameEntitlement('foreground');
       },
       resize: () => {
+        if (this.pointer && this.pointer.mode === 'volume') this.onPointerCancel();
         this.renderer.ctx = this.platform.context;
         if (this.homeProfileButtonMounted) this.unmountHomeProfileButton();
         this.syncHomeProfileButton();
@@ -760,6 +770,7 @@ class ClearedApp {
       audioInterruptEnd: () => this.audio.resumeAll('interruption')
     });
     this.unbindLifecycle = typeof unbindLifecycle === 'function' ? unbindLifecycle : null;
+    this.openUpdateDialog(true);
     this.startLoop();
     this.refreshFullGameEntitlement('start');
     this.prepareCurrentSkinAssets();
@@ -795,6 +806,7 @@ class ClearedApp {
       result: null,
       resultVisibleAt: 0,
       clearAnimation: null,
+      nextLevelAt: 0,
       resolution: null,
       entryLimit: DEFAULT_DAILY_ENTRY_LIMIT,
       entriesUsed: 0,
@@ -1120,6 +1132,11 @@ class ClearedApp {
 
   tick(now) {
     const timestamp = Number.isFinite(Number(now)) ? Number(now) : Date.now();
+    const dailyScene = this.scene === 'daily' || this.scene === 'dailyResult';
+    const clearAnimation = dailyScene ? this.daily.clearAnimation : this.clearAnimation;
+    if (this.audio.updateClearSequence) this.audio.updateClearSequence(
+      !this.hidden && ['play', 'result', 'daily', 'dailyResult'].includes(this.scene) ? clearAnimation : null, timestamp);
+    if (!this.hidden && this.scene === 'daily' && this.daily.nextLevelAt && timestamp >= this.daily.nextLevelAt) this.advanceDailyLevel();
     this.showNextRewardNotice(timestamp);
     this.syncHomeProfileButton();
     this.refreshStamina(timestamp);
@@ -1160,7 +1177,8 @@ class ClearedApp {
     if ((this.scene === 'play' || this.scene === 'result' || dailyScene) &&
         timestamp < enteredAt + skin.animation.boardEnterMs + 140) return true;
     const clearAnimation = dailyScene ? this.daily.clearAnimation : this.clearAnimation;
-    if (clearAnimation && clearAnimation.type !== 'none') {
+    if (['play', 'result', 'daily', 'dailyResult'].includes(this.scene) && clearAnimation &&
+        (clearAnimation.type !== 'none' || clearAnimation.clearMode === 'sequential')) {
       // A started animation is immutable. Resolve its duration from the
       // snapshot first so changing the selected effect mid-flight cannot
       // shorten or extend the animation already on screen.
@@ -1173,6 +1191,7 @@ class ClearedApp {
         duration = this.effectDuration(effect, skin.animation.pathClearMs || 300);
       }
       const startedAt = Number(clearAnimation.startedAt);
+      duration = clearTiming.duration(Object.assign({}, clearAnimation, { durationMs: duration }));
       const start = Number.isFinite(startedAt) ? startedAt : timestamp;
       if (timestamp < start + duration + 80) return true;
     }
@@ -1354,6 +1373,14 @@ class ClearedApp {
       clearFeedback: this.clearFeedback && this.clearFeedback.runner === this.activeRunner()
         ? { startedAt: this.clearFeedback.startedAt, durationMs: this.clearFeedback.durationMs } : null,
       currency: this.rewardDisplayView(),
+      updateAvailable: !!this.updateNotice,
+      updateDialog: this.updateDialog ? {
+        releaseId: this.updateDialog.id,
+        entries: this.updateDialog.entries.map(id => ({
+          title: this.t(`update.${id}.title`),
+          body: this.t(`update.${id}.body`)
+        }))
+      } : null,
       rewardDialog: this.rewardDialog ? cloneData(this.rewardDialog) : null,
       storeDialog: this.storeDialogView(),
       fullGame: this.fullGameView(),
@@ -1384,6 +1411,9 @@ class ClearedApp {
       completedCount: this.ordinaryCompletedCount(),
       totalLevels: catalog.levels.length,
       soundEnabled: this.audio.isEnabled(),
+      soundVolume: this.audio.getVolume(),
+      volumePending: !!this.volumeSaving,
+      clearMode: this.currentClearMode(),
       hint: this.hint,
       hintUntil: this.hintUntil,
       hintPreview: this.hintPreview,
@@ -1585,6 +1615,21 @@ class ClearedApp {
       });
     }
 
+    if (this.scene === 'music') {
+      const musicTracks = this.musicDescriptors();
+      const musicPageCount = Math.max(1, Math.ceil(musicTracks.length / MUSIC_PAGE_SIZE));
+      const rawPageIndex = Number(this.musicPageIndex);
+      this.musicPageIndex = clamp(Number.isFinite(rawPageIndex) ? rawPageIndex : 0, 0, musicPageCount - 1);
+      return Object.assign(base, {
+        musicTracks,
+        musicPageIndex: this.musicPageIndex,
+        musicPageCount,
+        musicPageSize: MUSIC_PAGE_SIZE,
+        currentMusicId: this.audio.currentMusicId(),
+        backAction: 'music:corridor'
+      });
+    }
+
     if (this.scene === 'play' || this.scene === 'result') {
       const context = this.runContext;
       const trial = !!(context && context.progressionScope === 'trial');
@@ -1658,7 +1703,7 @@ class ClearedApp {
   syncHomeProfileButton() {
     if (this.profile && this.profile.current && this.profile.current()) this.homeProfileButtonNeeded = false;
     if (!this.homeProfileButtonNeeded || this.hidden || this.disposed || this.scene !== 'home' ||
-        this.storeDialog || this.rewardDialog || !this.profile || !this.profile.isDisplayOnly ||
+        this.updateDialog || this.storeDialog || this.rewardDialog || !this.profile || !this.profile.isDisplayOnly ||
         !this.profile.isDisplayOnly() || !this.profile.isSupported()) {
       this.unmountHomeProfileButton();
       return false;
@@ -1894,6 +1939,13 @@ class ClearedApp {
     if (!point || this.pointer || this.boardInput.isActive()) return;
     this.audio.unlock();
     const hit = this.renderer.hitTest(point.x, point.y);
+    if (this.updateDialog) {
+      this.pointer = { mode: 'ui', id: point.id, start: point, last: point,
+        hit: hit === 'update:confirm' ? hit : null };
+      this.pressedId = this.pointer.hit;
+      this.invalidate();
+      return;
+    }
     if (this.storeDialog) {
       this.pointer = { mode: 'store', id: point.id, start: point, last: point,
         hit: hit && hit.indexOf('store:') === 0 ? hit : null,
@@ -1907,6 +1959,14 @@ class ClearedApp {
         hit: hit && hit.indexOf('reward:') === 0 ? hit : null, dialogId: this.rewardDialog.dialogId };
       this.pressedId = this.pointer.hit;
       this.invalidate();
+      return;
+    }
+    if (hit === 'account:volume' && this.scene === 'account') {
+      if (this.volumeSaving || this.blockCoreWriteDuringMigration('preferences')) return;
+      const layout = accountLayout(this.platform.metrics, { backupMode: !!(this.cloudBackup && this.cloudBackup.enabled()) });
+      this.pointer = { mode: 'volume', id: point.id, track: layout.volumeTrack, last: point };
+      this.pressedId = hit;
+      this.previewAccountVolume(point);
       return;
     }
     if (hit) {
@@ -1936,7 +1996,8 @@ class ClearedApp {
 
     if (this.scene === 'levels') {
       this.pointer = { mode: 'ui', id: point.id, start: point, last: point, hit: null };
-    } else if (this.scene === 'themes' || this.scene === 'corridor' || this.scene === 'effects') {
+    } else if (this.scene === 'themes' || this.scene === 'corridor' || this.scene === 'effects' ||
+        this.scene === 'music') {
       // A swipe may start in an empty card slot or any other non-button area,
       // so retain the pointer even when hitTest has no candidate.
       this.pointer = { mode: 'ui', id: point.id, start: point, last: point, hit: null };
@@ -1958,6 +2019,33 @@ class ClearedApp {
     }
     if (!point || !this.pointer || point.id !== this.pointer.id) return;
     this.pointer.last = point;
+    if (this.pointer.mode === 'volume') this.previewAccountVolume(point);
+  }
+
+  previewAccountVolume(point) {
+    const track = this.pointer.track;
+    this.audio.previewVolume(Math.round(Math.max(0, Math.min(1, (point.x - track.x) / track.w)) * 100) / 100);
+    this.invalidate();
+  }
+
+  saveAccountVolume() {
+    if (this.blockCoreWriteDuringMigration('preferences')) { this.audio.refreshSetting(); return false; }
+    const value = this.audio.getVolume();
+    const muteChanged = (value > 0) !== this.progress.getSetting('soundEnabled', true);
+    const account = this.captureAccountContext();
+    this.volumeSaving = true;
+    const apply = saved => {
+      this.volumeSaving = false;
+      if (saved && muteChanged && this.progressSync && !this.appPersistence && this.isCurrentAccount(account)) {
+        try { this.progressSync.enqueuePreference('soundEnabled', value > 0); } catch (error) {}
+      }
+      if (this.scene === 'account') this.accountMessage = saved ? '' : this.t('account.saveFailed');
+      if (saved) this.audio.playSfx('click');
+      this.invalidate();
+      return saved;
+    };
+    return this.appPersistence ? this.audio.setVolumeAsync(value).then(apply, () => apply(false))
+      : apply(this.audio.setVolume(value));
   }
 
   traceBoard(from, to) {
@@ -1997,8 +2085,11 @@ class ClearedApp {
     }
     if (!this.pointer || (point && point.id !== this.pointer.id)) return;
     const active = this.pointer;
+    if (active.mode === 'volume') this.previewAccountVolume(point || active.last);
     this.pointer = null;
     this.pressedId = null;
+
+    if (active.mode === 'volume') return this.saveAccountVolume();
 
     const end = point || active.last;
     const dx = end.x - active.start.x;
@@ -2029,6 +2120,11 @@ class ClearedApp {
       return;
     }
 
+    if (this.scene === 'music' && Math.abs(dx) > 52 && Math.abs(dx) > Math.abs(dy) * 1.2) {
+      this.changeMusicPage(dx < 0 ? 1 : -1);
+      return;
+    }
+
     const releasedHit = this.renderer.hitTest(end.x, end.y);
     if (active.hit && active.hit === releasedHit) this.performAction(active.hit);
     this.invalidate();
@@ -2041,6 +2137,7 @@ class ClearedApp {
       return;
     }
     if (!this.pointer || (point && point.id !== this.pointer.id)) return;
+    if (this.pointer.mode === 'volume') this.audio.refreshSetting();
     this.pointer = null;
     this.pressedId = null;
     this.invalidate();
@@ -2061,18 +2158,24 @@ class ClearedApp {
     this.hintPreview = null;
     const skin = this.skins.current();
     const effect = this.resolveClearEffect(this.currentEffectId());
-    const effectType = effect.type === 'none' ? 'none' : 'fade';
+    const effectType = effect.type || 'fade';
     const effectDurationMs = effectType === 'none'
       ? 0
       : this.effectDuration(effect, skin && skin.animation && skin.animation.pathClearMs);
-    // "none" means there is no transient visual state to snapshot or tick.
-    // Every other (including unknown) type keeps the safe fade fallback.
-    const animation = effectType === 'none' ? null : {
+    // Sequential "none" retains timing so future cells stay visible.
+    // The renderer applies its type whitelist and falls back to fade for
+    // unknown types without altering the immutable snapshot.
+    const clearMode = this.currentClearMode();
+    const portalCells = new Set((state.mechanic.portals || []).flatMap(portal => portal.cells || []));
+    const path = Array.from(new Set(Array.isArray(cells) ? cells : [])).filter(index =>
+      Number.isInteger(index) && index >= 0 && index < state.board.width * state.board.height && !portalCells.has(index))
+      .slice(0, clearTiming.MAX_CELLS);
+    const animation = effectType === 'none' && clearMode === 'simultaneous' ? null : {
       lineIndex,
       // Snapshot the path and effect data at the completion boundary. This
       // prevents a later undo/new selection or effect change from mutating an
       // animation already being drawn.
-      cells: Array.isArray(cells) ? cells.slice() : [],
+      cells: path,
       iceBrokenCells,
       segments: Array.isArray(segments)
         ? segments.map(segment => Array.isArray(segment) ? segment.slice() : [])
@@ -2080,12 +2183,17 @@ class ClearedApp {
       startedAt: now,
       effectId: effect.id || 'fade',
       type: effectType,
+      clearMode,
       durationMs: effectDurationMs,
       params: cloneData(effect.params || {})
     };
     if (this.scene === 'daily') this.daily.clearAnimation = animation;
     else this.clearAnimation = animation;
     const outcome = this.runnerOutcome(runner);
+    const dailyFinalLevel = this.scene !== 'daily' || this.daily.levelIndex >= this.daily.levels.length - 1;
+    const sequentialSound = clearMode === 'sequential' && animation && this.audio.startClearSequence;
+    if (sequentialSound) this.audio.startClearSequence(animation,
+      outcome === OUTCOME.FAILED ? 'error' : outcome === OUTCOME.WON && dailyFinalLevel ? 'victory' : null);
     if (outcome === OUTCOME.FAILED) {
       const runnerState = runner.getViewState();
       const remainingCells = Math.max(1, Number(runnerState.remainingPlayableCells) || 1);
@@ -2095,9 +2203,8 @@ class ClearedApp {
         remainingCells,
         elapsedMs: runnerState.elapsedMs
       };
-      const resultDelayMs = Number(skin && skin.animation && skin.animation.resultDelayMs) || 0;
-      const visibleAt = now + Math.max(effectDurationMs, resultDelayMs);
-      this.audio.playSfx('error');
+      const visibleAt = this.clearResultVisibleAt(animation, now);
+      if (!sequentialSound) this.audio.playSfx('error');
       this.platform.triggerHaptic('medium');
       this.pointer = null;
       this.pressedId = null;
@@ -2115,10 +2222,8 @@ class ClearedApp {
       return;
     }
 
-    this.audio.playSfx('complete');
-    const dailyFinalLevel = this.scene !== 'daily' ||
-      this.daily.levelIndex >= this.daily.levels.length - 1;
-    if (outcome === OUTCOME.WON && dailyFinalLevel) {
+    if (!sequentialSound) this.audio.playSfx('complete');
+    if (!sequentialSound && outcome === OUTCOME.WON && dailyFinalLevel) {
       this.audio.playSfx('victory');
     }
     this.platform.triggerHaptic(outcome === OUTCOME.WON && dailyFinalLevel ? 'medium' : 'light');
@@ -2141,7 +2246,7 @@ class ClearedApp {
     });
     if (!completion) return;
     this.result = completion;
-    this.resultVisibleAt = now + this.skins.current().animation.resultDelayMs;
+    this.resultVisibleAt = this.clearResultVisibleAt(this.clearAnimation, now);
     this.scene = 'result';
     // Trial settlement ends here: no best-time save, stamina refund, reward,
     // share preparation, engagement, or cloud write can follow this boundary.
@@ -2230,7 +2335,7 @@ class ClearedApp {
       if (!this.disposed && this.runner === pending.runner) {
         this.result = { outcome: OUTCOME.WON, elapsedMs: pending.elapsedMs, persisted: false,
           currencyReward: { status: 'local-save-failed', amount: 0, failureSource: 'local-save' } };
-        this.resultVisibleAt = Date.now();
+        this.resultVisibleAt = this.clearResultVisibleAt(this.clearAnimation);
         this.scene = 'result';
         this.invalidate();
       }
@@ -2251,7 +2356,7 @@ class ClearedApp {
       amount: (reward.sources || []).includes(`ordinary:${levelKey}`)
         ? rewardConfig.currency.ordinaryFirstClear : 0
     } : { status: 'local-save-failed', amount: 0, failureSource: 'reward-reconcile' };
-    this.resultVisibleAt = Date.now() + this.skins.current().animation.resultDelayMs;
+    this.resultVisibleAt = this.clearResultVisibleAt(this.clearAnimation);
     this.scene = 'result';
     if (!refund.ok) this.showStaminaFeedback(refund.reason, refundAt);
     else if (refund.refunded > 0) this.showStaminaFeedback('quick-clear-refund', refundAt, refund.refunded);
@@ -2353,23 +2458,8 @@ class ClearedApp {
     daily.elapsedBeforeLevel += elapsedMs;
 
     if (levelIndex < daily.levels.length - 1) {
-      const nextIndex = levelIndex + 1;
-      const nextLevel = daily.levels[nextIndex];
-      const nextRunner = this.createDailyRunner(nextLevel, nextIndex, daily.resolution);
-      if (!nextRunner) return false;
-      this.clearHintRequest();
-      daily.levelIndex = nextIndex;
-      daily.challenge = nextLevel;
-      daily.challengeId = this.dailyLevelId(nextLevel, nextIndex, daily.resolution);
-      daily.runner = nextRunner;
-      this.boardInput.setRunner(nextRunner);
-      daily.enteredAt = Date.now();
-      daily.clearAnimation = null;
-      this.hint = null;
-      this.hintUntil = 0;
-      this.hintPreview = null;
-      this.lastClockSecond = -1;
-      this.invalidate();
+      daily.nextLevelAt = this.clearResultVisibleAt(daily.clearAnimation);
+      if (!daily.clearAnimation || daily.clearAnimation.clearMode !== 'sequential') this.advanceDailyLevel();
       return true;
     }
 
@@ -2388,7 +2478,7 @@ class ClearedApp {
     });
     daily.result.dayFirstClear = daily.dayFirstClear;
     daily.result.firstClear = daily.dayFirstClear;
-    daily.resultVisibleAt = Date.now() + this.skins.current().animation.resultDelayMs;
+    daily.resultVisibleAt = this.clearResultVisibleAt(daily.clearAnimation);
     this.scene = 'dailyResult';
     const rewardResult = completion.persisted === true ? this.recoverRewardUnlocks() : { ok: false };
     const source = `daily:${daily.dateKey}`;
@@ -2490,6 +2580,7 @@ class ClearedApp {
     daily.result = null;
     daily.resultVisibleAt = 0;
     daily.clearAnimation = null;
+    daily.nextLevelAt = 0;
     this.scene = 'daily';
     this.lastClockSecond = -1;
     this.hint = null;
@@ -2505,6 +2596,10 @@ class ClearedApp {
   performAction(action) {
     if (typeof action !== 'string' || !action) return false;
     if (this.disposed) return false;
+    if (this.updateDialog) {
+      return action === 'update:confirm' ? this.dismissUpdateDialog() : false;
+    }
+    if (action === 'home:updates') return this.openUpdateDialog(false);
     if (this.appPersistence && (this.pendingCompletion || this.completionTask) && action !== 'reward:retry') {
       return false;
     }
@@ -2576,6 +2671,23 @@ class ClearedApp {
     if (action.indexOf('reward:') === 0) return false;
     if (action === 'store:restorePurchases') return this.restoreFullGamePurchase();
     if (action.indexOf('store:') === 0) return false;
+    if (action === 'account:clearMode' || action === 'account:clearMode:prev' || action === 'account:clearMode:next') {
+      if (this.scene !== 'account') return false;
+      // Both directions wrap the two choices; retain the original action for older callers.
+      const value = this.currentClearMode() === 'sequential' ? 'simultaneous' : 'sequential';
+      const apply = saved => {
+        if (!saved) { this.accountMessage = this.t('account.saveFailed'); this.invalidate(); return false; }
+        if (this.progressSync && !this.appPersistence) {
+          try { this.progressSync.enqueuePreference('clearMode', value); } catch (error) {}
+        }
+        this.accountMessage = '';
+        this.clearAccountFeedback();
+        this.invalidate();
+        return true;
+      };
+      return this.appPersistence ? this.progress.setSettingAsync('clearMode', value).then(apply, () => apply(false))
+        : apply(this.progress.setSetting('clearMode', value));
+    }
     if (action === 'account:language:prev' || action === 'account:language:next') {
       if (this.scene !== 'account') return false;
       const method = action === 'account:language:next'
@@ -2755,6 +2867,27 @@ class ClearedApp {
       this.scene = 'effects';
       this.pointer = null;
       this.pressedId = null;
+    } else if (action === 'corridor:music') {
+      this.galleryOrigin = 'corridor';
+      this.scene = 'music';
+      this.pointer = null;
+      this.pressedId = null;
+    } else if (action === 'music:corridor') {
+      this.scene = 'corridor';
+      this.pointer = null;
+      this.pressedId = null;
+    } else if (action === 'music:prev') {
+      this.changeMusicPage(-1);
+    } else if (action === 'music:next') {
+      this.changeMusicPage(1);
+    } else if (action.indexOf('music:') === 0) {
+      if (this.blockCoreWriteDuringMigration('preferences')) return false;
+      const id = action.slice('music:'.length);
+      if (!this.audio.listMusic().some(track => track.id === id)) return false;
+      if (this.rewardUnlocks.item(`music:${id}`) && !this.rewardUnlocks.canUse('music', id)) {
+        return this.openRewardDialog(`music:${id}`);
+      }
+      return this.setMusic(id);
     } else if (action === 'corridor:prev') {
       this.changeCorridorPage(-1);
     } else if (action === 'corridor:next') {
@@ -3121,6 +3254,9 @@ class ClearedApp {
   }
 
   leaveAccount() {
+    if (this.pointer && this.pointer.mode === 'volume') {
+      this.audio.refreshSetting(); this.pointer = null; this.pressedId = null;
+    }
     this.accountSceneGeneration++;
     this.accountSyncPending = null;
     this.accountFeedback = null;
@@ -3260,7 +3396,8 @@ class ClearedApp {
     const configured = Array.isArray(this.corridorEntries) ? this.corridorEntries : null;
     const defaults = [
       { id: 'themes', name: '主题', action: 'corridor:themes' },
-      { id: 'effects', name: '特效', action: 'corridor:effects' }
+      { id: 'effects', name: '特效', action: 'corridor:effects' },
+      { id: 'music', name: '音乐', action: 'corridor:music' }
     ];
     const source = configured || defaults;
     return source.reduce((result, item) => {
@@ -3298,6 +3435,46 @@ class ClearedApp {
       0,
       pageCount - 1
     );
+    this.invalidate();
+  }
+
+  musicDescriptors() {
+    return this.audio.listMusic().map(track => {
+      const reward = this.rewardUnlocks.item(`music:${track.id}`)
+        ? this.rewardUnlocks.status(`music:${track.id}`) : { owned: true };
+      reward.actionEnabled = reward.owned === true || reward.action === 'purchase';
+      const name = this.subpackages && this.subpackages.packageForAsset(track.src);
+      const state = name ? this.subpackages.getPackageState(name) : { status: 'loaded', progress: 100 };
+      return Object.assign({}, track, { reward, assetState: state.status, assetProgress: state.progress });
+    });
+  }
+
+  setMusic(id) {
+    const track = this.audio.listMusic().find(item => item.id === id);
+    if (!track || (this.rewardUnlocks.item(`music:${id}`) && !this.rewardUnlocks.canUse('music', id))) return false;
+    const requestId = ++this.musicLoadRequestId;
+    const account = this.captureAccountContext();
+    const apply = () => {
+      if (this.disposed || requestId !== this.musicLoadRequestId || !this.isCurrentAccount(account)) return false;
+      const selected = this.appPersistence ? this.audio.selectMusicAsync(id) : this.audio.selectMusic(id);
+      if (selected && typeof selected.then === 'function') return selected.then(value => { this.invalidate(); return value; });
+      this.invalidate();
+      return selected;
+    };
+    if (id === this.audio.currentMusicId()) return apply();
+    let name;
+    try { name = this.audio.bgmPackage(track.src); } catch (error) { return false; }
+    if (!name || this.subpackages.isPackageReady(name)) return apply();
+    return this.subpackages.ensurePackage(name, () => this.invalidate()).then(apply, () => false)
+      .then(selected => { this.invalidate(); return selected; });
+  }
+
+  changeMusicPage(delta) {
+    const pageCount = Math.max(1, Math.ceil(this.audio.listMusic().length / MUSIC_PAGE_SIZE));
+    const currentPage = Number(this.musicPageIndex);
+    const step = Number(delta);
+    this.musicPageIndex = clamp((Number.isFinite(currentPage) ? currentPage : 0) +
+      (Number.isFinite(step) ? step : 0), 0, pageCount - 1);
     this.invalidate();
   }
 
@@ -3370,6 +3547,43 @@ class ClearedApp {
     } catch (error) {
       return 'none';
     }
+  }
+
+  currentClearMode() {
+    const value = this.progress.getSetting('clearMode', clearTiming.DEFAULT_MODE);
+    return clearTiming.validMode(value) ? value : clearTiming.DEFAULT_MODE;
+  }
+
+  clearResultVisibleAt(animation, now) {
+    const timestamp = now === undefined ? Date.now() : now;
+    const sound = this.audio.clearSequence;
+    return Math.max(timestamp + (Number(this.skins.current().animation.resultDelayMs) || 0),
+      animation ? animation.startedAt + clearTiming.duration(animation) : timestamp,
+      sound && sound.animation === animation ? sound.endsAt : 0);
+  }
+
+  advanceDailyLevel() {
+    const daily = this.daily;
+    const nextIndex = daily.levelIndex + 1;
+    const nextLevel = daily.levels[nextIndex];
+    if (!nextLevel) return false;
+    const nextRunner = this.createDailyRunner(nextLevel, nextIndex, daily.resolution);
+    if (!nextRunner) return false;
+    daily.nextLevelAt = 0;
+    this.clearHintRequest();
+    daily.levelIndex = nextIndex;
+    daily.challenge = nextLevel;
+    daily.challengeId = this.dailyLevelId(nextLevel, nextIndex, daily.resolution);
+    daily.runner = nextRunner;
+    this.boardInput.setRunner(nextRunner);
+    daily.enteredAt = Date.now();
+    daily.clearAnimation = null;
+    this.hint = null;
+    this.hintUntil = 0;
+    this.hintPreview = null;
+    this.lastClockSecond = -1;
+    this.invalidate();
+    return true;
   }
 
   resolveClearEffect(effectId) {
@@ -3537,7 +3751,8 @@ class ClearedApp {
   openRewardDialog(rewardId, mode) {
     if (typeof rewardId !== 'string') return false;
     const parts = rewardId.split(':');
-    const list = parts[0] === 'theme' ? this.themeDescriptors() : this.effectDescriptors();
+    const list = parts[0] === 'theme' ? this.themeDescriptors()
+      : parts[0] === 'music' ? this.musicDescriptors() : this.effectDescriptors();
     const preview = list.find(item => item.id === parts[1]);
     if (!preview) return false;
     const status = preview.reward;
@@ -3565,7 +3780,7 @@ class ClearedApp {
     if (status.reason === 'ads-not-configured' || status.reason === 'ads-not-supported') message = this.t('reward.adsUnavailable');
     if (!currency.available) message = this.t('reward.dataUnavailable');
     if (status.action === 'retry-save') message = this.t('reward.pendingSave');
-    const titleKey = `${parts[0] === 'theme' ? 'skin' : 'effect'}.${parts[1]}.name`;
+    const titleKey = `${parts[0] === 'theme' ? 'skin' : parts[0]}.${parts[1]}.name`;
     const localizedTitle = this.t(titleKey);
     this.rewardDialog = {
       dialogId: ++this.rewardDialogSequence,
@@ -3698,6 +3913,19 @@ class ClearedApp {
     const item = this.rewardUnlocks.item(dialog.rewardId);
     if (!item) return false;
     const dialogId = dialog.dialogId;
+    if (item.kind === 'music') {
+      dialog.state = 'loading';
+      dialog.message = this.t('reward.loadingAndApplying');
+      const finish = applied => {
+        if (this.rewardDialog && this.rewardDialog.dialogId === dialogId) {
+          if (applied) this.dismissRewardDialog();
+          else { dialog.state = 'error'; dialog.message = this.t('reward.applyFailed'); this.invalidate(); }
+        }
+        return applied;
+      };
+      const result = this.setMusic(item.itemId);
+      return result && typeof result.then === 'function' ? result.then(finish) : finish(result);
+    }
     if (item.kind === 'effect') {
       const applied = this.setClearEffect(item.itemId);
       if (applied) this.dismissRewardDialog();
@@ -3725,7 +3953,7 @@ class ClearedApp {
     const item = this.rewardUnlocks.item(dialog.rewardId);
     if (!item) return false;
     const dialogId = dialog.dialogId;
-    const applied = item.kind === 'effect'
+    const applied = item.kind === 'music' ? await this.setMusic(item.itemId) : item.kind === 'effect'
       ? await this.setClearEffectAsync(item.itemId) : await this.setSkinAsync(item.itemId);
     if (!applied) {
       if (this.rewardDialog && this.rewardDialog.dialogId === dialogId) {
@@ -3753,6 +3981,7 @@ class ClearedApp {
     }
     ++this.rewardRequestGeneration;
     ++this.skinLoadRequestId;
+    ++this.musicLoadRequestId;
     this.pendingSkinId = null;
     this.rewardDialog = null;
     this.pointer = null;
@@ -3779,6 +4008,7 @@ class ClearedApp {
     if (this.rewardDialog !== dialog) return false;
     ++this.rewardRequestGeneration;
     ++this.skinLoadRequestId;
+    ++this.musicLoadRequestId;
     this.pendingSkinId = null;
     this.rewardDialog = null;
     this.pointer = null;
@@ -3788,8 +4018,34 @@ class ClearedApp {
     return true;
   }
 
+  openUpdateDialog(automatic) {
+    if (!this.updateNotice || this.disposed || this.hidden || this.scene !== 'home' ||
+        this.updateDialog || this.storeDialog || this.rewardDialog ||
+        (automatic && !this.updateNotice.shouldShow())) return false;
+    this.updateDialog = this.updateNotice.current();
+    this.pointer = null;
+    this.pressedId = null;
+    this.renderer.clearInteractionHits();
+    this.unmountHomeProfileButton();
+    this.invalidate();
+    return true;
+  }
+
+  dismissUpdateDialog() {
+    if (!this.updateDialog) return false;
+    this.updateNotice.acknowledge();
+    this.updateDialog = null;
+    this.pointer = null;
+    this.pressedId = null;
+    this.renderer.clearInteractionHits();
+    this.showNextRewardNotice();
+    this.syncHomeProfileButton();
+    this.invalidate();
+    return true;
+  }
+
   showNextRewardNotice(now) {
-    if (this.disposed || this.hidden || this.rewardDialog || !this.rewardUnlocks ||
+    if (this.disposed || this.hidden || this.updateDialog || this.rewardDialog || !this.rewardUnlocks ||
         !['home', 'result', 'dailyResult'].includes(this.scene)) return false;
     const timestamp = Number.isFinite(Number(now)) ? Number(now) : Date.now();
     if (this.scene === 'result' && this.result && this.result.outcome === OUTCOME.FAILED) return false;
@@ -4034,6 +4290,7 @@ class ClearedApp {
     this.boardInput.setRunner(runner);
     daily.enteredAt = Date.now();
     daily.runStartedAt = daily.enteredAt;
+    daily.nextLevelAt = 0;
     daily.elapsedBeforeLevel = 0;
     daily.result = null;
     daily.resultVisibleAt = 0;
@@ -4443,6 +4700,7 @@ class ClearedApp {
     else if (this.stamina.flush(this.clockNow().getTime()) && this.staminaFeedback &&
         this.staminaFeedback.reason === 'refund-persist-failed') this.clearStaminaFeedback();
     this.hidden = true;
+    this.audio.pauseAll('background');
     if (this.scene === 'account') this.leaveAccount();
     this.pointer = null;
     this.pressedId = null;
@@ -4458,7 +4716,6 @@ class ClearedApp {
     if (this.renderer && typeof this.renderer.invalidateEffectPreviews === 'function') {
       this.renderer.invalidateEffectPreviews();
     }
-    this.audio.pauseAll('background');
     if (!this.appPersistence) this.progress.save();
     if (this.progressSync) {
       const sync = this.progressSync.atCheckpoint ? this.progressSync.atCheckpoint('hide') : this.progressSync.flush();
@@ -4592,6 +4849,7 @@ class ClearedApp {
   dispose() {
     if (this.disposed) return;
     this.disposed = true;
+    this.updateDialog = null;
     this.unmountHomeProfileButton();
     this.accountGeneration++;
     if (this.unbindAccount) this.unbindAccount();

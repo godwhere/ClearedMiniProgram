@@ -3,6 +3,7 @@ const ClearEffectService = require('../src/services/clear-effect-service.js');
 const effects = require('../src/effects/index.js');
 const none = require('../src/effects/none.js');
 const fade = require('../src/effects/fade.js');
+const builtInIds = ['none', 'fade', 'starburst', 'bubbles', 'petals', 'shatter'];
 
 class MemoryProgress {
   constructor(settings) {
@@ -24,7 +25,7 @@ class MemoryProgress {
 function run() {
   const progress = new MemoryProgress();
   const service = new ClearEffectService(progress, [], () => true);
-  assert.deepStrictEqual(effects.map(effect => effect.id), ['none', 'fade']);
+  assert.deepStrictEqual(effects.map(effect => effect.id), builtInIds);
   assert.strictEqual(service.current().id, 'none');
   assert.deepStrictEqual(service.get('none'), none);
   assert.deepStrictEqual(service.get('fade'), fade);
@@ -32,20 +33,16 @@ function run() {
   assert.strictEqual(service.resolve('missing').id, 'fade');
   assert.strictEqual(new ClearEffectService(new MemoryProgress()).select('fade'), false,
     'fade requires explicit ownership');
-  assert.deepStrictEqual(service.list(), [
-    {
-      id: 'none',
-      name: '无特效',
-      type: 'none',
-      preview: 'assets/effects/none/preview.png'
-    },
-    {
-      id: 'fade',
-      name: '逐渐消失',
-      type: 'fade',
-      preview: 'assets/effects/fade/preview.png'
-    }
-  ]);
+  assert.deepStrictEqual(service.list(), effects.map(effect => {
+    const item = { id: effect.id, name: effect.name, type: effect.type };
+    if (effect.preview) item.preview = effect.preview;
+    return item;
+  }));
+  effects.slice(2).forEach(effect => {
+    assert.deepStrictEqual(service.get(effect.id), effect);
+    assert.strictEqual(service.get(effect.id).preview, undefined,
+      'procedural effects use vector previews without a bitmap request');
+  });
 
   // Returned manifests/descriptors must not mutate the registry.
   const current = service.current();
@@ -83,7 +80,7 @@ function run() {
   }], () => true);
   assert.strictEqual(withCustom.get('soft').durationMs, 240);
   assert.strictEqual(withCustom.get('soft').preview, 'assets/effects/soft/preview.png');
-  assert.deepStrictEqual(withCustom.list().map(item => item.id), ['none', 'fade', '0', 'soft'],
+  assert.deepStrictEqual(withCustom.list().map(item => item.id), builtInIds.concat(['0', 'soft']),
     'gallery order follows registration order even for integer-like IDs');
   assert.deepStrictEqual(withCustom.get('fade'), fade,
     'extensions must not overwrite the built-in compatibility fallback');

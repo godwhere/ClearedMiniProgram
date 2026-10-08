@@ -55,12 +55,16 @@ function analyzePreviewImage(image, bytes, kind) {
 function previewAssets(root) {
   const themes = require(path.join(root, 'src/skins/index.js')).filter(theme => theme.id !== 'classic');
   const effects = require(path.join(root, 'src/effects/index.js')).filter(effect => effect.preview);
+  const music = require(path.join(root, 'src/config/audio.js')).tracks.filter(track => track.preview);
   return themes.map(theme => ({
     id: theme.id, kind: 'theme', source: theme.preview,
     expected: `assets/theme-previews/${theme.id}.png`
   })).concat(effects.map(effect => ({
     id: effect.id, kind: 'effect', source: effect.preview,
     expected: `assets/effects/${effect.id}/preview.png`
+  }))).concat(music.map(track => ({
+    id: track.id, kind: 'music', source: track.preview,
+    expected: `assets/music-previews/${track.id}.png`
   })));
 }
 

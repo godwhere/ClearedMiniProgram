@@ -20,7 +20,7 @@ module.exports = async function run() {
     assert.strictEqual(business(f), before); assert.deepStrictEqual(f.sync.scopeFor(null), guest);
     const call = f.waits.shift();
     assert.deepStrictEqual(Object.keys(call.data.payload).sort(),
-      ['bindingEpoch', 'claimedPlayerId', 'environmentId', 'includeMutationAccess', 'knownRevisions']);
+      ['bindingEpoch', 'claimedPlayerId', 'environmentId', 'includeClearMode', 'includeMutationAccess', 'knownRevisions']);
     assert.strictEqual(call.data.payload.includeMutationAccess, true);
     call.success({ result: f.reply(call.data) }); assert((await run).ok);
     assert.strictEqual(f.app.progressSync.status, 'cloud-readonly'); assert.strictEqual(business(f), before);

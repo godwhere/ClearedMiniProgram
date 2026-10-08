@@ -260,6 +260,7 @@ async function bootstrapDefaults() {
     raw.createRewardedVideoAd = () => { adCreates++; throw new Error('ads are not enabled'); };
     global.wx = raw;
     const app = require('../src/bootstrap.js').start();
+    app.performAction('update:confirm');
     assert.strictEqual(app.engagement.config.hintMode, 'tiered');
     assert.strictEqual(app.engagement.config.hintRewardedEnabled, false);
     assert.strictEqual(app.engagement.hintAccess, app.hintAccess);

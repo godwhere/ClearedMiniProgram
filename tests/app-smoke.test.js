@@ -279,8 +279,11 @@ async function run() {
   assert.strictEqual(completionCalls, 0);
   assert.strictEqual(adCalls, 0);
   assert.deepStrictEqual(sounds, ['error']);
-  assert.deepStrictEqual(haptics, ['medium']);
   assert.deepStrictEqual(app.renderer.hits, [], 'failure clears stale play hits synchronously');
+  app.tick(app.clearAnimation.startedAt + 120);
+  app.tick(app.resultVisibleAt);
+  assert.deepStrictEqual(sounds, ['error'], 'simultaneous failure plays its single failure cue');
+  assert.deepStrictEqual(haptics, ['medium']);
   assert.strictEqual(app.performAction('play:reset'), false,
     'failure action gate rejects a stale reset before the modal frame');
   assert.strictEqual(app.runner.outcome, GameRunner.OUTCOME.FAILED);
@@ -294,22 +297,22 @@ async function run() {
   assert.strictEqual(app.result, null);
   assert.strictEqual(app.clearAnimation, null);
 
-  // The ordinary selector is one continuous 1-200 catalog, paged independently
+  // The ordinary selector is one continuous 1-300 catalog, paged independently
   // from the canonical set/level coordinates used by progress and hints.
   app.scene = 'levels';
   app.levelPageIndex = 0;
   let levelModel = app.buildModel();
-  assert.strictEqual(levelModel.totalLevels, 200);
-  assert.strictEqual(levelModel.levelPageCount, 8);
+  assert.strictEqual(levelModel.totalLevels, 300);
+  assert.strictEqual(levelModel.levelPageCount, 12);
   assert.strictEqual(levelModel.levelItems.length, 25);
   assert.strictEqual(levelModel.levelItems[0].displayNumber, 1);
   assert.strictEqual(levelModel.levelItems[0].action, 'level:0:0');
   assert.strictEqual(levelModel.levelItems[24].displayNumber, 25);
   assert.strictEqual(levelModel.levelItems[24].action, 'level:3:7');
-  assert.deepStrictEqual([0, 1, 2, 3, 4, 5, 6, 7].map(pageIndex => {
+  assert.deepStrictEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].map(pageIndex => {
     app.levelPageIndex = pageIndex;
     return app.buildModel().levelItems.length;
-  }), [25, 25, 25, 25, 25, 25, 25, 25]);
+  }), [25, 25, 25, 25, 25, 25, 25, 25, 25, 25, 25, 25]);
 
   app.levelPageIndex = 0;
   app.performAction('levels:next');
@@ -348,6 +351,30 @@ async function run() {
   assert.strictEqual(levelModel.levelItems.length, 25);
   assert.strictEqual(levelModel.levelItems[0].action, 'level:4:143');
   assert.strictEqual(levelModel.levelItems[24].action, 'level:4:167');
+  app.performAction('levels:next');
+  levelModel = app.buildModel();
+  assert.strictEqual(levelModel.levelRangeStart, 201);
+  assert.strictEqual(levelModel.levelRangeEnd, 225);
+  assert.strictEqual(levelModel.levelItems[0].action, 'level:4:168');
+  assert.strictEqual(levelModel.levelItems[8].difficulty, 5);
+  app.performAction('levels:next');
+  levelModel = app.buildModel();
+  assert.strictEqual(levelModel.levelRangeStart, 226);
+  assert.strictEqual(levelModel.levelRangeEnd, 250);
+  assert.strictEqual(levelModel.levelItems[0].action, 'level:4:193');
+  assert.strictEqual(levelModel.levelItems[24].action, 'level:4:217');
+  app.performAction('levels:next');
+  levelModel = app.buildModel();
+  assert.strictEqual(levelModel.levelRangeStart, 251);
+  assert.strictEqual(levelModel.levelRangeEnd, 275);
+  assert.strictEqual(levelModel.levelItems[0].action, 'level:4:218');
+  assert.strictEqual(levelModel.levelItems[8].difficulty, 5);
+  app.performAction('levels:next');
+  levelModel = app.buildModel();
+  assert.strictEqual(levelModel.levelRangeStart, 276);
+  assert.strictEqual(levelModel.levelRangeEnd, 300);
+  assert.strictEqual(levelModel.levelItems[0].action, 'level:4:243');
+  assert.strictEqual(levelModel.levelItems[24].action, 'level:4:267');
 
   const activeCompletedBeforeRetiredSave = app.ordinaryCompletedCount();
   app.progress.state.completed['1:5'] = true;
@@ -357,8 +384,8 @@ async function run() {
   app.scene = 'home';
   const homeModelWithRetiredSave = app.buildModel();
   assert.strictEqual(homeModelWithRetiredSave.completedCount, activeCompletedBeforeRetiredSave,
-    'retired ordinary progress is preserved but excluded from the active 1-200 count');
-  assert.strictEqual(homeModelWithRetiredSave.totalLevels, 200);
+    'retired ordinary progress is preserved but excluded from the active 1-300 count');
+  assert.strictEqual(homeModelWithRetiredSave.totalLevels, 300);
 
   app.progress.state.lastPlayed = { setIndex: 2, levelIndex: 10 };
   app.performAction('home:levels');
@@ -389,32 +416,32 @@ async function run() {
   assert.strictEqual(app.showHint(), true);
   app.performAction('play:back');
 
-  app.progress.state.completed['4:166'] = true;
-  app.levelPageIndex = 7;
-  assert.strictEqual(app.performAction('level:4:167'), undefined);
+  app.progress.state.completed['4:266'] = true;
+  app.levelPageIndex = 11;
+  assert.strictEqual(app.performAction('level:4:267'), undefined);
   assert.strictEqual(app.scene, 'play');
   assert.strictEqual(app.setIndex, 4);
-  assert.strictEqual(app.levelIndex, 167);
+  assert.strictEqual(app.levelIndex, 267);
   assert.strictEqual(app.runContext.source.kind, 'catalog');
   assert.strictEqual(app.runContext.progressionScope, 'ordinary');
   const finalOrdinaryModel = app.buildModel();
-  assert.strictEqual(finalOrdinaryModel.ordinaryLevelNumber, 200);
-  assert.strictEqual(finalOrdinaryModel.ordinaryLevelCount, 200);
+  assert.strictEqual(finalOrdinaryModel.ordinaryLevelNumber, 300);
+  assert.strictEqual(finalOrdinaryModel.ordinaryLevelCount, 300);
   assert.strictEqual(finalOrdinaryModel.hasNext, false);
   assert.strictEqual(app.showHint(), true);
   assert.strictEqual(app.hint.source, 'solution');
   app.performAction('play:back');
   assert.strictEqual(app.scene, 'levels');
-  assert.strictEqual(app.levelPageIndex, 7,
+  assert.strictEqual(app.levelPageIndex, 11,
     'returning from the last ordinary level restores its selector page');
 
-  app.performAction('level:4:167');
+  app.performAction('level:4:267');
   app.scene = 'result';
   app.result = { outcome: GameRunner.OUTCOME.WON };
   app.performAction('result:next');
   assert.strictEqual(app.scene, 'levels');
-  assert.strictEqual(app.levelPageIndex, 7,
-    'the final ordinary result returns to the page containing level 200');
+  assert.strictEqual(app.levelPageIndex, 11,
+    'the final ordinary result returns to the page containing level 300');
 
   // A catalog Portal level still settles through the ordinary progress domain
   // after its segmented answer is completed.

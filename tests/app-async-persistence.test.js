@@ -198,6 +198,24 @@ async function run() {
   assert.strictEqual(await services.progress.setSettingAsync('soundEnabled', false), false);
   assert.strictEqual(services.progress.getSetting('soundEnabled'), true);
   failurePort.faults.push({ kind: 'reject' });
+  assert.strictEqual(await services.progress.setSettingAsync('soundVolume', 0.3), false);
+  assert.strictEqual(services.progress.getSetting('soundVolume'), 1);
+  assert.strictEqual(services.progress.getSetting('soundEnabled'), true, 'volume and mute fail atomically');
+  assert.strictEqual(await services.progress.setSettingAsync('soundVolume', 0.3), true);
+  assert.strictEqual(await services.progress.setSettingAsync('soundVolume', 0), true);
+  assert.strictEqual(services.progress.getSetting('soundVolume'), 0.3);
+  assert.strictEqual(services.progress.getSetting('soundEnabled'), false);
+  assert.strictEqual(await services.progress.setSettingAsync('soundVolume', NaN), false);
+  const invalidVolumeSave = copy(services.progress.state);
+  invalidVolumeSave.settings.soundVolume = 'invalid';
+  const invalidVolumePort = new FakeNativePort({ [ProgressStore.STORAGE_KEY]: invalidVolumeSave });
+  const recoveredVolume = await runtime.createAppLocalServicesAsync(platform(), {
+    productPolicy: policy(), persistencePort: invalidVolumePort
+  });
+  assert.strictEqual(await recoveredVolume.progress.setSettingAsync('soundVolume', 0), true);
+  assert.strictEqual(invalidVolumePort.records[ProgressStore.STORAGE_KEY].settings.soundVolume, 1,
+    'muting an old invalid volume persists the normalized audible fallback');
+  failurePort.faults.push({ kind: 'reject' });
   assert.strictEqual((await services.locale.selectAsync('zh-CN')).ok, false);
   assert.strictEqual(services.locale.current(), 'en-US');
   failurePort.faults.push({ kind: 'unknown-after' });

@@ -93,18 +93,19 @@ function run() {
     'homepage migration reuses the existing theme button geometry');
 
   // The internal corridor route is reachable before homepage migration and
-  // exposes exactly two live cards plus four inert slots.
+  // exposes three live cards plus three inert slots.
   app.performAction('home:corridor');
   app.tick(now + 1);
   assert.strictEqual(app.scene, 'corridor');
-  assert.deepStrictEqual(app.buildModel().corridorEntries.map(entry => entry.id), ['themes', 'effects']);
+  assert.deepStrictEqual(app.buildModel().corridorEntries.map(entry => entry.id), ['themes', 'effects', 'music']);
   assert(app.renderer.hits.some(hit => hit.id === 'corridor:home'));
   assert(app.renderer.hits.some(hit => hit.id === 'corridor:themes'));
   assert(app.renderer.hits.some(hit => hit.id === 'corridor:effects'));
+  assert(app.renderer.hits.some(hit => hit.id === 'corridor:music'));
   assert(!platform.sources.some(source => source.indexOf('preview') >= 0),
     'corridor entry illustrations remain Canvas-drawn and do not load bitmap previews');
-  assert.strictEqual(app.renderer.hits.filter(hit => /^corridor:/.test(hit.id)).length, 3,
-    'only back and the two corridor cards are registered');
+  assert.strictEqual(app.renderer.hits.filter(hit => /^corridor:/.test(hit.id)).length, 4,
+    'only back and the three corridor cards are registered');
 
   const corridorThemeHit = app.renderer.hits.find(hit => hit.id === 'corridor:themes');
   app.onPointerStart({ x: corridorThemeHit.rect.x + corridorThemeHit.rect.w / 2,
@@ -120,13 +121,14 @@ function run() {
   app.tick(now + 3);
   assert.strictEqual(app.scene, 'effects');
   assert.strictEqual(app.buildModel().backAction, 'effects:corridor');
-  assert.deepStrictEqual(app.buildModel().effects.map(effect => effect.id), ['none', 'fade']);
+  const builtInIds = ['none', 'fade', 'starburst', 'bubbles', 'petals', 'shatter'];
+  assert.deepStrictEqual(app.buildModel().effects.map(effect => effect.id), builtInIds);
   assert.strictEqual(app.buildModel().currentEffectId, 'none',
     'a fresh install starts with no clear effect selected');
   assert.deepStrictEqual(
     app.renderer.hits.filter(hit => /^effect:/.test(hit.id)).map(hit => hit.id),
-    ['effect:none', 'effect:fade'],
-    'the two built-in cards keep registry order and both expose hit targets'
+    builtInIds.map(id => `effect:${id}`),
+    'all six built-in cards keep registry order and expose hit targets'
   );
   assert(platform.sources.indexOf('assets/effects/none/preview.png') >= 0,
     'the no-effect preview is loaded after entering the effect gallery');
@@ -158,9 +160,24 @@ function run() {
   assert.strictEqual(persistedNone.currentEffectId(), 'none',
     'selecting no effect survives a fresh app instance');
 
+  builtInIds.slice(2).forEach(id => {
+    assert.strictEqual(app.setClearEffect(id), true);
+    app.openLevel(0, 0);
+    app.onPathCompleted(0, [0, 1, 2]);
+    assert.strictEqual(app.clearAnimation.type, id, 'completion preserves each supported visual type');
+    assert.strictEqual(app.clearAnimation.effectId, id);
+    assert.strictEqual(createApp(platform).currentEffectId(), id, 'new selections survive a fresh instance');
+    app.performAction('home:corridor');
+    app.performAction('corridor:effects');
+    app.tick(now);
+    assert(!platform.sources.includes(`assets/effects/${id}/preview.png`),
+      'procedural previews require no new image files');
+  });
+
   // No effect creates no path snapshot, but keeps the independent short screen
   // feedback. Ignore the unrelated board-enter animation for this boundary test.
   assert.strictEqual(persistedNone.openLevel(0, 0), true);
+  persistedNone.progress.setSetting('clearMode', 'simultaneous');
   persistedNone.levelEnteredAt = 0;
   const noneCompletedAt = Date.now();
   persistedNone.onPathCompleted(0, [0, 1, 2]);
@@ -237,7 +254,7 @@ function run() {
 
   // Effect pagination has its own cursor and does not move the theme cursor.
   const pagedPlatform = createPlatform();
-  const paged = createApp(pagedPlatform, { effects: customEffects(7) });
+  const paged = createApp(pagedPlatform, { effects: customEffects(3) });
   paged.themePageIndex = 1;
   paged.effectPageIndex = 1;
   paged.performAction('home:corridor');
@@ -350,7 +367,7 @@ function run() {
   timed.setClearEffect('fade');
   assert.strictEqual(timed.isAnimating(animationStarted + 479), true,
     'snapshot duration remains active after changing the selected effect');
-  assert.strictEqual(timed.isAnimating(animationStarted + 561), false,
+  assert.strictEqual(timed.isAnimating(animationStarted + 681), false,
     'snapshot duration and tail eventually expire');
   const restoredTimed = createApp(timedPlatform, {
     effects: [{ id: 'slow', name: '慢速', type: 'fade', durationMs: 480, preview: null }]

@@ -164,6 +164,7 @@ function pointerPlay(app, paths) {
     part.slice(1).forEach(cell => app.onPointerMove(point(cell)));
     app.onPointerEnd(point(part[part.length - 1]));
   }));
+  if (app.daily.nextLevelAt) app.tick(app.daily.nextLevelAt);
 }
 
 function validateAppFlow() {

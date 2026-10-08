@@ -10,6 +10,10 @@
 
 当前正式入口已经使用 CloudBase 统一确认资产。本文后续章节保留最初本地奖励系统的设计与实施历史；涉及资产权威时，以本节和[现行联网说明](cloudbase-local-first-sync.md)为准。
 
+客户端及线上目录增加 `music:candy-day-stroll`（《漫步》／Stroll，`kind:'music'`），永久价格 10000 金币；默认《格间微光》继续免费。音乐与皮肤复用同一钱包、确认弹窗、拥有权和待通知记录。小游戏购买仍由 `economy.purchase` 确认，不以显示余额直接发放；超时重试和重启恢复沿用同一 operationId，重复购买不再扣款。拥有后“立即应用”才下载音乐包，失败／取消不撤销拥有权，也不再次购买。2026-10-08 音乐目录及 `MUSIC_PURCHASE` 账本／回执类型已部署三个云函数并回读一致；新客户端上传与真机实际购买仍待完成。完整行为见 [音乐系统](music-system.md)。
+
+同日新增四种特效的本地候选：`effect:starburst`、`effect:bubbles`、`effect:petals`、`effect:shatter`，每种永久价格 10000 金币。`kind:'effect'` 复用同一购买确认、云确认钱包、拥有权和立即应用流程；客户端回执白名单与购买待办恢复均接受 effect。独立后端候选同步目录及 `EFFECT_PURCHASE` 账本／operation 回执类型，不新增集合或存档字段。四种动画及卡片预览均由 Canvas 绘制，无资源下载；后端部署、客户端上传和真机购买／视觉验收仍待执行。
+
 - `RewardUnlockService.view()` 仍只返回云确认的 `balance`，原接口字段和语义不变；`claimedOrdinary`、`claimedDaily` 与 `ownedRewards` 也只随有效云回执更新。
 - 新增只读 `displayView(context)`，返回 `balance`、`pendingRewardAmount` 与 `displayBalance`。其中 `displayBalance = balance + pendingRewardAmount` 只用于首页和购买确认展示，不是第二个钱包，不写盘、不上传，也不能证明可购买或已拥有。
 - 待确认普通奖励只来自当前账号、环境和绑定 scope 中已经可靠入队的 `MAIN_LEVEL_COMPLETED`：关卡必须存在于当前 catalog、未被云端领取，并按稳定 `levelKey` 去重。每日只统计有效两关挑战的最终 `DAILY_LEVEL_COMPLETED`，按 `dateKey` 每日最多一次。金额始终取 `rewards.js` 的 100／500，不读取待办 payload 中的金额。
@@ -61,8 +65,13 @@ P2.5-C 已按本节合同实现共享同步运行时：完整策略、命名空�
 | `theme:festival` | `festival` | 节日限定主题 | 为该主题发起分享流程 |
 | `effect:none` | `none` | 无特效 | 默认可用 |
 | `effect:fade` | `fade` | 逐渐消失 | 主线第 10 关通关 |
+| `effect:starburst` | `starburst` | 星光迸散 | 花费 10000 金币永久解锁 |
+| `effect:bubbles` | `bubbles` | 泡泡轻弹 | 花费 10000 金币永久解锁 |
+| `effect:petals` | `petals` | 花瓣飘落 | 花费 10000 金币永久解锁 |
+| `effect:shatter` | `shatter` | 冰晶碎裂 | 花费 10000 金币永久解锁 |
+| `music:candy-day-stroll` | `candy-day-stroll` | 漫步 | 花费 10000 金币永久解锁 |
 
-“音乐主题”是棋子主题；未来的背景音乐是另一种奖励类别。
+“音乐主题”是棋子主题；《漫步》的 `music` 是背景音乐奖励类别，ID 和拥有权彼此独立。
 
 一次广告只累计到发起时选定的奖励，不能同时解锁四个主题。节日限定采用现有提示分享的口径：`initiated === true` 即满足条件，取消分享也可能解锁。分享接口明确失败不解锁。
 

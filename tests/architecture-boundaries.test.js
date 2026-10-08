@@ -222,6 +222,8 @@ function run() {
     './services/engagement-service.js',
     './services/progression-service.js',
     './services/audio-service.js',
+    './services/clear-animation-timing.js',
+    './ui/account-layout.js',
     './services/hint-service.js',
     './services/hint-access-service.js',
     './services/reward-unlock-service.js',

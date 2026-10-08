@@ -166,7 +166,7 @@ function testSameLevelConfigUpgrade() {
 function run() {
   testSameLevelConfigUpgrade();
   testPendingRewardDisplay();
-  assert.strictEqual(config.items.length, 13);
+  assert.strictEqual(config.items.length, 18);
   assert.strictEqual(RewardUnlockService.validateConfig(config) !== null, true);
 
   const appConfig = ProductPolicy.create(appProductConfig).projectRewardConfig(config);

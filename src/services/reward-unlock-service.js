@@ -4,12 +4,13 @@ const STORAGE_KEY = 'cleared:minigame:reward-unlocks:v1';
 const SCHEMA_VERSION = 1;
 const DATE_KEY_RE = /^\d{4}-\d{2}-\d{2}$/;
 const LEVEL_KEY_RE = /^(0|[1-9]\d*):(0|[1-9]\d*)$/;
-const REWARD_ID_RE = /^(theme|effect):[a-z0-9-]{1,80}$/;
+const REWARD_ID_RE = /^(theme|effect|music):[a-z0-9-]{1,80}$/;
 const ATTEMPT_ID_RE = /^[A-Za-z0-9_:-]{1,200}$/;
 const BLOCKED = new Set(['__proto__', 'constructor', 'prototype']);
 const registered = {
   theme: new Set(require('../skins/index.js').map(item => item.id)),
-  effect: new Set(require('../effects/index.js').map(item => item.id))
+  effect: new Set(require('../effects/index.js').map(item => item.id)),
+  music: new Set(require('../config/audio.js').tracks.map(item => item.id))
 };
 const levelKeys = new Set(require('../../data/catalog-v2.js').levels.map(item => `${item.setIndex}:${item.levelIndex}`));
 const validId = value => typeof value === 'string' && /^[A-Za-z0-9_:-]{1,200}$/.test(value) && !BLOCKED.has(value);
@@ -147,7 +148,7 @@ function validateConfig(config) {
   const byItem = Object.create(null);
   const byLevel = Object.create(null);
   for (const source of config.items) {
-    if (!record(source) || !validRewardId(source.id) || !['theme', 'effect'].includes(source.kind) ||
+    if (!record(source) || !validRewardId(source.id) || !['theme', 'effect', 'music'].includes(source.kind) ||
         typeof source.itemId !== 'string' || source.id !== `${source.kind}:${source.itemId}` ||
         BLOCKED.has(source.itemId) || !registered[source.kind].has(source.itemId) || !record(source.unlock) || items[source.id]) return null;
     const unlock = clone(source.unlock);
