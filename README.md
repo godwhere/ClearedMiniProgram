@@ -8,7 +8,18 @@ Cleared 是一款连线填格益智游戏：连接颜色相同的两个端点，
 
 项目使用原生微信小游戏实现，并加入 Portal、冰封格、每日挑战、体力、提示、奖励、主题、分包加载和 CloudBase 云结算与跨设备存档等完整功能。客户端使用 CommonJS JavaScript 和单 Canvas 2D，不依赖 Cocos、Unity、DOM 或 npm 运行依赖。
 
-> 微信小游戏已上线。客户端主线现已收录 300 关；2026-10-08 线上三个 CloudBase 函数已同步并回读确认 300 关。新增题面仍需随微信客户端上传／审核／发布后到达玩家。
+> 本文介绍当前仓库实现。截图和本地验证对应开发版本，玩家实际可用内容以已发布的微信客户端版本为准。
+
+## 项目展示
+
+[公开源码](https://github.com/godwhere/ClearedMiniProgram)。下图由现有客户端的 App 与 Canvas 渲染器运行生成，使用隔离的内存存档和本地微信 API 适配；它们展示真实界面与关卡数据，属于本地运行预览，不是微信真机截图，也不证明当前商店或线上版本状态。
+
+<p>
+  <img src="docs/images/project-showcase/clr-home.png" width="180" alt="Cleared 本地主页预览">
+  <img src="docs/images/project-showcase/clr-classic.png" width="180" alt="普通连线关卡本地预览">
+  <img src="docs/images/project-showcase/clr-portal.png" width="180" alt="Portal 传送门关卡本地预览">
+  <img src="docs/images/project-showcase/clr-ice.png" width="180" alt="冰封格关卡本地预览">
+</p>
 
 ## 玩法介绍
 
